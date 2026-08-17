@@ -7,9 +7,9 @@ export interface RunSink {
   write(text: string): void
 }
 
-// Universal turn runner shared by one-shot and the REPL. Honors `config.stream`,
-// writes output to `sink`, and forwards `signal` so callers (REPL) can abort an
-// in-flight stream (decision L). Returns the full text.
+// Turn runner for the REPL (and the future P3 agent loop). Honors
+// `config.stream`, writes output to `sink`, and forwards `signal` so callers
+// (REPL) can abort an in-flight stream (decision L). Returns the full text.
 export async function runTurn(
   client: Client,
   config: AppConfig,
@@ -33,8 +33,9 @@ export async function runTurn(
   return text
 }
 
-// One-shot orchestration: a single user turn. Builds the input (system + user)
-// and delegates to runTurn. Returns the full text so callers can capture it.
+// One-shot orchestration: a single user turn. Self-contained (does not depend on
+// runTurn) — builds the input (system + user), runs it, and writes the output to
+// `sink`. Returns the full text so callers can capture it.
 export async function runOneShot(
   client: Client,
   config: AppConfig,
@@ -42,9 +43,21 @@ export async function runOneShot(
   sink: RunSink = process.stdout,
   logger: Logger = createLogger(config),
 ): Promise<string> {
+  logger.debug('run one-shot model=%s stream=%s', config.model, config.stream)
   const input: ResponseInput = [
     { role: 'system', content: buildSystemPrompt(config) },
     { role: 'user', content: prompt },
   ]
-  return runTurn(client, config, input, sink, logger)
+  if (config.stream) {
+    let full = ''
+    for await (const delta of client.stream(input)) {
+      full += delta
+      sink.write(delta)
+    }
+    sink.write('\n')
+    return full
+  }
+  const text = await client.complete(input)
+  sink.write(text + '\n')
+  return text
 }

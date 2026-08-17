@@ -158,12 +158,13 @@ foundation so P3's loop slots in without rework.
 
 ### 10.2 Module changes
 
-**`src/agent/run.ts` — universal turn runner.**
-- Add `runTurn(client, config, input: ResponseInput, sink, logger): Promise<string>`.
+**`src/agent/run.ts` — turn runner.**
+- `runTurn(client, config, input: ResponseInput, sink, logger, signal?): Promise<string>`.
   Picks `complete` vs `stream` from `config.stream`, writes deltas / full text to
-  `sink`, returns the full text, and forwards `opts.signal` (decision L).
-- `runOneShot(client, config, prompt, sink, logger)` becomes a thin wrapper that
-  builds `[system, user]` and calls `runTurn`. Existing `run.test.ts` stays green.
+  `sink`, returns the full text, and forwards `signal` (decision L). Used by the REPL
+  and the future P3 agent loop.
+- `runOneShot(client, config, prompt, sink, logger)` is **self-contained**: it builds
+  `[system, user]` and runs the turn inline. It does **not** delegate to `runTurn`.
 - P3 will add `runTool(input)` — the per-tool execution primitive (policy-gated in
   P5) — to this same module, so agent execution is centralized in `agent/run.ts`.
 

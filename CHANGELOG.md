@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   anything, /help for commands...` hint above the prompt is left unstyled.
 - REPL slash-command responses (e.g. `/model`, `/reset`, `/version`) now end
   with a blank line for visual separation.
+- `runOneShot` is now self-contained: it no longer delegates to `runTurn`, which
+  remains the REPL/loop turn runner.
 
 ### Fixed
 - `createClient` now applies `config.maxRetries` to the OpenAI client and
