@@ -8,11 +8,11 @@ export interface ToolContext {
   logger: Logger
 }
 
-export interface Tool {
+export interface Tool<P = unknown> {
   name: string
   description: string
-  parameters: z.ZodType
-  execute(args: unknown, ctx: ToolContext): Promise<string>
+  parameters: z.ZodType<P>
+  execute(args: P, ctx: ToolContext): Promise<string>
 }
 
 export interface ToolCall {

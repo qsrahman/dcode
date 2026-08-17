@@ -5,7 +5,7 @@ import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
 import { runTurn, runTool } from './run.ts'
-import type { Tool, ToolContext, ToolResult } from './types.ts'
+import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import { renderToolResult } from '../ui/render.ts'
 import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
@@ -22,19 +22,19 @@ export async function runAgent(
     sink?: RunSink
     logger: Logger
     signal?: AbortSignal
-    tools?: Tool[]
+    tools?: ToolRegistry
   },
 ): Promise<string> {
   const sink = opts.sink ?? process.stdout
-  const tools = opts.tools ?? []
-  const registry = new ToolRegistry()
-  for (const t of tools) registry.register(t)
+  const registry = opts.tools ?? new ToolRegistry()
   const ctx: ToolContext = {
     root: resolveRoot(config),
     config,
     logger: opts.logger,
   }
-  const responses = tools.length ? registry.toResponsesTools() : undefined
+  const responses = registry.list().length
+    ? registry.toResponsesTools()
+    : undefined
   let finalText = ''
 
   for (let i = 0; i < config.maxToolIterations; i++) {
@@ -85,6 +85,7 @@ export async function runAgent(
         output: outcome.output,
       } as ResponseInput[number])
       sink.write(`${renderToolResult(outcome.name, outcome.ok, outcome.ms)}\n`)
+      if (config.verbose) sink.write(`${outcome.output}\n`)
     }
     sink.write('\n')
   }
@@ -99,7 +100,7 @@ export async function runOneShot(
   prompt: string,
   sink: RunSink = process.stdout,
   logger: Logger,
-  tools: Tool[] = [],
+  tools: ToolRegistry = new ToolRegistry(),
 ): Promise<string> {
   const input: ResponseInput = [
     { role: 'system', content: buildSystemPrompt(config) },

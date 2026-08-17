@@ -4,9 +4,15 @@ import type { Tool as ResponsesTool } from 'openai/resources/responses/responses
 
 export class ToolRegistry {
   private tools = new Map<string, Tool>()
+  private responsesCache?: ResponsesTool[]
+
+  constructor(tools: Tool[] = []) {
+    for (const t of tools) this.register(t)
+  }
 
   register(tool: Tool): void {
     this.tools.set(tool.name, tool)
+    this.responsesCache = undefined
   }
 
   get(name: string): Tool | undefined {
@@ -17,8 +23,13 @@ export class ToolRegistry {
     return [...this.tools.values()]
   }
 
+  // Converted once per registry: tool schemas are static for a session, and
+  // runAgent rebuilds nothing now that the registry is created once upstream.
   toResponsesTools(): ResponsesTool[] {
-    return this.list().map(toResponsesTool)
+    if (!this.responsesCache) {
+      this.responsesCache = this.list().map(toResponsesTool)
+    }
+    return this.responsesCache
   }
 }
 

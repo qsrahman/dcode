@@ -25,12 +25,17 @@ describe('buildSystemPrompt', () => {
 
   const prompt = buildSystemPrompt(appConfigSchema.parse({}))
 
-  it('names the actual read-only tools', () => {
-    expect(prompt).toContain('read_file')
-    expect(prompt).toContain('list_dir')
-    expect(prompt).toContain('grep')
-    expect(prompt).toContain('stat')
-    expect(prompt).toContain('glob')
+  it('tells the model to use its (system-supplied) tools', () => {
+    expect(prompt).toContain('tools')
+    expect(prompt).toContain('Inspect with tools before you answer')
+  })
+
+  it('does not enumerate tools in the prompt (the SDK supplies them)', () => {
+    expect(prompt).not.toContain('read_file')
+    expect(prompt).not.toContain('list_dir')
+    expect(prompt).not.toContain('grep')
+    expect(prompt).not.toContain('stat')
+    expect(prompt).not.toContain('glob')
   })
 
   it('states the read-only scope accurately', () => {

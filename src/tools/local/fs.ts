@@ -1,4 +1,5 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
 import { resolve, relative, sep } from 'node:path'
 import { z } from 'zod'
 import type { Tool, ToolContext } from '../../agent/types.ts'
@@ -28,26 +29,48 @@ function fsError(err: unknown, path: string): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-function readFileTool(): Tool {
+// Shared recursive directory walk: yields every entry with its path relative to
+// root. Skips symlinks (don't follow) and silently continues past unreadable
+// directories — the same traversal rules grep and glob need.
+async function* walk(
+  root: string,
+): AsyncGenerator<{ full: string; rel: string; entry: Dirent }> {
+  const stack = [root]
+  while (stack.length) {
+    const dir = stack.pop()!
+    let entries: Dirent[]
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const full = resolve(dir, entry.name)
+      yield { full, rel: relative(root, full), entry }
+      if (entry.isDirectory() && !entry.isSymbolicLink()) stack.push(full)
+    }
+  }
+}
+
+function readFileTool(): Tool<{ path: string }> {
   return {
     name: 'read_file',
     description: 'Read a UTF-8 text file under the working directory.',
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
     }),
-    async execute(args: unknown, ctx: ToolContext) {
-      const { path } = args as { path: string }
-      const file = resolvePath(ctx.root, path)
+    async execute(args: { path: string }, ctx: ToolContext) {
+      const file = resolvePath(ctx.root, args.path)
       try {
         return await readFile(file, 'utf8')
       } catch (err) {
-        throw new Error(fsError(err, path))
+        throw new Error(fsError(err, args.path))
       }
     },
   }
 }
 
-function listDirTool(): Tool {
+function listDirTool(): Tool<{ path?: string }> {
   return {
     name: 'list_dir',
     description: 'List a directory under the working directory.',
@@ -57,9 +80,8 @@ function listDirTool(): Tool {
         .optional()
         .describe('Directory under the working directory; defaults to root'),
     }),
-    async execute(args: unknown, ctx: ToolContext) {
-      const { path } = args as { path?: string }
-      const target = path ?? '.'
+    async execute(args: { path?: string }, ctx: ToolContext) {
+      const target = args.path ?? '.'
       const dir = resolvePath(ctx.root, target)
       try {
         const entries = await readdir(dir, { withFileTypes: true })
@@ -73,7 +95,7 @@ function listDirTool(): Tool {
   }
 }
 
-function grepTool(): Tool {
+function grepTool(): Tool<{ pattern: string; path?: string }> {
   return {
     name: 'grep',
     description:
@@ -85,27 +107,35 @@ function grepTool(): Tool {
         .optional()
         .describe('File or directory to search; defaults to root'),
     }),
-    async execute(args: unknown, ctx: ToolContext) {
-      const { pattern, path } = args as { pattern: string; path?: string }
-      const target = path ?? '.'
+    async execute(args: { pattern: string; path?: string }, ctx: ToolContext) {
+      const target = args.path ?? '.'
       let re: RegExp
       try {
-        re = new RegExp(pattern, 'g')
+        re = new RegExp(args.pattern, 'g')
       } catch {
-        throw new Error(`invalid regular expression: ${pattern}`)
+        throw new Error(`invalid regular expression: ${args.pattern}`)
       }
       const dir = resolvePath(ctx.root, target)
-      try {
-        const matches = await grepRecursive(dir, re)
-        return matches.join('\n') || '(no matches)'
-      } catch (err) {
-        throw new Error(fsError(err, target))
+      const matches: string[] = []
+      for await (const { full, entry } of walk(dir)) {
+        if (!entry.isFile()) continue
+        let content: string
+        try {
+          content = await readFile(full, 'utf8')
+        } catch {
+          continue
+        }
+        content.split('\n').forEach((line, i) => {
+          re.lastIndex = 0
+          if (re.test(line)) matches.push(`${full}:${i + 1}: ${line}`)
+        })
       }
+      return matches.join('\n') || '(no matches)'
     },
   }
 }
 
-function statTool(): Tool {
+function statTool(): Tool<{ path?: string }> {
   return {
     name: 'stat',
     description:
@@ -116,9 +146,8 @@ function statTool(): Tool {
         .optional()
         .describe('Path under the working directory; defaults to root'),
     }),
-    async execute(args: unknown, ctx: ToolContext) {
-      const { path } = args as { path?: string }
-      const target = path ?? '.'
+    async execute(args: { path?: string }, ctx: ToolContext) {
+      const target = args.path ?? '.'
       const full = resolvePath(ctx.root, target)
       let info: Awaited<ReturnType<typeof stat>>
       try {
@@ -140,7 +169,7 @@ function statTool(): Tool {
   }
 }
 
-function globTool(): Tool {
+function globTool(): Tool<{ pattern: string }> {
   return {
     name: 'glob',
     description:
@@ -150,16 +179,17 @@ function globTool(): Tool {
         .string()
         .describe('Glob pattern, e.g. "**/*.ts" or "src/**/*.ts"'),
     }),
-    async execute(args: unknown, ctx: ToolContext) {
-      const { pattern } = args as { pattern: string }
+    async execute(args: { pattern: string }, ctx: ToolContext) {
       let re: RegExp
       try {
-        re = globToRegExp(pattern)
+        re = globToRegExp(args.pattern)
       } catch {
-        throw new Error(`invalid glob pattern: ${pattern}`)
+        throw new Error(`invalid glob pattern: ${args.pattern}`)
       }
       const matches: string[] = []
-      await globWalk(ctx.root, ctx.root, re, matches)
+      for await (const { rel } of walk(ctx.root)) {
+        if (re.test(rel)) matches.push(rel)
+      }
       matches.sort()
       return matches.join('\n') || '(no matches)'
     },
@@ -192,48 +222,4 @@ function globToRegExp(glob: string): RegExp {
     }
   }
   return new RegExp(re + '$')
-}
-
-async function globWalk(
-  root: string,
-  dir: string,
-  re: RegExp,
-  out: string[],
-): Promise<void> {
-  let entries
-  try {
-    entries = await readdir(dir, { withFileTypes: true })
-  } catch {
-    return
-  }
-  for (const e of entries) {
-    const full = resolve(dir, e.name)
-    if (re.test(relative(root, full))) out.push(relative(root, full))
-    if (e.isDirectory() && !e.isSymbolicLink()) {
-      await globWalk(root, full, re, out)
-    }
-  }
-}
-
-async function grepRecursive(target: string, re: RegExp): Promise<string[]> {
-  const entries = await readdir(target, { withFileTypes: true })
-  const out: string[] = []
-  for (const e of entries) {
-    const full = resolve(target, e.name)
-    if (e.isDirectory() && !e.isSymbolicLink()) {
-      out.push(...(await grepRecursive(full, re)))
-    } else if (e.isFile()) {
-      let content: string
-      try {
-        content = await readFile(full, 'utf8')
-      } catch {
-        continue
-      }
-      content.split('\n').forEach((line, i) => {
-        re.lastIndex = 0
-        if (re.test(line)) out.push(`${full}:${i + 1}: ${line}`)
-      })
-    }
-  }
-  return out
 }

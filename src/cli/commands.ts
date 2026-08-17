@@ -3,7 +3,7 @@ import type { AppConfig } from '../config/schema.ts'
 import type { Client, ResponseInput } from '../agent/client.ts'
 import type { RunSink } from '../agent/run.ts'
 import type { Logger } from '../util/log.ts'
-import type { Tool } from '../agent/types.ts'
+import type { ToolRegistry } from '../tools/registry.ts'
 import { getVersion } from '../version.ts'
 
 export interface Session {
@@ -11,7 +11,7 @@ export interface Session {
   logger: Logger
   client: Client
   history: ResponseInput
-  tools: Tool[]
+  tools: ToolRegistry
 }
 
 export type HandleResult = 'ok' | 'exit'
@@ -69,7 +69,7 @@ export function dispatch(
       sink.write('session reset\n')
       return 'ok'
     case 'tools':
-      for (const t of session.tools) {
+      for (const t of session.tools.list()) {
         sink.write(`${t.name} — ${t.description}\n`)
       }
       return 'ok'

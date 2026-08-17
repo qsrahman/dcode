@@ -46,7 +46,7 @@ dcode                                                # REPL
 | `--auto` | Shorthand for `--mode auto`. |
 | `--plan` | Shorthand for `--mode plan`. |
 | `--config <path>` | Path to a JSON config file. |
-| `--verbose` | Verbose diagnostics (to stderr). |
+| `--verbose` | Verbose diagnostics (stderr) and echoes tool results to the terminal. |
 | `--no-color` | Disable colored output. |
 | `--version` | Print version and exit. |
 | `--help` | Print help and exit. |

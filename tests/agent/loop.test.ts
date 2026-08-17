@@ -7,6 +7,7 @@ import type {
 } from '../../src/agent/client.ts'
 import { runAgent } from '../../src/agent/loop.ts'
 import type { Tool } from '../../src/agent/types.ts'
+import { ToolRegistry } from '../../src/tools/registry.ts'
 import { createLogger } from '../../src/util/log.ts'
 import { cfg } from '../helpers.ts'
 
@@ -63,7 +64,7 @@ describe('runAgent', () => {
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
     const text = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
-      tools: [readTool],
+      tools: new ToolRegistry([readTool]),
     })
     expect(text).toBe('turn 1')
     const outputs = history.filter(
@@ -97,7 +98,7 @@ describe('runAgent', () => {
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
     await runAgent(client, cfg({ maxToolIterations: 3 }), history, {
       logger: createLogger(cfg()),
-      tools: [readTool],
+      tools: new ToolRegistry([readTool]),
     })
     const outputs = history.filter(
       (h) => (h as { type?: string }).type === 'function_call_output',
