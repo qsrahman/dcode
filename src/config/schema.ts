@@ -33,7 +33,6 @@ export const appConfigSchema = z.object({
   baseURL: z.string().optional(),
   apiKey: z.string().optional(),
   root: z.string().optional(),
-  stream: z.boolean().default(true),
   verbose: z.boolean().default(false),
   color: z.boolean().default(true),
   maxToolIterations: z.number().int().positive().default(16),

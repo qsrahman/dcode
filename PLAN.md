@@ -58,7 +58,7 @@ src/
   cli/repl.ts         # readline loop + slash-command dispatch
   config/schema.ts    # zod schemas (AppConfig + permissions policy)
   config/config.ts    # loadConfig(path) + merge(CLI, file, env)
-  agent/client.ts     # wraps OpenAI Responses API (stream + one-shot)
+  agent/client.ts     # wraps OpenAI Responses API (streaming)
   agent/loop.ts       # runTurn: stream -> collect tool calls -> execute -> feed back
   agent/types.ts      # Tool, ToolResult, AgentInput
   tools/registry.ts   # register/list/get; zod->JSON-schema for Responses defs
@@ -118,7 +118,7 @@ Declarative, harness-enforced. A policy maps tool names to `allow` / `deny` /
 ```
 dcode [prompt]      one-shot when a prompt is given, REPL otherwise
   --model <id>       --mode <interactive|auto|plan> --auto (=auto) --plan (=plan)
-  --config <path>    --no-stream   --verbose   --no-color   --version   --help
+  --config <path>    --verbose   --no-color   --version   --help
 ```
 
 Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
@@ -158,13 +158,12 @@ foundation so P3's loop slots in without rework.
 
 ### 10.2 Module changes
 
-**`src/agent/run.ts` — turn runner.**
-- `runTurn(client, config, input: ResponseInput, sink, logger, signal?): Promise<string>`.
-  Picks `complete` vs `stream` from `config.stream`, writes deltas / full text to
-  `sink`, returns the full text, and forwards `signal` (decision L). Used by the REPL
-  and the future P3 agent loop.
-- `runOneShot(client, config, prompt, sink, logger)` is **self-contained**: it builds
-  `[system, user]` and runs the turn inline. It does **not** delegate to `runTurn`.
+**`src/agent/run.ts` — universal turn runner.**
+- Add `runTurn(client, config, input: ResponseInput, sink, logger): Promise<string>`.
+  Streams deltas to `sink` from `runTurn`, writes streamed text to `sink`, returns
+  the full text, and forwards `opts.signal` (decision L).
+- `runOneShot(client, config, prompt, sink, logger)` becomes a thin wrapper that
+  builds `[system, user]` and calls `runTurn`. Existing `run.test.ts` stays green.
 - P3 will add `runTool(input)` — the per-tool execution primitive (policy-gated in
   P5) — to this same module, so agent execution is centralized in `agent/run.ts`.
 
@@ -204,7 +203,6 @@ P2 set: `/help`, `/model [<id>]`, `/clear`, `/reset`, `/version`, `/exit`.
   P4.)
 - **Per-turn errors:** caught per turn, `logger.error(...)`, session continues
   (one-shot exits; REPL does not).
-- **`--no-stream`:** respected in REPL via `config.stream`.
 
 ### 10.5 Output / color
 Streamed model text → `process.stdout` (reserved channel). REPL prompt colored via

@@ -5,7 +5,6 @@ describe('parseCli', () => {
   it('returns defaults with no args', () => {
     const a = parseCli([])
     expect(a.prompt).toBeUndefined()
-    expect(a.noStream).toBe(false)
     expect(a.noColor).toBe(false)
     expect(a.auto).toBe(false)
     expect(a.plan).toBe(false)
@@ -27,8 +26,7 @@ describe('parseCli', () => {
     expect(parseCli(['-m', 'gpt-4.1']).model).toBe('gpt-4.1')
   })
 
-  it('parses --no-stream and --no-color', () => {
-    expect(parseCli(['--no-stream']).noStream).toBe(true)
+  it('parses --no-color', () => {
     expect(parseCli(['--no-color']).noColor).toBe(true)
   })
 

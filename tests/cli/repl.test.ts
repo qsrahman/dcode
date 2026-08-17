@@ -24,9 +24,6 @@ function makeSession(over: Partial<AppConfig> = {}): ReplSession {
 // Mirrors tests/agent/run.test.ts; assignable to Client.
 function fakeClient(text: string): Client {
   return {
-    async complete() {
-      return text
-    },
     async *stream() {
       yield text
     },
@@ -162,9 +159,6 @@ vi.mock('../../src/agent/client.ts', () => ({
   createClient: () => ({
     async *stream() {
       yield 'streamed'
-    },
-    async complete() {
-      return 'streamed'
     },
   }),
 }))

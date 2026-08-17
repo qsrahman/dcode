@@ -46,7 +46,6 @@ dcode                                                # REPL
 | `--auto` | Shorthand for `--mode auto`. |
 | `--plan` | Shorthand for `--mode plan`. |
 | `--config <path>` | Path to a JSON config file. |
-| `--no-stream` | Disable streaming. |
 | `--verbose` | Verbose diagnostics (to stderr). |
 | `--no-color` | Disable colored output. |
 | `--version` | Print version and exit. |

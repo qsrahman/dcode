@@ -22,7 +22,6 @@ Flags:
   --model <id>     Model id
   --mode <m>       interactive | auto | plan   (--auto, --plan shorthands)
   --config <path>  Path to JSON config
-  --no-stream      Disable streaming
   --verbose        Verbose diagnostics (stderr)
   --no-color       Disable color
   --version        Print version

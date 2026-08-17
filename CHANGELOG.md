@@ -35,8 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   anything, /help for commands...` hint above the prompt is left unstyled.
 - REPL slash-command responses (e.g. `/model`, `/reset`, `/version`) now end
   with a blank line for visual separation.
-- `runOneShot` is now self-contained: it no longer delegates to `runTurn`, which
-  remains the REPL/loop turn runner.
 
 ### Fixed
 - `createClient` now applies `config.maxRetries` to the OpenAI client and
@@ -47,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   into every run (`buildSystemPrompt`), stating dcode's role, working-directory
   scope, and that tool output is untrusted data.
 
+### Removed
+- Non-streaming support. `dcode` now always streams model output: the
+  `Client.complete` method, the `config.stream` field, and the `--no-stream`
+  flag were removed. The OpenAI Responses client wrapper is streaming-only
+  (`agent/client.ts`), and `runTurn` always streams deltas to `sink`.
+
 ## [0.1.0] - 2026-08-17
 
 ### Added
@@ -54,9 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Config layer: zod schema (`config/schema.ts`), JSON file loading, and a pure
   CLI > env > file > defaults merge (`config/config.ts`).
 - CLI argument parsing (`cli/args.ts`): `--model/-m`, `--mode`, `--auto`,
-  `--plan`, `--config/-c`, `--no-stream`, `--no-color`, `--verbose`,
+  `--plan`, `--config/-c`, `--no-color`, `--verbose`,
   `--version/-v`, `--help/-h`, plus a positional one-shot prompt.
-- OpenAI Responses client wrapper (`agent/client.ts`): stream + one-shot, behind
+- OpenAI Responses client wrapper (`agent/client.ts`): streaming, behind
   the `Client` interface for testability.
 - One-shot run orchestration (`agent/run.ts`) and the `dcode [prompt]` path in
   `src/index.ts`. REPL is deferred to P2.

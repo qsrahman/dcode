@@ -6,10 +6,6 @@ import { createLogger, type Logger } from '../util/log.ts'
 export type { ResponseInput }
 
 export interface Client {
-  complete(
-    input: ResponseInput,
-    opts?: { signal?: AbortSignal },
-  ): Promise<string>
   stream(
     input: ResponseInput,
     opts?: { signal?: AbortSignal },
@@ -30,19 +26,6 @@ export function createClient(
   })
 
   return {
-    async complete(input, opts) {
-      logger.debug('completion request model=%s', config.model)
-      const response = await client.responses.create(
-        {
-          model: config.model,
-          input,
-          stream: false,
-          max_output_tokens: config.maxTokens,
-        },
-        { signal: opts?.signal },
-      )
-      return response.output_text
-    },
     async *stream(input, opts) {
       logger.debug('stream request model=%s', config.model)
       const stream = client.responses.stream(

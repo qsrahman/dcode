@@ -9,9 +9,6 @@ function cfg(over: Partial<AppConfig> = {}): AppConfig {
 
 function fakeClient(text: string, split = false): Client {
   return {
-    async complete() {
-      return text
-    },
     async *stream() {
       if (split) {
         yield text.slice(0, 5)
@@ -24,22 +21,6 @@ function fakeClient(text: string, split = false): Client {
 }
 
 describe('runOneShot', () => {
-  it('writes full text plus a trailing newline and returns it (non-stream)', async () => {
-    const sink: string[] = []
-    const text = await runOneShot(
-      fakeClient('hello'),
-      cfg({ stream: false }),
-      'hi',
-      {
-        write: (t) => {
-          sink.push(t)
-        },
-      },
-    )
-    expect(text).toBe('hello')
-    expect(sink.join('')).toBe('hello\n')
-  })
-
   it('streams deltas then a trailing newline and returns the joined text', async () => {
     const sink: string[] = []
     const text = await runOneShot(

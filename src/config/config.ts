@@ -35,7 +35,6 @@ export function mergeConfigs(
 
   const merged: Record<string, unknown> = { ...file, ...env }
   if (args.model) merged.model = args.model
-  if (args.noStream) merged.stream = false
   if (args.noColor) merged.color = false
   if (args.verbose) merged.verbose = true
   merged.permissions = {

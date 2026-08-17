@@ -47,7 +47,6 @@ describe('mergeConfigs', () => {
   it('applies schema defaults', () => {
     const cfg = mergeConfigs({}, {}, base)
     expect(cfg.model).toBe('gpt-5')
-    expect(cfg.stream).toBe(true)
     expect(cfg.permissions.mode).toBe('interactive')
     expect(cfg.permissions.rules).toEqual({})
   })
@@ -69,12 +68,6 @@ describe('mergeConfigs', () => {
       parseCli(['--model', 'cli']),
     )
     expect(cfg.model).toBe('cli')
-  })
-
-  it('--no-stream forces streaming off even when the file enables it', () => {
-    expect(
-      mergeConfigs({ stream: true }, {}, parseCli(['--no-stream'])).stream,
-    ).toBe(false)
   })
 
   it('--auto sets the mode', () => {
