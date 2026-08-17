@@ -4,7 +4,7 @@ import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
 import { runTurn, runTool } from './run.ts'
-import type { Tool, ToolContext, ToolOutcome } from './types.ts'
+import type { Tool, ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import { renderToolResult } from '../ui/render.ts'
 import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
@@ -59,7 +59,7 @@ export async function runAgent(
     for (const c of calls) history.push(c as ResponseInput[number])
     if (calls.length === 0) break
     const results = await Promise.all(
-      calls.map(async (c): Promise<{ id: string; outcome: ToolOutcome }> => {
+      calls.map(async (c): Promise<{ id: string; outcome: ToolResult }> => {
         const tool = registry.get(c.name)
         const outcome = tool
           ? await runTool(

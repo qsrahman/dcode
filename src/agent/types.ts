@@ -21,7 +21,7 @@ export interface ToolCall {
   arguments: string
 }
 
-export interface ToolOutcome {
+export interface ToolResult {
   id: string
   name: string
   output: string

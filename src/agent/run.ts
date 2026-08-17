@@ -2,7 +2,7 @@ import type { Client, OpenAIResponse, ResponseInput } from './client.ts'
 import type { AppConfig } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 import { errorMessage } from '../util/log.ts'
-import type { Tool, ToolCall, ToolContext, ToolOutcome } from './types.ts'
+import type { Tool, ToolCall, ToolContext, ToolResult } from './types.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
 
 export interface RunSink {
@@ -46,7 +46,7 @@ export async function runTool(
   call: ToolCall,
   tool: Tool,
   ctx: ToolContext,
-): Promise<ToolOutcome> {
+): Promise<ToolResult> {
   const start = Date.now()
   try {
     const args = call.arguments ? JSON.parse(call.arguments) : {}
