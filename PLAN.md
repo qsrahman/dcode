@@ -132,7 +132,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 | P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
 | P2 | REPL + slash commands + streaming in REPL | **Done** |
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | **Done** |
-| P4 | Mutating local tools (write/edit/shell/git) | |
+| P4 | Mutating local tools (write_file/edit_file/run_shell) + harness gate | **Specified** — see §12 |
 | P5 | Declarative permissions + modes | |
 | P6 | MCP integration | |
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | |
@@ -373,4 +373,105 @@ before the next streamed model text — matching the REPL layout.
    `--cwd` wording updated to `root`.
 4. **`toolTimeout`** is applied as the per-tool execution timeout inside `runTool`.
 5. **`Client.stream` shape: Option B** (string stream + `finalResponse()`, minimal
-   churn; the event-driven Option A is not used).
+    churn; the event-driven Option A is not used).
+
+## 12. P4 Specification (Mutating local tools + harness gate)
+
+Builds on P3 (decisions B/D/F/G/H unchanged). Adds tools that change state and
+the machinery to run them **sequentially** and **only after harness approval**
+— the read-only/mutating split deferred from §11.5. Full declarative permissions
+(modes + rule tables) stay in P5; P4 defines the *gate seam* P5 plugs into.
+
+### 12.1 Scope
+- New mutating tools: `write_file`, `edit_file`, `run_shell` (git is reached via
+  `run_shell`, not a dedicated tool).
+- Loop change: separate read-only (parallel) from mutating (sequential, gated)
+  calls within a turn.
+- A minimal harness gate so mutating calls are approved (REPL prompt) or denied
+  (one-shot) by default. P5 later supplies a config-driven gate.
+- Out of scope: `delete_file`/`move_file`, undo/backup, declarative permissions.
+
+### 12.2 SDK basis
+Reuses §11.2 — `client.responses.stream`, `finalResponse().output` tool-call
+extraction, JSON-Schema `tools` param. No new SDK surface.
+
+### 12.3 Module changes
+- `src/agent/types.ts`: `Tool` gains `mutates?: boolean` (default `false`).
+- `src/agent/loop.ts`: `runAgent` opts gain
+  `gate?: (tool: Tool, call: ToolCall) => Promise<boolean>`; the per-turn call
+  list is split into read-only (parallel) and mutating (sequential + gated).
+- `src/tools/local/mutate.ts` (new): `write_file`, `edit_file`, `run_shell`.
+- `src/tools/index.ts`: register mutating tools alongside read-only ones.
+- `src/agent/gate.ts` (new): REPL confirmation prompt with `y`/`n`/`a`
+  (always-for-session) state; one-shot uses a gate that denies mutating.
+- `src/cli/repl.ts` + `src/cli/commands.ts`: build/thread the gate; `/tools`
+  annotates mutating tools.
+- `src/ui/render.ts`: reuse `renderToolResult` (no change needed).
+
+### 12.4 Tool interface & gate
+```ts
+export interface Tool {
+  name: string
+  description: string
+  parameters: z.ZodType
+  execute(args: unknown, ctx: ToolContext): Promise<string>
+  mutates?: boolean // default false → read-only, parallel, ungated
+}
+```
+`gate: (tool: Tool, call: ToolCall) => Promise<boolean>` is supplied by the
+harness. `runAgent` calls it before any mutating `runTool`; a `false` result
+yields an `ok:false` outcome with output `"denied by user"` (decision D), fed
+back as `function_call_output` so the model self-corrects.
+
+### 12.5 Loop algorithm
+1. `while iteration++ < config.maxToolIterations:` call `runTurn` (decision D).
+2. Push the assistant `output` items onto `history` (decision B).
+3. `calls = response.output.filter(function_call)`; if none, break.
+4. Split `calls` into `reads` (`!tool.mutates`) and `mutates` (`tool.mutates`).
+5. `results = await Promise.all(reads.map(c => runTool(c, ...)))` — parallel.
+6. For each `m` in `mutates` (in order):
+   - if `gate(tool, m)` is false → push a denied `function_call_output`.
+   - else `outcome = await runTool(m, ...)` (sequential).
+   - push `outcome` as `function_call_output`; render between turns.
+7. Repeat.
+
+### 12.6 Mutating tools
+- `write_file(path, content)` — create/overwrite a file under `root`
+  (`resolvePath`, decision G); `content` may be large (truncated, decision F).
+- `edit_file(path, old_string, new_string, replace_all?)` — literal string
+  replace (no diff parser, no new dependency). Error if `old_string` is absent,
+  or present more than once without `replace_all`.
+- `run_shell(command)` — spawn under `cwd = root` (decision G), capture merged
+  stdout/stderr, apply `toolTimeout`, truncate to `maxToolOutputBytes`. Full
+  arbitrary shell, gated.
+
+### 12.7 Output (`ui/render.ts`)
+Reuses `renderToolResult` (`› write_file: ✓ done (0.0s)`); color via `ansis`,
+same auto-TTY behavior as P3. No change.
+
+### 12.8 Slash commands
+`/tools` annotates mutating entries (e.g. `write_file *`). No new commands.
+
+### 12.9 Tests (`tests/tools/mutate.test.ts`, `tests/agent/loop.test.ts`)
+- `mutate`: `write_file` writes; `edit_file` replaces / errors on missing or
+  ambiguous match; `run_shell` runs under `root` + honors `toolTimeout`;
+  path-escape rejected (reuse fs tests pattern).
+- `loop`: mutating calls execute **sequentially** (asserted order); a gated
+  `false` yields a `denied by user` `function_call_output`; read-only calls in
+  the same turn run in parallel; loop still caps at `maxToolIterations`.
+
+### 12.10 Files touched
+- New: `src/tools/local/mutate.ts`, `src/agent/gate.ts`, `tests/tools/mutate.test.ts`.
+- Modify: `src/agent/types.ts` (`mutates`), `src/agent/loop.ts` (grouping +
+  gate), `src/tools/index.ts` (register), `src/cli/repl.ts` + `src/cli/commands.ts`
+  (prompt gate, `/tools`), `tests/agent/loop.test.ts`.
+- Docs after merge: this section (mark P4 done), README (mutating tools +
+  gating note), CHANGELOG (Unreleased → Added: P4 tools/gate).
+
+### 12.11 Resolved decisions
+1. **Tool set:** `write_file` + `edit_file` + `run_shell` (git via `run_shell`).
+2. **`edit_file` semantics:** literal old/new string replace; no diff parser.
+3. **One-shot default:** deny mutating calls (safe default; P5 `--mode auto` changes it).
+4. **Shell scope:** full arbitrary shell, gated + `cwd=root` + `toolTimeout`.
+5. **Ordering:** reads parallel, then mutating sequential (in model emission order).
+6. **Undo/backup:** out of scope for P4.
