@@ -85,5 +85,8 @@ without explicit agreement.
 2. Add deterministic tests.
 3. Update `PLAN.md` / `README.md` / `AGENTS.md` if the change touches features,
    CLI flags, architecture, or conventions.
-4. `pnpm typecheck && pnpm format:check && pnpm test`.
-5. Commit (one focused commit).
+4. Bump the version: once per completed phase, increment the **minor** in
+   `package.json` (`0.x.0`) and move the CHANGELOG `## [Unreleased]` section to a
+   dated `## [x.y.0] - YYYY-MM-DD` entry. (Patch/major follow SemVer as needed.)
+5. `pnpm typecheck && pnpm format:check && pnpm test`.
+6. Commit (one focused commit, including the version bump and CHANGELOG release).

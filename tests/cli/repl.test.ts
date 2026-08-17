@@ -59,7 +59,7 @@ describe('handleLine commands', () => {
     const s = makeSession()
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/version', sink)).toBe('ok')
-    expect(out.join('')).toContain('dcode v0.1.0')
+    expect(out.join('')).toContain('dcode v0.2.0')
   })
   it('/help writes the command list', async () => {
     const s = makeSession()
@@ -160,7 +160,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
     const config = cfg()
     await startRepl(config, createLogger(config))
     const out = write.mock.calls.map((c) => c[0]).join('')
-    expect(out).toContain('dcode v0.1.0')
+    expect(out).toContain('dcode v0.2.0')
     expect(out).toContain('streamed')
     write.mockRestore()
   })
