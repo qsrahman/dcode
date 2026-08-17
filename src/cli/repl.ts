@@ -25,7 +25,7 @@ const HELP = ansis.dim(
 
 // ANSI sequence to clear screen + scrollback and move home.
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
-const HINT = ansis.dim('Ask anything, /help for commands...')
+const HINT = 'Ask anything, /help for commands...'
 const PROMPT = ansis.cyan('> ')
 
 export interface ReplSession {
