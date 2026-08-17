@@ -1,5 +1,6 @@
 import type { Client, InputItem } from './client.ts'
 import type { AppConfig } from '../config/schema.ts'
+import { buildSystemPrompt } from './system.ts'
 
 export interface RunSink {
   write(text: string): void
@@ -14,7 +15,10 @@ export async function runOneShot(
   prompt: string,
   sink: RunSink = process.stdout,
 ): Promise<string> {
-  const input: InputItem = [{ role: 'user', content: prompt }]
+  const input: InputItem = [
+    { role: 'system', content: buildSystemPrompt(config) },
+    { role: 'user', content: prompt },
+  ]
   if (config.stream) {
     let full = ''
     for await (const delta of client.stream(input)) {

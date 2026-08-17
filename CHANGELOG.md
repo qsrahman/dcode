@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- System prompt: `agent/system.ts` defines a base system message injected
+  into every run (`buildSystemPrompt`), stating dcode's role, working-directory
+  scope, and that tool output is untrusted data.
+
 ## [0.1.0] - 2026-08-17
 
 ### Added
