@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node --env-file-if-exists=.env
 
 import { parseCli } from './cli/args.ts'
+import { startRepl } from './cli/repl.ts'
 import { buildConfig } from './config/config.ts'
 import { appConfigSchema } from './config/schema.ts'
 import { createClient } from './agent/client.ts'
@@ -43,8 +44,9 @@ async function main(): Promise<void> {
       return
     }
     if (!args.prompt) {
-      console.log('REPL arrives in phase 2. For a one-shot run, pass a prompt:')
-      console.log('  dcode "summarize the README"')
+      const config = buildConfig(args)
+      logger = createLogger(config)
+      await startRepl(config, logger)
       return
     }
     const config = buildConfig(args)

@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   routes arg-parse/config/run errors through it (with a fallback logger so
   setup failures are never raw stack traces), and `client.ts`/`run.ts` emit
   `debug` lines for each request/run.
+- REPL: `cli/repl.ts` starts an interactive session (`startRepl`) with a
+  module-local `ReplSession`, slash commands (`/help` `/model` `/clear`
+  `/reset` `/version` `/exit`), capped multi-turn history (decision B), Ctrl-C
+  abort of the in-flight stream (decision L), and reuses the `runTurn` turn
+  runner from `agent/run.ts`. `/mode` and `/tools` remain deferred (P5/P3).
 
 ### Changed
 - Version is read from package.json at runtime via `createRequire` instead of

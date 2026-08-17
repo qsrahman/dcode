@@ -3,8 +3,9 @@
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
 
-> Status: **scaffold (P0)**. The agent itself lands in later phases. See
-> [PLAN.md](./PLAN.md) for the full roadmap.
+> Status: **P2 complete** — one-shot and the interactive REPL both work.
+> Tools, permissions, and MCP land in P3+. See [PLAN.md](./PLAN.md) for the
+> full roadmap.
 
 ## Requirements
 
@@ -53,9 +54,10 @@ dcode                                                # REPL
 
 ### REPL slash commands
 
-`/help` `/model` `/mode` `/clear` `/reset` `/tools` `/version` `/exit`
+`/help` `/model` `/clear` `/reset` `/version` `/exit`
 
-(`/clear` clears the screen; `/reset` drops the conversation history.)
+(`/clear` clears the screen; `/reset` drops the conversation history. `/mode`
+and `/tools` arrive with permissions (P5) and tools (P3) respectively.)
 
 ## Configuration (`dcode.json`)
 
@@ -92,7 +94,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 |-------|-------|
 | P0 | Scaffold & tooling |
 | P1 | Config + OpenAI client + one-shot |
-| P2 | REPL + slash commands |
+| P2 | REPL + slash commands | **Done** |
 | P3 | Tool core + read-only tools + async loop |
 | P4 | Mutating local tools |
 | P5 | Declarative permissions + modes |

@@ -130,7 +130,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 |-------|-------|--------|
 | P0 | Scaffold & tooling (this document set) | **Done** |
 | P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
-| P2 | REPL + slash commands + streaming in REPL | **Specified** — see §10 |
+| P2 | REPL + slash commands + streaming in REPL | **Done** |
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | |
 | P4 | Mutating local tools (write/edit/shell/git) | |
 | P5 | Declarative permissions + modes | |
@@ -147,8 +147,8 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 
 ## 10. P2 Specification (REPL)
 
-Status: **Specified** — implementation pending. This section is the authoritative
-P2 design; implement it as code + tests + docs + a focused commit.
+Status: **Done**. This section is the authoritative P2 design; it was implemented
+as code + tests + docs in one focused commit.
 
 ### 10.1 Scope
 Make `dcode` interactive: a REPL when no prompt is given, streaming model output,
