@@ -19,7 +19,7 @@ export interface ModelClient {
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here
 // so the rest of the app can depend on the ModelClient interface and stay
 // testable without network access.
-export function createModelClient(config: AppConfig): ModelClient {
+export function createClient(config: AppConfig): ModelClient {
   const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL })
   return {
     async complete(input, opts) {

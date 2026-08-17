@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --env-file-if-exists=.env
 import { parseCli } from './cli/args.ts'
 import { buildConfig } from './config/config.ts'
-import { createModelClient } from './agent/client.ts'
+import { createClient } from './agent/client.ts'
 import { runOneShot } from './agent/run.ts'
 
 const VERSION = '0.0.0'
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     return
   }
   const config = buildConfig(args)
-  const client = createModelClient(config)
+  const client = createClient(config)
   await runOneShot(client, config, args.prompt, process.stdout)
 }
 
