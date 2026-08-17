@@ -2,8 +2,10 @@
 
 import { parseCli } from './cli/args.ts'
 import { buildConfig } from './config/config.ts'
+import { appConfigSchema } from './config/schema.ts'
 import { createClient } from './agent/client.ts'
 import { runOneShot } from './agent/run.ts'
+import { createLogger } from './util/log.ts'
 import { getVersion } from './version.ts'
 
 const VERSION = getVersion()
@@ -41,12 +43,18 @@ async function main(): Promise<void> {
     console.log('  dcode "summarize the README"')
     return
   }
-  const config = buildConfig(args)
-  const client = createClient(config)
-  await runOneShot(client, config, args.prompt, process.stdout)
+  // Fallback logger (defaults) covers failures during config/logger setup,
+  // which themselves can throw before the real logger exists.
+  let logger = createLogger(appConfigSchema.parse({}))
+  try {
+    const config = buildConfig(args)
+    logger = createLogger(config)
+    const client = createClient(config)
+    await runOneShot(client, config, args.prompt, process.stdout)
+  } catch (err) {
+    logger.error(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
 }
 
-main().catch((err: unknown) => {
-  process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
-  process.exit(1)
-})
+main()

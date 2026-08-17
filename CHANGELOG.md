@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - System prompt: `agent/system.ts` defines a base system message injected
   into every run (`buildSystemPrompt`), stating dcode's role, working-directory
   scope, and that tool output is untrusted data.
+- Diagnostics logger: `util/log.ts` exposes `createLogger(config)` with
+  `debug`/`info` (verbose-gated) and `warn`/`error` (always to stderr), colored
+  via the `ansis` dependency. `index.ts` routes the top-level error through it.
 
 ### Changed
 - Version is read from `package.json` at runtime via `createRequire` instead of

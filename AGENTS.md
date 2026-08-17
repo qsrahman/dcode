@@ -46,7 +46,10 @@ architecture, or conventions.
 
 - `console.log` / `process.stdout` is reserved for **streamed model output** and the
   **interactive REPL prompt** only.
-- All other diagnostics go to **stderr** via `util/log.ts` (guarded by `--verbose`).
+- All other diagnostics go to **stderr** via `util/log.ts` — `createLogger(config)`
+  returns `{ debug, info, warn, error }`, where `debug`/`info` are gated by
+  `config.verbose` and `warn`/`error` always emit. Color comes from the `ansis`
+  dependency (disabled when `config.color` is false).
 
 ## Configuration sources
 
