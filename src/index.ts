@@ -1,10 +1,14 @@
 #!/usr/bin/env -S node --env-file-if-exists=.env
+
+import { createRequire } from 'node:module'
+
 import { parseCli } from './cli/args.ts'
 import { buildConfig } from './config/config.ts'
 import { createClient } from './agent/client.ts'
 import { runOneShot } from './agent/run.ts'
 
-const VERSION = '0.0.0'
+const require = createRequire(import.meta.url)
+const { version: VERSION } = require('../package.json') as { version: string }
 
 function printHelp(): void {
   console.log(`dcode — AI coding agent (OpenAI Responses SDK)
