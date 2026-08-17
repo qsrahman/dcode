@@ -15,6 +15,19 @@ function resolvePath(root: string, p: string): string {
   return resolved
 }
 
+// Turn a Node fs error into a message the model can act on (decision H: tool
+// output is untrusted, but errors should be self-correcting, not cryptic).
+function fsError(err: unknown, path: string): string {
+  if (err instanceof Error && 'code' in err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return `no such file or directory: ${path}`
+    if (code === 'EISDIR') return `is a directory, use list_dir: ${path}`
+    if (code === 'ENOTDIR') return `not a directory: ${path}`
+    if (code === 'EACCES') return `permission denied: ${path}`
+  }
+  return err instanceof Error ? err.message : String(err)
+}
+
 function readFileTool(): Tool {
   return {
     name: 'read_file',
@@ -23,8 +36,13 @@ function readFileTool(): Tool {
       path: z.string().describe('Relative path under the working directory'),
     }),
     async execute(args: unknown, ctx: ToolContext) {
-      const file = resolvePath(ctx.root, (args as { path: string }).path)
-      return readFile(file, 'utf8')
+      const { path } = args as { path: string }
+      const file = resolvePath(ctx.root, path)
+      try {
+        return await readFile(file, 'utf8')
+      } catch (err) {
+        throw new Error(fsError(err, path))
+      }
     },
   }
 }
@@ -40,11 +58,17 @@ function listDirTool(): Tool {
         .describe('Directory under the working directory; defaults to root'),
     }),
     async execute(args: unknown, ctx: ToolContext) {
-      const dir = resolvePath(ctx.root, (args as { path?: string }).path ?? '.')
-      const entries = await readdir(dir, { withFileTypes: true })
-      return entries
-        .map((e) => `${e.isDirectory() ? 'd' : 'f'} ${e.name}`)
-        .join('\n')
+      const { path } = args as { path?: string }
+      const target = path ?? '.'
+      const dir = resolvePath(ctx.root, target)
+      try {
+        const entries = await readdir(dir, { withFileTypes: true })
+        return entries
+          .map((e) => `${e.isDirectory() ? 'd' : 'f'} ${e.name}`)
+          .join('\n')
+      } catch (err) {
+        throw new Error(fsError(err, target))
+      }
     },
   }
 }
@@ -63,10 +87,20 @@ function grepTool(): Tool {
     }),
     async execute(args: unknown, ctx: ToolContext) {
       const { pattern, path } = args as { pattern: string; path?: string }
-      const target = resolvePath(ctx.root, path ?? '.')
-      const re = new RegExp(pattern, 'g')
-      const matches = await grepRecursive(target, re)
-      return matches.join('\n') || '(no matches)'
+      const target = path ?? '.'
+      let re: RegExp
+      try {
+        re = new RegExp(pattern, 'g')
+      } catch {
+        throw new Error(`invalid regular expression: ${pattern}`)
+      }
+      const dir = resolvePath(ctx.root, target)
+      try {
+        const matches = await grepRecursive(dir, re)
+        return matches.join('\n') || '(no matches)'
+      } catch (err) {
+        throw new Error(fsError(err, target))
+      }
     },
   }
 }

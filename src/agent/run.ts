@@ -44,7 +44,8 @@ export async function runTool(
 ): Promise<ToolResult> {
   const start = Date.now()
   try {
-    const args = call.arguments ? JSON.parse(call.arguments) : {}
+    const raw = call.arguments ? JSON.parse(call.arguments) : {}
+    const args = tool.parameters.parse(raw)
     const result = await withTimeout(
       tool.execute(args, ctx),
       ctx.config.toolTimeout,
