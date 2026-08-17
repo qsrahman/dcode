@@ -106,7 +106,7 @@ Declarative, harness-enforced. A policy maps tool names to `allow` / `deny` /
 | D | Loop term | Cap (16, configurable) + feed tool errors back as `function_call_output` |
 | E | `always` scope | Per-tool, session-scoped (cleared by `/reset`) |
 | F | Result size | Truncate to `maxToolOutputBytes` (32 KB) + note |
-| G | Workdir | CWD, `--cwd` override; git via `git -C <cwd>` |
+| G | Workdir | `root` (config field, defaults to process cwd); git via `git -C <root>` |
 | H | Injection | Pass through raw, documented as untrusted |
 | I | MCP life | Spawn at startup, session-lived, close on exit/SIGINT |
 | J | Persistence | Ephemeral v1 (in-session up/down only) |
@@ -314,8 +314,7 @@ is an alternative but more churn).
 - `maxToolIterations` default 16 (decision D); `toolTimeout` (currently unused)
   gates each `runTool` execution in P3.
 - Path confinement: tools resolve against `config.root` and reject traversal
-  outside (decision G/H). (Note: PLAN §6 G says `--cwd`; the schema field is
-  `root` — implementation uses `config.root`; §6 G should be updated to match.)
+  outside (decision G/H). (§6 G updated to name the `root` field.)
 
 ### 11.6 Tool interface & registry
 ```ts
@@ -329,10 +328,8 @@ export interface Tool {
 export interface ToolCall { id: string; name: string; arguments: string }
 ```
 `toResponsesTool` converts `parameters` (zod) → JSON Schema for
-`OpenAI.Responses.Tool`. **Decision:** hand-roll a minimal converter (we only use
-string/number/boolean/optional/enum/object) vs add `zod-to-json-schema`. Recommended:
-hand-roll to keep runtime deps at `zod`/`ansis`/`openai`. `strict: true` is
-optional but gives reliable arg parsing.
+`OpenAI.Responses.Tool`. **Decision: hand-roll** a minimal converter (no new
+dependency). Use **`strict: false`** on the generated schemas.
 
 ### 11.7 Read-only tools
 - `read_file(path)` — read a file under `root`; reject escapes.
@@ -366,13 +363,14 @@ before the next streamed model text — matching the REPL layout.
 - Modify: `src/agent/run.ts` (`runTurn` return + `runTool`), `src/agent/client.ts`
   (`stream` → `ModelStream` + `tools`), `src/cli/repl.ts` (`/tools`),
   `src/index.ts` (wire `runAgent` when tools are registered).
-- Docs after merge: this section (mark P3 done), §6 G (`--cwd` → `root`),
+-   Docs after merge: this section (mark P3 done; §6 G already updated to `root`),
   CHANGELOG (Unreleased → Added: tools/loop), README (tools overview).
 
-### 11.12 Open questions / decisions to confirm
-1. zod→JSON Schema: hand-roll (recommended) vs add `zod-to-json-schema`.
-2. `strict: true` on tool schemas?
-3. `config.root` vs PLAN §6 G's `--cwd` (align to `root`).
-4. `toolTimeout` applied as per-tool execution timeout in P3 (recommended).
-5. `Client.stream` shape: Option B (string stream + `finalResponse()`, recommended,
-   minimal churn) vs Option A (expose raw `ResponseStreamEvent`s).
+### 11.12 Resolved decisions
+1. **zod→JSON Schema:** hand-roll a minimal converter (no new dependency).
+2. **`strict: false`** on tool schemas.
+3. **Workdir confinement uses `config.root`** (the actual schema field); §6 G's
+   `--cwd` wording updated to `root`.
+4. **`toolTimeout`** is applied as the per-tool execution timeout inside `runTool`.
+5. **`Client.stream` shape: Option B** (string stream + `finalResponse()`, minimal
+   churn; the event-driven Option A is not used).
