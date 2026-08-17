@@ -1,4 +1,4 @@
-# picode
+# dcode
 
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
@@ -15,14 +15,14 @@ build step (Node 26 runs TypeScript directly).
 
 ```sh
 pnpm install
-pnpm link              # makes `picode` available on your PATH
+pnpm link              # makes `dcode` available on your PATH
 ```
 
 ## Usage
 
 ```sh
-picode "add a --verbose flag to src/cli/args.ts"   # one-shot
-picode                                                # REPL
+dcode "add a --verbose flag to src/cli/args.ts"   # one-shot
+dcode                                                # REPL
 ```
 
 ### Flags
@@ -46,7 +46,7 @@ picode                                                # REPL
 
 (`/clear` clears the screen; `/reset` drops the conversation history.)
 
-## Configuration (`picode.json`)
+## Configuration (`dcode.json`)
 
 JSON, loaded from `--config <path>` or a default location. Example:
 

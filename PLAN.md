@@ -1,6 +1,6 @@
-# PLAN.md — picode
+# PLAN.md — dcode
 
-Product Requirements Document for **picode**, a CLI-based AI coding agent built on
+Product Requirements Document for **dcode**, a CLI-based AI coding agent built on
 the OpenAI Responses SDK.
 
 Status: **P0 (scaffold) complete.** Phases advance one at a time; each lands as
@@ -11,8 +11,8 @@ features, architecture, and conventions — keep it in sync after every phase.
 
 A small, modular, locally-run coding agent you drive from a terminal:
 
-- One-shot: `picode "add a CLI flag to parse --verbose"`
-- REPL: `picode` then chat, with slash commands.
+- One-shot: `dcode "add a CLI flag to parse --verbose"`
+- REPL: `dcode` then chat, with slash commands.
 - Uses local system tools (files, shell, git) and optional MCP servers.
 - Fully async agent loop; read-only tools run in parallel.
 - Streaming model output, configurable models, a declarative permission system.
@@ -110,13 +110,13 @@ Declarative, harness-enforced. A policy maps tool names to `allow` / `deny` /
 | H | Injection | Pass through raw, documented as untrusted |
 | I | MCP life | Spawn at startup, session-lived, close on exit/SIGINT |
 | J | Persistence | Ephemeral v1 (in-session up/down only) |
-| K | bin | `bin: picode -> src/index.ts`, shebang, engines >=26 |
+| K | bin | `bin: dcode -> src/index.ts`, shebang, engines >=26 |
 | L | Cancel | Ctrl-C aborts stream + SIGTERMs shell child, returns to prompt |
 
 ## 7. CLI surface
 
 ```
-picode [prompt]      one-shot when a prompt is given, REPL otherwise
+dcode [prompt]      one-shot when a prompt is given, REPL otherwise
   --model <id>       --mode <interactive|auto|plan> --auto (=auto) --plan (=plan)
   --config <path>    --no-stream   --verbose   --no-color   --version   --help
 ```

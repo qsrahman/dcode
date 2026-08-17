@@ -1,10 +1,10 @@
 {
-  "name": "picode",
+  "name": "dcode",
   "version": "0.0.0",
   "description": "A CLI-based AI coding agent built on the OpenAI Responses SDK.",
   "type": "module",
   "bin": {
-    "picode": "src/index.ts"
+    "dcode": "src/index.ts"
   },
   "engines": {
     "node": ">=26.0.0"

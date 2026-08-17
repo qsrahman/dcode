@@ -5,10 +5,10 @@ const VERSION = '0.0.0'
 
 function main(argv: string[]): void {
   if (argv.includes('--version') || argv.includes('-v')) {
-    console.log(`picode v${VERSION}`)
+    console.log(`dcode v${VERSION}`)
     return
   }
-  console.log(`picode v${VERSION} (scaffold) — agent arrives in phase 1`)
+  console.log(`dcode v${VERSION} (scaffold) — agent arrives in phase 1`)
 }
 
 main(process.argv.slice(2))

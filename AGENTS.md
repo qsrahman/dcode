@@ -1,6 +1,6 @@
 # AGENTS.md — Developer guide
 
-How to build and extend **picode**. Read this before changing code.
+How to build and extend **dcode**. Read this before changing code.
 
 ## Stack constraints (non-negotiable)
 
