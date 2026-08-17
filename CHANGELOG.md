@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - REPL `/help` output is now dimmed and reformatted (header `Commands:`, a
   trailing blank line), keeping commands alphabetically sorted. The `Ask
   anything, /help for commands...` hint above the prompt is left unstyled.
+- REPL slash-command responses (e.g. `/model`, `/reset`, `/version`) now end
+  with a blank line for visual separation.
 
 ### Fixed
 - `createClient` now applies `config.maxRetries` to the OpenAI client and

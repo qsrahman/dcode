@@ -69,32 +69,32 @@ function dispatch(
 ): HandleResult {
   switch (cmd.name) {
     case 'help':
-      sink.write(HELP + '\n')
+      sink.write(HELP + '\n\n')
       return 'ok'
     case 'version':
-      sink.write(`dcode v${getVersion()}\n`)
+      sink.write(`dcode v${getVersion()}\n\n`)
       return 'ok'
     case 'model': {
       const id = cmd.args.trim()
       if (!id) {
-        sink.write(`model: ${session.config.model}\n`)
+        sink.write(`model: ${session.config.model}\n\n`)
         return 'ok'
       }
       session.config.model = id
-      sink.write(`model set to ${id}\n`)
+      sink.write(`model set to ${id}\n\n`)
       return 'ok'
     }
     case 'reset':
       session.history = [session.history[0]!]
-      sink.write('session reset\n')
+      sink.write('session reset\n\n')
       return 'ok'
     case 'clear':
-      sink.write(CLEAR)
+      sink.write(CLEAR + '\n')
       return 'ok'
     case 'exit':
       return 'exit'
     default:
-      sink.write(`unknown command: /${cmd.name} (try /help)\n`)
+      sink.write(`unknown command: /${cmd.name} (try /help)\n\n`)
       return 'ok'
   }
 }
