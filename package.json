@@ -9,9 +9,11 @@
   "engines": {
     "node": ">=26.0.0"
   },
+  "author": "Qazi Sami ur Rahman <qsrahmans@gmail.com>",
+  "license": "MIT",
   "scripts": {
-    "dev": "node --watch src/index.ts",
-    "start": "node src/index.ts",
+    "dev": "node --watch --env-file=.env src/index.ts",
+    "start": "node --env-file=.env src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
