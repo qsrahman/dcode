@@ -39,6 +39,9 @@ export const appConfigSchema = z.object({
   maxToolIterations: z.number().int().positive().default(16),
   maxHistoryItems: z.number().int().positive().default(100),
   maxToolOutputBytes: z.number().int().positive().default(32768),
+  maxTokens: z.number().int().positive().default(8192),
+  maxRetries: z.number().int().nonnegative().default(3),
+  toolTimeout: z.number().int().positive().default(30000),
   permissions: permissionsSchema.default({ mode: 'interactive', rules: {} }),
   mcp: z.array(mcpServerSchema).default([]),
 })
