@@ -131,7 +131,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 | P0 | Scaffold & tooling (this document set) | **Done** |
 | P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
 | P2 | REPL + slash commands + streaming in REPL | **Done** |
-| P3 | Tool core + read-only tools + async loop (parallel read-only) | |
+| P3 | Tool core + read-only tools + async loop (parallel read-only) | **Specified** — see §11 |
 | P4 | Mutating local tools (write/edit/shell/git) | |
 | P5 | Declarative permissions + modes | |
 | P6 | MCP integration | |
@@ -227,3 +227,152 @@ Mirror the split so `readline` I/O is the only untested seam:
 - Optional: `src/ui/prompt.ts`
 - Docs after merge: this section (mark P2 done), CHANGELOG (Unreleased → Added:
   REPL), README (REPL usage)
+
+## 11. P3 Specification (Tool core + read-only tools + async loop)
+
+Status: **Specified** — implementation pending. This section is the authoritative
+P3 design, grounded in research of the OpenAI Responses API and the `openai-node`
+SDK (`client.responses.stream(...)`). Implement it as code + tests + docs + a
+focused commit.
+
+### 11.1 Scope
+- **In:** tool types + registry, zod→JSON-schema conversion, three read-only
+  tools (`read_file`, `list_dir`, `grep`), the async agent loop (parallel
+  read-only execution, capped, error-fed), tool-status rendering, and the
+  `/tools` command (deferred from P2).
+- **Out:** mutating tools (`write_file`/`edit_file`/`shell`/`git`) → P4;
+  permission policy/harness (`y/n/a`) → P5; MCP → P6.
+
+### 11.2 SDK basis (research findings)
+- `client.responses.stream(params)` returns a `ResponseStream` (an
+  `AsyncIterable` of `ResponseStreamEvent`).
+- Key events: `response.output_text.delta` (`.delta` = text fragment),
+  `response.output_item.done` whose `item.type === 'function_call'` carries
+  `call_id`, `name`, `arguments` (JSON string), and terminal
+  `response.completed` / `response.failed` / `response.incomplete`.
+- `stream.finalResponse(): Promise<Response>` returns the accumulated response;
+  its `.output` array holds the `function_call` items. Known caveat
+  (openai-node #1662): `finalResponse().output_text` was historically `undefined`
+  on streamed responses — **irrelevant here** because we accumulate text from the
+  deltas.
+- `tools` is `OpenAI.Responses.Tool[]` =
+  `{ type: 'function', name, description, parameters: <JSON Schema>, strict? }`.
+  The Responses API wants **JSON Schema**, not zod — so the registry converts.
+- Official loop (Responses API guides): iterate the stream, render text deltas,
+  collect `function_call` items, append one `function_call_output`
+  (`{ type: 'function_call_output', call_id, output }`) per call to `input`,
+  re-request, stop when no calls, cap iterations, handle terminal events.
+
+### 11.3 Module changes
+- **`agent/loop.ts` (new) — `runAgent(client, config, input, sink, logger, signal?)`.**
+  Owns the iterative tool loop; reuses `runTurn` (single model turn) and `runTool`
+  (single tool exec). Grows `history` (a `ResponseInput`) with output + output
+  items and feeds `function_call_output` back (decision B).
+- **`agent/run.ts`.** `runTurn` now returns `{ text: string, response: Response }`
+  and still streams deltas to `sink`. Add `runTool(call, config, logger)`:
+  registry lookup → zod parse → execute → truncate (decision F) → wrap as
+  `function_call_output`. (`runOneShot` keeps returning just `text` for tool-less
+  one-shots.)
+- **`agent/types.ts` (new).** `Tool`, `ToolCall`, `ToolContext`, `ToolResult`.
+- **`tools/registry.ts` (new).** `register`/`get`/`list` + `toResponsesTool(tool)`
+  (zod → JSON Schema). Returns `OpenAI.Responses.Tool[]` for the client.
+- **`tools/local/fs.ts` (new).** `read_file`, `list_dir`, `grep`; path-confined
+  to `config.root`.
+- **`ui/render.ts` (new).** `renderToolResult(name, ok, ms)` → status lines.
+- **`cli/repl.ts`.** Add `/tools` dispatch (lists registered tools).
+- **`agent/client.ts`.** `stream` gains `tools?` and returns `ModelStream` (below).
+
+### 11.4 Client contract
+```ts
+export interface ModelStream extends AsyncIterable<string> {
+  finalResponse(): Promise<Response>
+}
+export interface Client {
+  stream(
+    input: ResponseInput,
+    opts?: { tools?: OpenAI.Responses.Tool[]; signal?: AbortSignal },
+  ): ModelStream
+}
+```
+Internally the wrapper iterates the SDK event stream, yields
+`response.output_text.delta.delta` for rendering, and lets `finalResponse()`
+return the accumulated `Response` (with `.output` tool calls). This keeps the
+string-based `sink.write(delta)` seam intact (Option B; the event-driven Option A
+is an alternative but more churn).
+
+### 11.5 Loop algorithm
+1. `while iteration++ < config.maxToolIterations:` call `runTurn(client, config, history, …)`.
+2. Push the assistant `output` items onto `history`.
+3. `calls = response.output.filter(function_call)`; if none, break (final text
+   already streamed).
+4. `results = await Promise.all(calls.map(c => runTool(c, config, logger)))` —
+   P3 tools are all read-only, so run in parallel; the read-only/mutating split
+   (parallel vs sequential, harness-gated) is added in **P4**.
+5. Push `results` (`function_call_output`) onto `history`; repeat.
+- Tool **errors** return *as* `function_call_output` (decision D) so the model
+  self-corrects; the loop never throws on a tool failure.
+- `maxToolIterations` default 16 (decision D); `toolTimeout` (currently unused)
+  gates each `runTool` execution in P3.
+- Path confinement: tools resolve against `config.root` and reject traversal
+  outside (decision G/H). (Note: PLAN §6 G says `--cwd`; the schema field is
+  `root` — implementation uses `config.root`; §6 G should be updated to match.)
+
+### 11.6 Tool interface & registry
+```ts
+export interface ToolContext { root: string; config: AppConfig; logger: Logger }
+export interface Tool {
+  name: string
+  description: string
+  parameters: z.ZodType
+  execute(args: unknown, ctx: ToolContext): Promise<string>
+}
+export interface ToolCall { id: string; name: string; arguments: string }
+```
+`toResponsesTool` converts `parameters` (zod) → JSON Schema for
+`OpenAI.Responses.Tool`. **Decision:** hand-roll a minimal converter (we only use
+string/number/boolean/optional/enum/object) vs add `zod-to-json-schema`. Recommended:
+hand-roll to keep runtime deps at `zod`/`ansis`/`openai`. `strict: true` is
+optional but gives reliable arg parsing.
+
+### 11.7 Read-only tools
+- `read_file(path)` — read a file under `root`; reject escapes.
+- `list_dir(path)` — list a directory under `root`.
+- `grep(pattern, path?)` — search file contents under `root`.
+All results truncated to `config.maxToolOutputBytes` with a note (decision F).
+Tool output is untrusted data (decision H).
+
+### 11.8 Output (`ui/render.ts`)
+`renderToolResult(name, ok, ms)` → `› read_file: src/index.ts ✓ done (0.0s)`
+(color via `ansis`, same auto-TTY behavior as today). Printed between turns,
+before the next streamed model text — matching the REPL layout.
+
+### 11.9 Slash commands
+`/tools` — list registered tools (`name` + `description`); deferred from P2 to P3.
+
+### 11.10 Tests (`tests/agent/loop.test.ts`, `tests/tools/*`)
+- `types`/`registry`: register/list/get, zod→JSON conversion.
+- `fs`: mock `fs`, assert content + path-confinement rejection.
+- `runTool`: truncation (F), error-as-output (D), timeout.
+- `loop`: `fakeClient` whose `stream` yields text and `finalResponse()` returns a
+  canned `Response` with a `function_call`; assert tools run, outputs fed back,
+  loop terminates, `maxToolIterations` cap honored, history grows with tool
+  items.
+- `render`: assert formatted lines via `ansis.strip(...)`.
+
+### 11.11 Files touched
+- New: `src/agent/loop.ts`, `src/agent/types.ts`, `src/tools/registry.ts`,
+  `src/tools/local/fs.ts`, `src/ui/render.ts`, `tests/agent/loop.test.ts`,
+  `tests/tools/*`.
+- Modify: `src/agent/run.ts` (`runTurn` return + `runTool`), `src/agent/client.ts`
+  (`stream` → `ModelStream` + `tools`), `src/cli/repl.ts` (`/tools`),
+  `src/index.ts` (wire `runAgent` when tools are registered).
+- Docs after merge: this section (mark P3 done), §6 G (`--cwd` → `root`),
+  CHANGELOG (Unreleased → Added: tools/loop), README (tools overview).
+
+### 11.12 Open questions / decisions to confirm
+1. zod→JSON Schema: hand-roll (recommended) vs add `zod-to-json-schema`.
+2. `strict: true` on tool schemas?
+3. `config.root` vs PLAN §6 G's `--cwd` (align to `root`).
+4. `toolTimeout` applied as per-tool execution timeout in P3 (recommended).
+5. `Client.stream` shape: Option B (string stream + `finalResponse()`, recommended,
+   minimal churn) vs Option A (expose raw `ResponseStreamEvent`s).
