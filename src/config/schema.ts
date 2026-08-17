@@ -32,7 +32,7 @@ export const appConfigSchema = z.object({
   model: z.string().default('gpt-5'),
   baseURL: z.string().optional(),
   apiKey: z.string().optional(),
-  cwd: z.string().optional(),
+  root: z.string().optional(),
   stream: z.boolean().default(true),
   verbose: z.boolean().default(false),
   color: z.boolean().default(true),
