@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-17
+
+### Added
+
+- Config layer: zod schema (`config/schema.ts`), JSON file loading, and a pure
+  CLI > env > file > defaults merge (`config/config.ts`).
+- CLI argument parsing (`cli/args.ts`): `--model/-m`, `--mode`, `--auto`,
+  `--plan`, `--config/-c`, `--no-stream`, `--no-color`, `--verbose`,
+  `--version/-v`, `--help/-h`, plus a positional one-shot prompt.
+- OpenAI Responses client wrapper (`agent/client.ts`): stream + one-shot, behind
+  the `ModelClient` interface for testability.
+- One-shot run orchestration (`agent/run.ts`) and the `dcode [prompt]` path in
+  `src/index.ts`. REPL is deferred to P2.
+
 ## [0.0.0] - 2026-08-17
 
 ### Added

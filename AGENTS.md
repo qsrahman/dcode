@@ -48,6 +48,20 @@ architecture, or conventions.
   **interactive REPL prompt** only.
 - All other diagnostics go to **stderr** via `util/log.ts` (guarded by `--verbose`).
 
+## Configuration sources
+
+Config is resolved with precedence **CLI > env > file > schema defaults**:
+
+- File: `./dcode.json` (or `.dcode.json`), or `--config <path>`. JSON, validated
+  by `config/schema.ts` (zod).
+- Env: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `DCODE_MODEL` (Node 26 loads `.env`
+  via `--env-file` in `dev`/`start`).
+- CLI flags (`--model`, `--mode`, `--no-stream`, `--no-color`, `--verbose`,
+  `--auto`, `--plan`) override the above.
+
+`config/config.ts` holds the pure `mergeConfig` (tested) plus thin `loadConfigFile`
+and `buildConfig` wrappers.
+
 ## Testing
 
 - Tests in `tests/`, mirroring `src/` (`tests/cli/args.test.ts` -> `src/cli/args.ts`).

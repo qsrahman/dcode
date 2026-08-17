@@ -1,0 +1,45 @@
+import { z } from 'zod'
+
+export const modeSchema = z.enum(['interactive', 'auto', 'plan'])
+export type Mode = z.infer<typeof modeSchema>
+
+export const permissionRuleSchema = z.enum(['allow', 'deny', 'ask'])
+export type PermissionRule = z.infer<typeof permissionRuleSchema>
+
+export const permissionsSchema = z.object({
+  mode: modeSchema.default('interactive'),
+  rules: z.record(z.string(), permissionRuleSchema).default({}),
+})
+export type PermissionsConfig = z.infer<typeof permissionsSchema>
+
+export const mcpServerSchema = z.object({
+  name: z.string(),
+  transport: z.discriminatedUnion('type', [
+    z.object({
+      type: z.literal('stdio'),
+      command: z.string(),
+      args: z.array(z.string()).default([]),
+      env: z.record(z.string(), z.string()).optional(),
+      cwd: z.string().optional(),
+    }),
+    z.object({ type: z.literal('http'), url: z.string() }),
+  ]),
+  trust: z.boolean().default(false),
+})
+export type McpServerConfig = z.infer<typeof mcpServerSchema>
+
+export const appConfigSchema = z.object({
+  model: z.string().default('gpt-5'),
+  baseURL: z.string().optional(),
+  apiKey: z.string().optional(),
+  cwd: z.string().optional(),
+  stream: z.boolean().default(true),
+  verbose: z.boolean().default(false),
+  color: z.boolean().default(true),
+  maxToolIterations: z.number().int().positive().default(16),
+  maxHistoryItems: z.number().int().positive().default(100),
+  maxToolOutputBytes: z.number().int().positive().default(32768),
+  permissions: permissionsSchema.default({ mode: 'interactive', rules: {} }),
+  mcp: z.array(mcpServerSchema).default([]),
+})
+export type AppConfig = z.infer<typeof appConfigSchema>

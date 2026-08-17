@@ -11,6 +11,17 @@ build step (Node 26 runs TypeScript directly).
 - Node.js **26+** (type stripping — no `tsc` build step).
 - [pnpm](https://pnpm.io).
 
+## Environment variables
+
+`dcode` reads these from the environment (loaded automatically via Node 26's
+`--env-file=.env` in `dev`/`start`, or your shell):
+
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | API key (required). Falls back to the SDK default if unset. |
+| `OPENAI_BASE_URL` | Override the API base URL (OpenAI-compatible endpoints). |
+| `DCODE_MODEL` | Default model id when not set in config or `--model`. |
+
 ## Install (from source)
 
 ```sh

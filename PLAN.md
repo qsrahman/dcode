@@ -129,8 +129,8 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 | Phase | Scope | Status |
 |-------|-------|--------|
 | P0 | Scaffold & tooling (this document set) | **Done** |
-| P1 | Config + OpenAI client + one-shot (no tools) | Next |
-| P2 | REPL + slash commands + streaming in REPL | |
+| P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
+| P2 | REPL + slash commands + streaming in REPL | Next |
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | |
 | P4 | Mutating local tools (write/edit/shell/git) | |
 | P5 | Declarative permissions + modes | |
