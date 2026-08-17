@@ -33,7 +33,7 @@ export async function runTurn(
     full += delta
     sink.write(delta)
   }
-  sink.write('\n')
+  if (full) sink.write('\n')
   const response = await stream.finalResponse()
   return { text: full, response }
 }
