@@ -22,63 +22,14 @@ export class ToolRegistry {
   }
 }
 
-// Minimal hand-rolled zod -> JSON Schema converter covering the subset our
-// tools use (no new dependency). strict:false keeps arg parsing lenient.
-export function zodToJsonSchema(schema: any): JsonSchema {
-  if (schema instanceof z.ZodString) return { type: 'string' }
-  if (schema instanceof z.ZodNumber) return { type: 'number' }
-  if (schema instanceof z.ZodBoolean) return { type: 'boolean' }
-  if (schema instanceof z.ZodEnum) {
-    return { type: 'string', enum: Object.keys(schema._zod.def.entries) }
-  }
-  if (schema instanceof z.ZodArray) {
-    return { type: 'array', items: zodToJsonSchema(schema._zod.def.element) }
-  }
-  if (schema instanceof z.ZodOptional) {
-    return zodToJsonSchema(schema._zod.def.innerType)
-  }
-  if (schema instanceof z.ZodDefault) {
-    return zodToJsonSchema(schema._zod.def.innerType)
-  }
-  if (schema instanceof z.ZodObject) {
-    const shape = schema._zod.def.shape as Record<string, z.ZodType>
-    const properties: Record<string, JsonSchema> = {}
-    const required: string[] = []
-    for (const [key, value] of Object.entries(shape)) {
-      properties[key] = zodToJsonSchema(value)
-      if (
-        !(value instanceof z.ZodOptional) &&
-        !(value instanceof z.ZodDefault)
-      ) {
-        required.push(key)
-      }
-    }
-    return {
-      type: 'object',
-      properties,
-      required: required.length ? required : undefined,
-      additionalProperties: false,
-    }
-  }
-  throw new Error(`unsupported zod type: ${schema.constructor.name}`)
-}
-
+// zod v4's built-in converter emits a JSON Schema (draft 2020-12) that the
+// Responses API accepts; strict:false keeps arg parsing lenient.
 export function toResponsesTool(tool: Tool): ResponsesTool {
   return {
     type: 'function',
     name: tool.name,
     description: tool.description,
-    parameters: zodToJsonSchema(tool.parameters),
+    parameters: z.toJSONSchema(tool.parameters),
     strict: false,
   } as ResponsesTool
-}
-
-type JsonSchema = {
-  type?: string
-  description?: string
-  enum?: string[]
-  properties?: Record<string, JsonSchema>
-  required?: string[]
-  items?: JsonSchema
-  additionalProperties?: boolean
 }

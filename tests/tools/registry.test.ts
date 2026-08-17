@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import {
-  ToolRegistry,
-  toResponsesTool,
-  zodToJsonSchema,
-} from '../../src/tools/registry.ts'
+import { ToolRegistry, toResponsesTool } from '../../src/tools/registry.ts'
 
 describe('ToolRegistry', () => {
   it('registers, lists and looks up by name', () => {
@@ -36,21 +32,24 @@ describe('ToolRegistry', () => {
     expect(rt.parameters.properties.path.type).toBe('string')
     expect(rt.parameters.required).toEqual(['path'])
   })
-})
 
-describe('zodToJsonSchema', () => {
-  it('handles nested objects, optional, enum, array', () => {
-    const s = z.object({
-      a: z.string(),
-      b: z.number().optional(),
-      c: z.enum(['x', 'y']),
-      d: z.array(z.string()),
-    })
-    const j = zodToJsonSchema(s) as any
-    expect(j.type).toBe('object')
-    expect(j.required).toEqual(['a', 'c', 'd'])
-    expect(j.properties.b.type).toBe('number')
-    expect(j.properties.c.enum).toEqual(['x', 'y'])
-    expect(j.properties.d.type).toBe('array')
+  it('converts nested objects, optional, enum, array via zod', () => {
+    const tool = {
+      name: 't',
+      description: 'd',
+      parameters: z.object({
+        a: z.string(),
+        b: z.number().optional(),
+        c: z.enum(['x', 'y']),
+        d: z.array(z.string()),
+      }),
+      execute: async () => '',
+    }
+    const p = (toResponsesTool(tool) as any).parameters
+    expect(p.type).toBe('object')
+    expect(p.required).toEqual(['a', 'c', 'd'])
+    expect(p.properties.b.type).toBe('number')
+    expect(p.properties.c.enum).toEqual(['x', 'y'])
+    expect(p.properties.d.type).toBe('array')
   })
 })
