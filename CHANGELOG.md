@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 - Version is read from package.json at runtime via `createRequire` instead of
   a hardcoded constant in `index.ts`.
+- REPL `/help` output is now dimmed and reformatted (header `Commands:`, a
+  trailing blank line), keeping commands alphabetically sorted.
 
 ### Fixed
 - `createClient` now applies `config.maxRetries` to the OpenAI client and

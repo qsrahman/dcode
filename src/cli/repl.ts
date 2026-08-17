@@ -11,13 +11,17 @@ import { runTurn, type RunSink } from '../agent/run.ts'
 import { type Logger } from '../util/log.ts'
 import { getVersion } from '../version.ts'
 
-const HELP = `Slash commands:
-  /clear    clear the screen
-  /exit     quit
-  /help     show this help
-  /model    show/set model: /model <id>
-  /reset    clear the conversation
-  /version  print version`
+const HELP = ansis.dim(
+  [
+    'Commands:',
+    '  /clear    clear the screen',
+    '  /exit     quit',
+    '  /help     show this help',
+    '  /model    show/set model: /model <id>',
+    '  /reset    clear the conversation',
+    '  /version  print version',
+  ].join('\n'),
+)
 
 // ANSI sequence to clear screen + scrollback and move home.
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H'

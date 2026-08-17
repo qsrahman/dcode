@@ -82,7 +82,7 @@ describe('handleLine commands', () => {
     const s = makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/help', sink)
-    expect(out.join('')).toContain('Slash commands')
+    expect(out.join('')).toContain('Commands')
   })
   it('/model sets the session model', async () => {
     const s = makeSession()
