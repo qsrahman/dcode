@@ -1,39 +1,20 @@
 import * as readline from 'node:readline'
 import ansis from 'ansis'
 import type { AppConfig } from '../config/schema.ts'
-import {
-  createClient,
-  type Client,
-  type ResponseInput,
-} from '../agent/client.ts'
+import { createClient } from '../agent/client.ts'
+import type { ResponseInput } from '../agent/client.ts'
 import { buildSystemPrompt } from '../agent/system.ts'
 import { runTurn, type RunSink } from '../agent/run.ts'
-import { type Logger } from '../util/log.ts'
-import { getVersion } from '../version.ts'
+import { type Logger, errorMessage } from '../util/log.ts'
+import {
+  type ReplSession,
+  type HandleResult,
+  dispatch,
+  parseCommand,
+} from './commands.ts'
 
-const HELP = ansis.dim(
-  [
-    'Commands:',
-    '  /clear    clear the screen',
-    '  /exit     quit',
-    '  /help     show this help',
-    '  /model    show/set model: /model <id>',
-    '  /reset    clear the conversation',
-    '  /version  print version',
-  ].join('\n'),
-)
-
-// ANSI sequence to clear screen + scrollback and move home.
-const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
 const HINT = 'Ask anything, /help for commands...'
 const PROMPT = ansis.cyan('> ')
-
-export interface ReplSession {
-  config: AppConfig
-  logger: Logger
-  client: Client
-  history: ResponseInput
-}
 
 export function createSession(config: AppConfig, logger: Logger): ReplSession {
   return {
@@ -44,59 +25,10 @@ export function createSession(config: AppConfig, logger: Logger): ReplSession {
   }
 }
 
-export function parseCommand(
-  line: string,
-): { name: string; args: string } | null {
-  if (!line.startsWith('/')) return null
-  const rest = line.slice(1)
-  const sp = rest.indexOf(' ')
-  if (sp === -1) return { name: rest, args: '' }
-  return { name: rest.slice(0, sp), args: rest.slice(sp + 1) }
-}
-
 // Keep history[0] (the system message) and the last `max` items.
 export function trimHistory(history: ResponseInput, max: number): void {
   if (history.length - 1 <= max) return
   history.splice(1, history.length - 1 - max)
-}
-
-export type HandleResult = 'ok' | 'exit'
-
-function dispatch(
-  session: ReplSession,
-  cmd: { name: string; args: string },
-  sink: RunSink,
-): HandleResult {
-  switch (cmd.name) {
-    case 'help':
-      sink.write(HELP + '\n\n')
-      return 'ok'
-    case 'version':
-      sink.write(`dcode v${getVersion()}\n\n`)
-      return 'ok'
-    case 'model': {
-      const id = cmd.args.trim()
-      if (!id) {
-        sink.write(`model: ${session.config.model}\n\n`)
-        return 'ok'
-      }
-      session.config.model = id
-      sink.write(`model set to ${id}\n\n`)
-      return 'ok'
-    }
-    case 'reset':
-      session.history = [session.history[0]!]
-      sink.write('session reset\n\n')
-      return 'ok'
-    case 'clear':
-      sink.write(CLEAR + '\n')
-      return 'ok'
-    case 'exit':
-      return 'exit'
-    default:
-      sink.write(`unknown command: /${cmd.name} (try /help)\n\n`)
-      return 'ok'
-  }
 }
 
 export async function handleLine(
@@ -126,7 +58,7 @@ export async function handleLine(
     if (signal?.aborted) {
       session.logger.warn('aborted')
     } else {
-      session.logger.error(err instanceof Error ? err.message : String(err))
+      session.logger.error(errorMessage(err))
     }
   }
   return 'ok'
@@ -143,14 +75,14 @@ export async function startRepl(
     prompt: PROMPT,
   })
   let busy = false
-  let ac = new AbortController()
+  let ac: AbortController | undefined
   const showPrompt = () => {
     process.stdout.write(`${HINT}\n`)
     rl.prompt()
   }
   rl.on('SIGINT', () => {
     if (busy) {
-      ac.abort()
+      ac?.abort()
       process.stdout.write('\n(aborted)\n')
     } else {
       showPrompt()

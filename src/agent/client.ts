@@ -1,7 +1,7 @@
 import OpenAI from 'openai'
 import type { ResponseInput } from 'openai/resources/responses/responses'
 import type { AppConfig } from '../config/schema.ts'
-import { createLogger, type Logger } from '../util/log.ts'
+import type { Logger } from '../util/log.ts'
 
 export type { ResponseInput }
 
@@ -15,10 +15,7 @@ export interface Client {
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here
 // so the rest of the app can depend on the Client interface and stay
 // testable without network access.
-export function createClient(
-  config: AppConfig,
-  logger: Logger = createLogger(config),
-): Client {
+export function createClient(config: AppConfig, logger: Logger): Client {
   const client = new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseURL,

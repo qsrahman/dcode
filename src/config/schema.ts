@@ -1,18 +1,16 @@
 import { z } from 'zod'
 
-export const modeSchema = z.enum(['interactive', 'auto', 'plan'])
-export type Mode = z.infer<typeof modeSchema>
+const modeSchema = z.enum(['interactive', 'auto', 'plan'])
 
-export const permissionRuleSchema = z.enum(['allow', 'deny', 'ask'])
-export type PermissionRule = z.infer<typeof permissionRuleSchema>
+const permissionRuleSchema = z.enum(['allow', 'deny', 'ask'])
 
-export const permissionsSchema = z.object({
+const permissionsSchema = z.object({
   mode: modeSchema.default('interactive'),
   rules: z.record(z.string(), permissionRuleSchema).default({}),
 })
 export type PermissionsConfig = z.infer<typeof permissionsSchema>
 
-export const mcpServerSchema = z.object({
+const mcpServerSchema = z.object({
   name: z.string(),
   transport: z.discriminatedUnion('type', [
     z.object({
@@ -26,7 +24,6 @@ export const mcpServerSchema = z.object({
   ]),
   trust: z.boolean().default(false),
 })
-export type McpServerConfig = z.infer<typeof mcpServerSchema>
 
 export const appConfigSchema = z.object({
   model: z.string().default('gpt-5'),

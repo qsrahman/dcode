@@ -1,33 +1,19 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { appConfigSchema, type AppConfig } from '../../src/config/schema.ts'
+import type { AppConfig } from '../../src/config/schema.ts'
 import {
   createSession,
   handleLine,
-  parseCommand,
   trimHistory,
   startRepl,
-  type ReplSession,
 } from '../../src/cli/repl.ts'
+import { parseCommand, type ReplSession } from '../../src/cli/commands.ts'
 import { createLogger } from '../../src/util/log.ts'
-import type { Client, ResponseInput } from '../../src/agent/client.ts'
-
-function makeSink() {
-  const out: string[] = []
-  return { sink: { write: (t: string) => void out.push(t) }, out }
-}
+import type { ResponseInput } from '../../src/agent/client.ts'
+import { cfg, fakeClient, makeSink } from '../helpers.ts'
 
 function makeSession(over: Partial<AppConfig> = {}): ReplSession {
-  const config = appConfigSchema.parse(over)
+  const config = cfg(over)
   return createSession(config, createLogger(config))
-}
-
-// Mirrors tests/agent/run.test.ts; assignable to Client.
-function fakeClient(text: string): Client {
-  return {
-    async *stream() {
-      yield text
-    },
-  }
 }
 
 describe('parseCommand', () => {
@@ -168,7 +154,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
     const write = vi
       .spyOn(process.stdout, 'write')
       .mockImplementation(() => true)
-    const config = appConfigSchema.parse({})
+    const config = cfg()
     await startRepl(config, createLogger(config))
     const out = write.mock.calls.map((c) => c[0]).join('')
     expect(out).toContain('dcode v0.1.0')

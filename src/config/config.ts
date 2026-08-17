@@ -12,7 +12,13 @@ export function loadConfig(path?: string): Partial<AppConfig> {
     const abs = resolve(process.cwd(), name)
     if (existsSync(abs)) {
       const raw = readFileSync(abs, 'utf8')
-      return appConfigSchema.partial().parse(JSON.parse(raw))
+      try {
+        return appConfigSchema.partial().parse(JSON.parse(raw))
+      } catch (err) {
+        throw new Error(
+          `Failed to load config ${abs}: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
     }
   }
   return {}
@@ -24,14 +30,8 @@ export function mergeConfigs(
   args: ParsedArgs,
 ): AppConfig {
   // --mode is validated by the schema; --auto/--plan are shorthands.
-  let mode: string | undefined
-  if (args.mode !== undefined) {
-    mode = args.mode
-  } else if (args.auto) {
-    mode = 'auto'
-  } else if (args.plan) {
-    mode = 'plan'
-  }
+  const mode =
+    args.mode ?? (args.auto ? 'auto' : args.plan ? 'plan' : undefined)
 
   const merged: Record<string, unknown> = { ...file, ...env }
   if (args.model) merged.model = args.model
@@ -39,7 +39,7 @@ export function mergeConfigs(
   if (args.verbose) merged.verbose = true
   merged.permissions = {
     ...(file.permissions ?? {}),
-    mode: mode ?? file.permissions?.mode,
+    ...(mode !== undefined && { mode }),
   }
   return appConfigSchema.parse(merged)
 }

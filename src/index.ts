@@ -6,7 +6,7 @@ import { buildConfig } from './config/config.ts'
 import { appConfigSchema } from './config/schema.ts'
 import { createClient } from './agent/client.ts'
 import { runOneShot } from './agent/run.ts'
-import { createLogger } from './util/log.ts'
+import { createLogger, errorMessage } from './util/log.ts'
 import { getVersion } from './version.ts'
 
 const VERSION = getVersion()
@@ -16,7 +16,7 @@ function printHelp(): void {
 
 Usage:
   dcode [prompt]     one-shot when a prompt is given, REPL otherwise
-  dcode              start the REPL (arrives in phase 2)
+  dcode              start the REPL
 
 Flags:
   --model <id>     Model id
@@ -42,18 +42,16 @@ async function main(): Promise<void> {
       printHelp()
       return
     }
+    const config = buildConfig(args)
+    logger = createLogger(config)
     if (!args.prompt) {
-      const config = buildConfig(args)
-      logger = createLogger(config)
       await startRepl(config, logger)
       return
     }
-    const config = buildConfig(args)
-    logger = createLogger(config)
     const client = createClient(config, logger)
     await runOneShot(client, config, args.prompt, process.stdout, logger)
   } catch (err) {
-    logger.error(err instanceof Error ? err.message : String(err))
+    logger.error(errorMessage(err))
     process.exit(1)
   }
 }

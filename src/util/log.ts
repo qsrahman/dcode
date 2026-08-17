@@ -9,6 +9,10 @@ export interface Logger {
   error(...args: unknown[]): void
 }
 
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 type Paint = (s: string) => string
 
 // Build colorizers locally so we never mutate the global `ansis.enabled`
