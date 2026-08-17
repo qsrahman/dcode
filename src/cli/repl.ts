@@ -7,7 +7,7 @@ import { buildSystemPrompt } from '../agent/system.ts'
 import { runTurn, type RunSink } from '../agent/run.ts'
 import { type Logger, errorMessage } from '../util/log.ts'
 import {
-  type ReplSession,
+  type Session,
   type HandleResult,
   dispatch,
   parseCommand,
@@ -16,7 +16,7 @@ import {
 const HINT = 'Ask anything, /help for commands...'
 const PROMPT = ansis.cyan('> ')
 
-export function createSession(config: AppConfig, logger: Logger): ReplSession {
+export function createSession(config: AppConfig, logger: Logger): Session {
   return {
     config,
     logger,
@@ -32,7 +32,7 @@ export function trimHistory(history: ResponseInput, max: number): void {
 }
 
 export async function handleLine(
-  session: ReplSession,
+  session: Session,
   line: string,
   sink: RunSink = process.stdout,
   signal?: AbortSignal,
@@ -76,9 +76,20 @@ export async function startRepl(
   })
   let busy = false
   let ac: AbortController | undefined
+  // Piped/non-TTY stdin can hit EOF (auto-closing `rl`) while a turn is still
+  // in flight; rl.prompt() after that throws ERR_USE_AFTER_CLOSE. `rl.closed`
+  // exists at runtime but isn't in @types/node, so catch instead of probing it.
   const showPrompt = () => {
     process.stdout.write(`${HINT}\n`)
-    rl.prompt()
+    try {
+      rl.prompt()
+    } catch (err) {
+      if (
+        !(err instanceof Error) ||
+        (err as NodeJS.ErrnoException).code !== 'ERR_USE_AFTER_CLOSE'
+      )
+        throw err
+    }
   }
   rl.on('SIGINT', () => {
     if (busy) {

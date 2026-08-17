@@ -6,12 +6,12 @@ import {
   trimHistory,
   startRepl,
 } from '../../src/cli/repl.ts'
-import { parseCommand, type ReplSession } from '../../src/cli/commands.ts'
+import { parseCommand, type Session } from '../../src/cli/commands.ts'
 import { createLogger } from '../../src/util/log.ts'
 import type { ResponseInput } from '../../src/agent/client.ts'
 import { cfg, fakeClient, makeSink } from '../helpers.ts'
 
-function makeSession(over: Partial<AppConfig> = {}): ReplSession {
+function makeSession(over: Partial<AppConfig> = {}): Session {
   const config = cfg(over)
   return createSession(config, createLogger(config))
 }

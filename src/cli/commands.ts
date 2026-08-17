@@ -5,7 +5,7 @@ import type { RunSink } from '../agent/run.ts'
 import type { Logger } from '../util/log.ts'
 import { getVersion } from '../version.ts'
 
-export interface ReplSession {
+export interface Session {
   config: AppConfig
   logger: Logger
   client: Client
@@ -40,7 +40,7 @@ export function parseCommand(
 }
 
 export function dispatch(
-  session: ReplSession,
+  session: Session,
   cmd: { name: string; args: string },
   sink: RunSink,
 ): HandleResult {
