@@ -20,7 +20,7 @@ build step (Node 26 runs TypeScript directly).
 |----------|---------|
 | `OPENAI_API_KEY` | API key (required). Falls back to the SDK default if unset. |
 | `OPENAI_BASE_URL` | Override the API base URL (OpenAI-compatible endpoints). |
-| `DCODE_MODEL` | Default model id when not set in config or `--model`. |
+| `OPENAI_DEFAULT_MODEL` | Default model id when not set in config or `--model`. |
 
 ## Install (from source)
 

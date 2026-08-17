@@ -2,7 +2,11 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadConfigFile, mergeConfig } from '../../src/config/config.ts'
+import {
+  buildConfig,
+  loadConfigFile,
+  mergeConfig,
+} from '../../src/config/config.ts'
 import { appConfigSchema } from '../../src/config/schema.ts'
 import { parseCli } from '../../src/cli/args.ts'
 
@@ -81,6 +85,24 @@ describe('mergeConfig', () => {
 
   it('rejects an invalid --mode', () => {
     expect(() => mergeConfig({}, {}, parseCli(['--mode', 'bogus']))).toThrow()
+  })
+})
+
+describe('buildConfig', () => {
+  const prev = process.env.OPENAI_DEFAULT_MODEL
+  afterEach(() => {
+    if (prev === undefined) delete process.env.OPENAI_DEFAULT_MODEL
+    else process.env.OPENAI_DEFAULT_MODEL = prev
+  })
+
+  it('reads OPENAI_DEFAULT_MODEL from the environment', () => {
+    process.env.OPENAI_DEFAULT_MODEL = 'gemma4:cloud'
+    expect(buildConfig(parseCli([])).model).toBe('gemma4:cloud')
+  })
+
+  it('falls back to the schema default when unset', () => {
+    delete process.env.OPENAI_DEFAULT_MODEL
+    expect(buildConfig(parseCli([])).model).toBe('gpt-5')
   })
 })
 
