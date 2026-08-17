@@ -32,7 +32,7 @@ function fsError(err: unknown, path: string): string {
 // Shared recursive directory walk: yields every entry with its path relative to
 // root. Skips symlinks (don't follow) and silently continues past unreadable
 // directories — the same traversal rules grep and glob need.
-async function* walk(
+async function* walkDirs(
   root: string,
 ): AsyncGenerator<{ full: string; rel: string; entry: Dirent }> {
   const stack = [root]
@@ -117,7 +117,7 @@ function grepTool(): Tool<{ pattern: string; path?: string }> {
       }
       const dir = resolvePath(ctx.root, target)
       const matches: string[] = []
-      for await (const { full, entry } of walk(dir)) {
+      for await (const { full, entry } of walkDirs(dir)) {
         if (!entry.isFile()) continue
         let content: string
         try {
@@ -187,7 +187,7 @@ function globTool(): Tool<{ pattern: string }> {
         throw new Error(`invalid glob pattern: ${args.pattern}`)
       }
       const matches: string[] = []
-      for await (const { rel } of walk(ctx.root)) {
+      for await (const { rel } of walkDirs(ctx.root)) {
         if (re.test(rel)) matches.push(rel)
       }
       matches.sort()
