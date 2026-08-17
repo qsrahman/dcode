@@ -115,7 +115,7 @@ describe('handleLine prompt turn', () => {
     const { sink, out } = makeSink()
     expect(await handleLine(s, 'hello', sink)).toBe('ok')
     expect(s.history.at(-1)).toEqual({ role: 'assistant', content: 'hi there' })
-    expect(out.join('')).toBe('hi there\n')
+    expect(out.join('')).toBe('\nhi there\n\n')
   })
 })
 

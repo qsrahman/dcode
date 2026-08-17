@@ -85,6 +85,7 @@ export async function runAgent(
       } as ResponseInput[number])
       sink.write(`${renderToolResult(outcome.name, outcome.ok, outcome.ms)}\n`)
     }
+    sink.write('\n')
   }
   return finalText
 }

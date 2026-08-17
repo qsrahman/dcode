@@ -15,7 +15,7 @@ import {
   parseCommand,
 } from './commands.ts'
 
-const HINT = '\nAsk anything, /help for commands...'
+const HINT = 'Ask anything, /help for commands...'
 const PROMPT = ansis.cyan('> ')
 
 export function createSession(config: AppConfig, logger: Logger): Session {
@@ -47,12 +47,14 @@ export async function handleLine(
 
   session.history.push({ role: 'user', content: trimmed })
   try {
+    sink.write('\n')
     await runAgent(session.client, session.config, session.history, {
       sink,
       logger: session.logger,
       signal,
       tools: session.tools,
     })
+    sink.write('\n')
     trimHistory(session.history, session.config.maxHistoryItems)
   } catch (err) {
     if (signal?.aborted) {
