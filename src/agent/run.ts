@@ -1,4 +1,4 @@
-import type { Client, InputItem } from './client.ts'
+import type { Client, ResponseInput } from './client.ts'
 import type { AppConfig } from '../config/schema.ts'
 import { buildSystemPrompt } from './system.ts'
 
@@ -15,7 +15,7 @@ export async function runOneShot(
   prompt: string,
   sink: RunSink = process.stdout,
 ): Promise<string> {
-  const input: InputItem = [
+  const input: ResponseInput = [
     { role: 'system', content: buildSystemPrompt(config) },
     { role: 'user', content: prompt },
   ]
