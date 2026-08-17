@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `--plan`, `--config/-c`, `--no-stream`, `--no-color`, `--verbose`,
   `--version/-v`, `--help/-h`, plus a positional one-shot prompt.
 - OpenAI Responses client wrapper (`agent/client.ts`): stream + one-shot, behind
-  the `ModelClient` interface for testability.
+  the `Client` interface for testability.
 - One-shot run orchestration (`agent/run.ts`) and the `dcode [prompt]` path in
   `src/index.ts`. REPL is deferred to P2.
 

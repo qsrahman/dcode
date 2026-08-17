@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { runOneShot } from '../../src/agent/run.ts'
 import { appConfigSchema, type AppConfig } from '../../src/config/schema.ts'
-import type { ModelClient } from '../../src/agent/client.ts'
+import type { Client } from '../../src/agent/client.ts'
 
 function cfg(over: Partial<AppConfig> = {}): AppConfig {
   return appConfigSchema.parse(over)
 }
 
-function fakeClient(text: string, split = false): ModelClient {
+function fakeClient(text: string, split = false): Client {
   return {
     async complete() {
       return text

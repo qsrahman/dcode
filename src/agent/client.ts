@@ -8,7 +8,7 @@ export type InputItem = Array<{
   content: string
 }>
 
-export interface ModelClient {
+export interface Client {
   complete(input: InputItem, opts?: { signal?: AbortSignal }): Promise<string>
   stream(
     input: InputItem,
@@ -17,9 +17,9 @@ export interface ModelClient {
 }
 
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here
-// so the rest of the app can depend on the ModelClient interface and stay
+// so the rest of the app can depend on the Client interface and stay
 // testable without network access.
-export function createClient(config: AppConfig): ModelClient {
+export function createClient(config: AppConfig): Client {
   const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL })
   return {
     async complete(input, opts) {

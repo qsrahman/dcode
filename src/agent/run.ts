@@ -1,4 +1,4 @@
-import type { InputItem, ModelClient } from './client.ts'
+import type { Client, InputItem } from './client.ts'
 import type { AppConfig } from '../config/schema.ts'
 
 export interface RunSink {
@@ -9,7 +9,7 @@ export interface RunSink {
 // `stream` writes deltas as they arrive; `complete` writes the full text once.
 // Returns the full text so callers (REPL later) can capture it.
 export async function runOneShot(
-  client: ModelClient,
+  client: Client,
   config: AppConfig,
   prompt: string,
   sink: RunSink = process.stdout,
