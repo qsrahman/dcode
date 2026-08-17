@@ -23,13 +23,22 @@ export function createClient(
   config: AppConfig,
   logger: Logger = createLogger(config),
 ): Client {
-  const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseURL })
+  const client = new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseURL,
+    maxRetries: config.maxRetries,
+  })
 
   return {
     async complete(input, opts) {
       logger.debug('completion request model=%s', config.model)
       const response = await client.responses.create(
-        { model: config.model, input, stream: false },
+        {
+          model: config.model,
+          input,
+          stream: false,
+          max_output_tokens: config.maxTokens,
+        },
         { signal: opts?.signal },
       )
       return response.output_text
@@ -37,7 +46,7 @@ export function createClient(
     async *stream(input, opts) {
       logger.debug('stream request model=%s', config.model)
       const stream = client.responses.stream(
-        { model: config.model, input },
+        { model: config.model, input, max_output_tokens: config.maxTokens },
         { signal: opts?.signal },
       )
       for await (const event of stream) {

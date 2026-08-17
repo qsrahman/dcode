@@ -19,8 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `debug` lines for each request/run.
 
 ### Changed
-- Version is read from `package.json` at runtime via `createRequire` instead of
+- Version is read from package.json at runtime via `createRequire` instead of
   a hardcoded constant in `index.ts`.
+
+### Fixed
+- `createClient` now applies `config.maxRetries` to the OpenAI client and
+  `config.maxTokens` as `max_output_tokens` on each request; both were defined
+  in the schema but previously ignored. (`toolTimeout` stays unused until P3,
+  where it gates per-tool execution, not the SDK request.)
 - System prompt: `agent/system.ts` defines a base system message injected
   into every run (`buildSystemPrompt`), stating dcode's role, working-directory
   scope, and that tool output is untrusted data.
