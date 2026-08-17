@@ -1,10 +1,10 @@
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
 import { z } from 'zod'
 import type { Tool, ToolContext } from '../../agent/types.ts'
 
 export function createFsTools(): Tool[] {
-  return [readFileTool(), listDirTool(), grepTool()]
+  return [readFileTool(), listDirTool(), grepTool(), statTool()]
 }
 
 function resolvePath(root: string, p: string): string {
@@ -101,6 +101,41 @@ function grepTool(): Tool {
       } catch (err) {
         throw new Error(fsError(err, target))
       }
+    },
+  }
+}
+
+function statTool(): Tool {
+  return {
+    name: 'stat',
+    description:
+      'Report type, size, and modification time of a file or directory under the working directory.',
+    parameters: z.object({
+      path: z
+        .string()
+        .optional()
+        .describe('Path under the working directory; defaults to root'),
+    }),
+    async execute(args: unknown, ctx: ToolContext) {
+      const { path } = args as { path?: string }
+      const target = path ?? '.'
+      const full = resolvePath(ctx.root, target)
+      let info: Awaited<ReturnType<typeof stat>>
+      try {
+        info = await stat(full)
+      } catch (err) {
+        throw new Error(fsError(err, target))
+      }
+      const kind = info.isDirectory()
+        ? 'directory'
+        : info.isFile()
+          ? 'file'
+          : 'other'
+      return [
+        `type: ${kind}`,
+        `size: ${info.size} bytes`,
+        `modified: ${info.mtime.toISOString()}`,
+      ].join('\n')
     },
   }
 }

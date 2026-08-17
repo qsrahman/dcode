@@ -70,6 +70,7 @@ to the model, and the loop repeats up to `maxToolIterations` (default 16).
 | `read_file` | Read a UTF-8 text file under the working directory. |
 | `list_dir` | List a directory under the working directory. |
 | `grep` | Search file contents for a regular expression. |
+| `stat` | Report type/size/mtime of a file or directory. |
 
 Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
 (default 32 KiB), and tool errors are returned to the model so it can

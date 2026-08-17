@@ -47,6 +47,25 @@ describe('fs tools', () => {
     expect(out).toContain('a.txt:1: foo bar')
   })
 
+  it('stat reports a file type/size/mtime', async () => {
+    await writeFile(join(root, 'a.txt'), 'hello')
+    const out = await tool('stat').execute({ path: 'a.txt' }, ctx)
+    expect(out).toContain('type: file')
+    expect(out).toContain('size: 5 bytes')
+    expect(out).toMatch(/modified: \d{4}-\d{2}-\d{2}T/)
+  })
+
+  it('stat reports a directory and defaults to root', async () => {
+    const out = await tool('stat').execute({}, ctx)
+    expect(out).toContain('type: directory')
+  })
+
+  it('stat reports a missing path clearly', async () => {
+    await expect(tool('stat').execute({ path: 'nope' }, ctx)).rejects.toThrow(
+      /no such file or directory/,
+    )
+  })
+
   it('read_file reports a missing file clearly', async () => {
     await expect(
       tool('read_file').execute({ path: 'nope.txt' }, ctx),
