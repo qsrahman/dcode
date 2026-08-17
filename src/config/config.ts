@@ -3,11 +3,11 @@ import { resolve } from 'node:path'
 import type { ParsedArgs } from '../cli/args.ts'
 import { appConfigSchema, type AppConfig } from './schema.ts'
 
-const DEFAULT_CONFIG_NAMES = ['dcode.json', '.dcode.json']
+const DEFAULT_CONFIG_FILES = ['dcode.json', '.dcode.json']
 
 // Config is resolved with the precedence CLI > env > file > schema defaults.
-export function loadConfigFile(path?: string): Partial<AppConfig> {
-  const candidates = path ? [path] : DEFAULT_CONFIG_NAMES
+export function loadConfig(path?: string): Partial<AppConfig> {
+  const candidates = path ? [path] : DEFAULT_CONFIG_FILES
   for (const name of candidates) {
     const abs = resolve(process.cwd(), name)
     if (existsSync(abs)) {
@@ -18,7 +18,7 @@ export function loadConfigFile(path?: string): Partial<AppConfig> {
   return {}
 }
 
-export function mergeConfig(
+export function mergeConfigs(
   file: Partial<AppConfig>,
   env: Partial<AppConfig>,
   args: ParsedArgs,
@@ -46,11 +46,11 @@ export function mergeConfig(
 }
 
 export function buildConfig(args: ParsedArgs): AppConfig {
-  const file = loadConfigFile(args.config)
+  const file = loadConfig(args.config)
   const env: Partial<AppConfig> = {}
   if (process.env.OPENAI_API_KEY) env.apiKey = process.env.OPENAI_API_KEY
   if (process.env.OPENAI_BASE_URL) env.baseURL = process.env.OPENAI_BASE_URL
   if (process.env.OPENAI_DEFAULT_MODEL)
     env.model = process.env.OPENAI_DEFAULT_MODEL
-  return mergeConfig(file, env, args)
+  return mergeConfigs(file, env, args)
 }

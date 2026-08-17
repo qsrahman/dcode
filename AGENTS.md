@@ -59,7 +59,7 @@ Config is resolved with precedence **CLI > env > file > schema defaults**:
 - CLI flags (`--model`, `--mode`, `--no-stream`, `--no-color`, `--verbose`,
   `--auto`, `--plan`) override the above.
 
-`config/config.ts` holds the pure `mergeConfig` (tested) plus thin `loadConfigFile`
+`config/config.ts` holds the pure `mergeConfigs` (tested) plus thin `loadConfig`
 and `buildConfig` wrappers.
 
 ## Testing
