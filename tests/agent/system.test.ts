@@ -22,4 +22,22 @@ describe('buildSystemPrompt', () => {
     const config = appConfigSchema.parse({})
     expect(buildSystemPrompt(config)).toContain(BASE_SYSTEM_PROMPT)
   })
+
+  const prompt = buildSystemPrompt(appConfigSchema.parse({}))
+
+  it('names the actual read-only tools', () => {
+    expect(prompt).toContain('read_file')
+    expect(prompt).toContain('list_dir')
+    expect(prompt).toContain('grep')
+  })
+
+  it('states the read-only scope accurately', () => {
+    expect(prompt).toContain('read-only')
+    expect(prompt).toContain('cannot modify files')
+  })
+
+  it('does not claim editing/shell/git are available', () => {
+    expect(prompt).not.toContain('reading and editing files')
+    expect(prompt).not.toContain('editing files')
+  })
 })
