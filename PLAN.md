@@ -174,7 +174,8 @@ Keep it thin and testable by splitting into:
 - `handleLine(session, line): Promise<void>` — the core: parse command vs prompt,
   dispatch or run a turn, append to history, trim.
 - `startRepl` — thin `readline` wiring that feeds lines into `handleLine` and writes
-  the prompt.
+  the prompt. Each turn shows a persistent hint (`Ask anything, /help for
+  commands...`) above a `>` prompt.
 Session state lives **module-local in `repl.ts`** (per decision); P3's
 `agent/loop.ts` will own the turn loop and reuse `runTurn`.
 

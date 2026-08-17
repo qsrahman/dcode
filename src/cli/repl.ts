@@ -21,7 +21,8 @@ const HELP = `Slash commands:
 
 // ANSI sequence to clear screen + scrollback and move home.
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
-const PROMPT = ansis.cyan('dcode> ')
+const HINT = ansis.dim('Ask anything, /help for commands...')
+const PROMPT = ansis.cyan('> ')
 
 export interface ReplSession {
   config: AppConfig
@@ -139,15 +140,19 @@ export async function startRepl(
   })
   let busy = false
   let ac = new AbortController()
+  const showPrompt = () => {
+    process.stdout.write(`${HINT}\n`)
+    rl.prompt()
+  }
   rl.on('SIGINT', () => {
     if (busy) {
       ac.abort()
       process.stdout.write('\n(aborted)\n')
     } else {
-      rl.prompt()
+      showPrompt()
     }
   })
-  rl.prompt()
+  showPrompt()
   try {
     for await (const line of rl) {
       busy = true
@@ -155,7 +160,7 @@ export async function startRepl(
       const result = await handleLine(session, line, process.stdout, ac.signal)
       busy = false
       if (result === 'exit') break
-      rl.prompt()
+      showPrompt()
     }
   } finally {
     rl.close()
