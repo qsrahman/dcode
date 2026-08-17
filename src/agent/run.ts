@@ -1,6 +1,7 @@
 import type { Client, ResponseInput } from './client.ts'
 import type { AppConfig } from '../config/schema.ts'
 import { buildSystemPrompt } from './system.ts'
+import { createLogger, type Logger } from '../util/log.ts'
 
 export interface RunSink {
   write(text: string): void
@@ -14,7 +15,9 @@ export async function runOneShot(
   config: AppConfig,
   prompt: string,
   sink: RunSink = process.stdout,
+  logger: Logger = createLogger(config),
 ): Promise<string> {
+  logger.debug('one-shot run start model=%s', config.model)
   const input: ResponseInput = [
     { role: 'system', content: buildSystemPrompt(config) },
     { role: 'user', content: prompt },

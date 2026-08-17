@@ -13,7 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   scope, and that tool output is untrusted data.
 - Diagnostics logger: `util/log.ts` exposes `createLogger(config)` with
   `debug`/`info` (verbose-gated) and `warn`/`error` (always to stderr), colored
-  via the `ansis` dependency. `index.ts` routes the top-level error through it.
+  via the `ansis` dependency. It is the single diagnostics channel: `index.ts`
+  routes arg-parse/config/run errors through it (with a fallback logger so
+  setup failures are never raw stack traces), and `client.ts`/`run.ts` emit
+  `debug` lines for each request/run.
 
 ### Changed
 - Version is read from `package.json` at runtime via `createRequire` instead of

@@ -29,28 +29,28 @@ Flags:
 }
 
 async function main(): Promise<void> {
-  const args = parseCli(process.argv.slice(2))
-  if (args.version) {
-    console.log(`dcode v${VERSION}`)
-    return
-  }
-  if (args.help) {
-    printHelp()
-    return
-  }
-  if (!args.prompt) {
-    console.log('REPL arrives in phase 2. For a one-shot run, pass a prompt:')
-    console.log('  dcode "summarize the README"')
-    return
-  }
-  // Fallback logger (defaults) covers failures during config/logger setup,
-  // which themselves can throw before the real logger exists.
+  // Fallback logger (defaults) covers failures during arg/config parsing,
+  // which can throw before the real logger (built from config) exists.
   let logger = createLogger(appConfigSchema.parse({}))
   try {
+    const args = parseCli(process.argv.slice(2))
+    if (args.version) {
+      console.log(`dcode v${VERSION}`)
+      return
+    }
+    if (args.help) {
+      printHelp()
+      return
+    }
+    if (!args.prompt) {
+      console.log('REPL arrives in phase 2. For a one-shot run, pass a prompt:')
+      console.log('  dcode "summarize the README"')
+      return
+    }
     const config = buildConfig(args)
     logger = createLogger(config)
-    const client = createClient(config)
-    await runOneShot(client, config, args.prompt, process.stdout)
+    const client = createClient(config, logger)
+    await runOneShot(client, config, args.prompt, process.stdout, logger)
   } catch (err) {
     logger.error(err instanceof Error ? err.message : String(err))
     process.exit(1)
