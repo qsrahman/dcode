@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import type {
   Client,
   OpenAIResponse,
@@ -30,7 +31,7 @@ function fakeClientWithCalls(calls: unknown[][]): Client {
 const readTool: Tool = {
   name: 'read_file',
   description: 'reads',
-  parameters: {} as Tool['parameters'],
+  parameters: z.object({}),
   async execute() {
     return 'file contents'
   },

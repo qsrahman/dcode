@@ -9,11 +9,6 @@ export interface RunSink {
   write(text: string): void
 }
 
-export interface RunTurnResult {
-  text: string
-  response: OpenAIResponse
-}
-
 // Universal turn runner shared by one-shot and the REPL. Streams output to
 // `sink` and forwards `signal` so callers (REPL) can abort an in-flight stream
 // (decision L). Returns the full text plus the SDK response (for tool calls).
@@ -25,7 +20,7 @@ export async function runTurn(
   logger: Logger,
   signal?: AbortSignal,
   tools?: ResponsesTool[],
-): Promise<RunTurnResult> {
+): Promise<{ text: string; response: OpenAIResponse }> {
   logger.debug('run turn model=%s', config.model)
   let full = ''
   const stream = client.stream(input, { signal, tools })

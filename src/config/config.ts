@@ -5,6 +5,10 @@ import { appConfigSchema, type AppConfig } from './schema.ts'
 
 const DEFAULT_CONFIG_FILES = ['dcode.json', '.dcode.json']
 
+export function resolveRoot(config: Pick<AppConfig, 'root'>): string {
+  return config.root ?? process.cwd()
+}
+
 // Config is resolved with the precedence CLI > env > file > schema defaults.
 export function loadConfig(path?: string): Partial<AppConfig> {
   const candidates = path ? [path] : DEFAULT_CONFIG_FILES

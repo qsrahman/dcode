@@ -1,5 +1,6 @@
 import type { Client, ResponseInput } from './client.ts'
 import type { AppConfig } from '../config/schema.ts'
+import { resolveRoot } from '../config/config.ts'
 import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
@@ -29,7 +30,7 @@ export async function runAgent(
   const registry = new ToolRegistry()
   for (const t of tools) registry.register(t)
   const ctx: ToolContext = {
-    root: config.root ?? process.cwd(),
+    root: resolveRoot(config),
     config,
     logger: opts.logger,
   }

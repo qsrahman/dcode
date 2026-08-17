@@ -60,7 +60,7 @@ export function zodToJsonSchema(schema: any): JsonSchema {
       additionalProperties: false,
     }
   }
-  return {}
+  throw new Error(`unsupported zod type: ${schema.constructor.name}`)
 }
 
 export function toResponsesTool(tool: Tool): ResponsesTool {

@@ -8,7 +8,6 @@ const permissionsSchema = z.object({
   mode: modeSchema.default('interactive'),
   rules: z.record(z.string(), permissionRuleSchema).default({}),
 })
-export type PermissionsConfig = z.infer<typeof permissionsSchema>
 
 const mcpServerSchema = z.object({
   name: z.string(),

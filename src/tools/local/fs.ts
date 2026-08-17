@@ -76,10 +76,15 @@ async function grepRecursive(target: string, re: RegExp): Promise<string[]> {
   const out: string[] = []
   for (const e of entries) {
     const full = resolve(target, e.name)
-    if (e.isDirectory()) {
+    if (e.isDirectory() && !e.isSymbolicLink()) {
       out.push(...(await grepRecursive(full, re)))
     } else if (e.isFile()) {
-      const content = await readFile(full, 'utf8')
+      let content: string
+      try {
+        content = await readFile(full, 'utf8')
+      } catch {
+        continue
+      }
       content.split('\n').forEach((line, i) => {
         re.lastIndex = 0
         if (re.test(line)) out.push(`${full}:${i + 1}: ${line}`)
