@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `/reset` `/version` `/exit`), capped multi-turn history (decision B), Ctrl-C
   abort of the in-flight stream (decision L), and reuses the `runTurn` turn
   runner from `agent/run.ts`. `/mode` and `/tools` remain deferred (P5/P3).
+- REPL: `/model` with no argument prints the current in-use model; `/model <id>`
+  still switches it.
 
 ### Changed
 - Version is read from package.json at runtime via `createRequire` instead of

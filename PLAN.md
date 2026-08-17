@@ -182,12 +182,12 @@ Session state lives **module-local in `repl.ts`** (per decision); P3's
 `await startRepl(config, logger)`.
 
 ### 10.3 Slash commands
-P2 set: `/help`, `/model <id>`, `/clear`, `/reset`, `/version`, `/exit`.
+P2 set: `/help`, `/model [<id>]`, `/clear`, `/reset`, `/version`, `/exit`.
 - `/clear` — screen-only (decision B): `console.clear()` / ANSI clear; history
   untouched.
 - `/reset` — history back to `[system]`; clears in-session `always` (none yet; P5).
-- `/model` — updates `config.model` for subsequent turns (in-session only;
-  decision J ephemeral).
+- `/model` — with `<id>` updates `config.model` for subsequent turns (in-session
+  only; decision J ephemeral); with no argument prints the current model.
 - `/version` — `dcode v{getVersion()}`.
 - **Deferred:** `/mode` → P5 (permissions, inert without tools); `/tools` → P3 (no
   tools to list yet).

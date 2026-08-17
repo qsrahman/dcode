@@ -56,8 +56,9 @@ dcode                                                # REPL
 
 `/help` `/model` `/clear` `/reset` `/version` `/exit`
 
-(`/clear` clears the screen; `/reset` drops the conversation history. `/mode`
-and `/tools` arrive with permissions (P5) and tools (P3) respectively.)
+(`/clear` clears the screen; `/reset` drops the conversation history. `/model`
+with no argument prints the current model; `/model <id>` switches it. `/mode` and
+`/tools` arrive with permissions (P5) and tools (P3) respectively.)
 
 ## Configuration (`dcode.json`)
 
