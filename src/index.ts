@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --env-file-if-exists=.env
 import { parseCli } from './cli/args.ts'
 import { buildConfig } from './config/config.ts'
 import { createModelClient } from './agent/client.ts'
