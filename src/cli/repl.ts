@@ -15,7 +15,7 @@ const HELP = `Slash commands:
   /clear    clear the screen
   /exit     quit
   /help     show this help
-  /model    set model: /model <id>
+  /model    show/set model: /model <id>
   /reset    clear the conversation
   /version  print version`
 
@@ -72,7 +72,7 @@ function dispatch(
     case 'model': {
       const id = cmd.args.trim()
       if (!id) {
-        sink.write('usage: /model <id>\n')
+        sink.write(`model: ${session.config.model}\n`)
         return 'ok'
       }
       session.config.model = id

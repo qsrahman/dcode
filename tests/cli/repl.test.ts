@@ -91,11 +91,11 @@ describe('handleLine commands', () => {
     expect(s.config.model).toBe('gpt-x')
     expect(out.join('')).toBe('model set to gpt-x\n')
   })
-  it('/model with no args prints usage', async () => {
+  it('/model with no args prints the current model', async () => {
     const s = makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/model', sink)
-    expect(out.join('')).toContain('usage: /model')
+    expect(out.join('')).toContain('model: gpt-5')
   })
   it('/reset drops the conversation', async () => {
     const s = makeSession()
