@@ -130,7 +130,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 |-------|-------|--------|
 | P0 | Scaffold & tooling (this document set) | **Done** |
 | P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
-| P2 | REPL + slash commands + streaming in REPL | Next |
+| P2 | REPL + slash commands + streaming in REPL | **Specified** — see §10 |
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | |
 | P4 | Mutating local tools (write/edit/shell/git) | |
 | P5 | Declarative permissions + modes | |
@@ -144,3 +144,86 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 - Mock external boundaries (OpenAI client, `child_process`, `fs` side effects).
 - For colored output, assert against `ansis.strip(...)`.
 - `tsc --noEmit` and `pnpm format:check` gate every commit.
+
+## 10. P2 Specification (REPL)
+
+Status: **Specified** — implementation pending. This section is the authoritative
+P2 design; implement it as code + tests + docs + a focused commit.
+
+### 10.1 Scope
+Make `dcode` interactive: a REPL when no prompt is given, streaming model output,
+and slash commands. **Out of scope for P2:** tools, permissions, MCP (P3+). P2 must
+(a) make `dcode` interactive, (b) establish multi-turn history, and (c) lay a clean
+foundation so P3's loop slots in without rework.
+
+### 10.2 Module changes
+
+**`src/agent/run.ts` — universal turn runner.**
+- Add `runTurn(client, config, input: ResponseInput, sink, logger): Promise<string>`.
+  Picks `complete` vs `stream` from `config.stream`, writes deltas / full text to
+  `sink`, returns the full text, and forwards `opts.signal` (decision L).
+- `runOneShot(client, config, prompt, sink, logger)` becomes a thin wrapper that
+  builds `[system, user]` and calls `runTurn`. Existing `run.test.ts` stays green.
+- P3 will add `runTool(input)` — the per-tool execution primitive (policy-gated in
+  P5) — to this same module, so agent execution is centralized in `agent/run.ts`.
+
+**`src/cli/repl.ts` (new) — `startRepl(config, logger)`.**
+Keep it thin and testable by splitting into:
+- A module-local `ReplSession` = `{ config, client, logger, history: ResponseInput }`,
+  where `history[0]` is the system message from `buildSystemPrompt(config)`.
+- `handleLine(session, line): Promise<void>` — the core: parse command vs prompt,
+  dispatch or run a turn, append to history, trim.
+- `startRepl` — thin `readline` wiring that feeds lines into `handleLine` and writes
+  the prompt.
+Session state lives **module-local in `repl.ts`** (per decision); P3's
+`agent/loop.ts` will own the turn loop and reuse `runTurn`.
+
+**`src/index.ts`** — replace the "REPL arrives in phase 2" placeholder with
+`await startRepl(config, logger)`.
+
+### 10.3 Slash commands
+P2 set: `/help`, `/model <id>`, `/clear`, `/reset`, `/version`, `/exit`.
+- `/clear` — screen-only (decision B): `console.clear()` / ANSI clear; history
+  untouched.
+- `/reset` — history back to `[system]`; clears in-session `always` (none yet; P5).
+- `/model` — updates `config.model` for subsequent turns (in-session only;
+  decision J ephemeral).
+- `/version` — `dcode v{getVersion()}`.
+- **Deferred:** `/mode` → P5 (permissions, inert without tools); `/tools` → P3 (no
+  tools to list yet).
+
+### 10.4 Streaming, history, cancel, errors
+- **History cap (decision B):** `trimHistory(history, config.maxHistoryItems)` keeps
+  `history[0]` (system) and the last N items; trims oldest user/assistant. Stored as
+  a plain `ResponseInput` array, so P3 tool-call / tool-output items drop in later.
+- **Ctrl-C (decision L):** `readline` `'SIGINT'` aborts the in-flight
+  `AbortController` → `runTurn`'s signal → stream aborts → caught, logged
+  `[warn] aborted`, returns to prompt. Process must NOT exit. (Shell-child SIGTERM is
+  P4.)
+- **Per-turn errors:** caught per turn, `logger.error(...)`, session continues
+  (one-shot exits; REPL does not).
+- **`--no-stream`:** respected in REPL via `config.stream`.
+
+### 10.5 Output / color
+Streamed model text → `process.stdout` (reserved channel). REPL prompt colored via
+`ansis`. Rendering stays minimal in P2 (no `ui/render.ts` TUI); that module earns its
+place at P3 for tool-status lines. A tiny `ui/prompt.ts` for the prompt string is
+optional.
+
+### 10.6 Multi-line input
+Deferred to a later phase (single-line in P2).
+
+### 10.7 Tests (`tests/cli/repl.test.ts`)
+Mirror the split so `readline` I/O is the only untested seam:
+- Pure / fast: `parseCommand`, `trimHistory` (cap behavior), `dispatch` for
+  `/model` / `/reset` / `/clear` (assert session state + returned strings).
+- Smoke: mock `node:readline` (`vi.mock`) to emit `'line'` events; assert streamed
+  output + command effects using a `fakeClient` like the existing run tests.
+- Keep `run.test.ts` green (don't break `runOneShot` signature).
+
+### 10.8 Files touched
+- New: `src/cli/repl.ts`, `tests/cli/repl.test.ts`
+- Modify: `src/agent/run.ts` (add `runTurn`), `src/index.ts` (call `startRepl`)
+- Optional: `src/ui/prompt.ts`
+- Docs after merge: this section (mark P2 done), CHANGELOG (Unreleased → Added:
+  REPL), README (REPL usage)
