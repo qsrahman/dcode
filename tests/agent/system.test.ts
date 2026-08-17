@@ -30,6 +30,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('list_dir')
     expect(prompt).toContain('grep')
     expect(prompt).toContain('stat')
+    expect(prompt).toContain('glob')
   })
 
   it('states the read-only scope accurately', () => {

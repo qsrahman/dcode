@@ -66,6 +66,29 @@ describe('fs tools', () => {
     )
   })
 
+  it('glob matches recursively with **', async () => {
+    await writeFile(join(root, 'a.ts'), 'x')
+    await mkdir(join(root, 'sub'))
+    await writeFile(join(root, 'sub', 'b.ts'), 'x')
+    await writeFile(join(root, 'sub', 'c.js'), 'x')
+    const out = await tool('glob').execute({ pattern: '**/*.ts' }, ctx)
+    expect(out).toContain('a.ts')
+    expect(out).toContain('sub/b.ts')
+    expect(out).not.toContain('sub/c.js')
+  })
+
+  it('glob scopes to a directory prefix', async () => {
+    await mkdir(join(root, 'sub'))
+    await writeFile(join(root, 'sub', 'b.ts'), 'x')
+    const out = await tool('glob').execute({ pattern: 'sub/**' }, ctx)
+    expect(out).toContain('sub/b.ts')
+  })
+
+  it('glob returns (no matches) when nothing matches', async () => {
+    const out = await tool('glob').execute({ pattern: '**/*.zzz' }, ctx)
+    expect(out).toBe('(no matches)')
+  })
+
   it('read_file reports a missing file clearly', async () => {
     await expect(
       tool('read_file').execute({ path: 'nope.txt' }, ctx),

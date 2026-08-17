@@ -8,6 +8,7 @@ You have read-only tools to explore the working directory:
 - list_dir: list a directory's entries; defaults to the working directory root (argument: path, optional).
 - grep: search file contents for a regular expression (arguments: pattern, path optional).
 - stat: report type, size, and modification time of a file or directory (argument: path, optional).
+- glob: list files matching a glob pattern, e.g. **/*.ts (argument: pattern).
 
 Rules:
 - Operate only within the working directory; pass paths relative to it.

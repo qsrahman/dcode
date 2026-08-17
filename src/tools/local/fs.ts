@@ -1,10 +1,10 @@
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { resolve, sep } from 'node:path'
+import { resolve, relative, sep } from 'node:path'
 import { z } from 'zod'
 import type { Tool, ToolContext } from '../../agent/types.ts'
 
 export function createFsTools(): Tool[] {
-  return [readFileTool(), listDirTool(), grepTool(), statTool()]
+  return [readFileTool(), listDirTool(), grepTool(), statTool(), globTool()]
 }
 
 function resolvePath(root: string, p: string): string {
@@ -137,6 +137,81 @@ function statTool(): Tool {
         `modified: ${info.mtime.toISOString()}`,
       ].join('\n')
     },
+  }
+}
+
+function globTool(): Tool {
+  return {
+    name: 'glob',
+    description:
+      'List files matching a glob pattern under the working directory. Recursive; `**` matches any number of directories.',
+    parameters: z.object({
+      pattern: z
+        .string()
+        .describe('Glob pattern, e.g. "**/*.ts" or "src/**/*.ts"'),
+    }),
+    async execute(args: unknown, ctx: ToolContext) {
+      const { pattern } = args as { pattern: string }
+      let re: RegExp
+      try {
+        re = globToRegExp(pattern)
+      } catch {
+        throw new Error(`invalid glob pattern: ${pattern}`)
+      }
+      const matches: string[] = []
+      await globWalk(ctx.root, ctx.root, re, matches)
+      matches.sort()
+      return matches.join('\n') || '(no matches)'
+    },
+  }
+}
+
+// Minimal glob -> RegExp: `*` matches within a path segment, `?` a single char,
+// `**` matches any number of directories (including none). The project has no
+// glob dependency, so this covers the patterns the agent needs.
+function globToRegExp(glob: string): RegExp {
+  let re = '^'
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob.charAt(i)
+    if (c === '*') {
+      if (glob[i + 1] === '*') {
+        i++
+        re += '.*'
+        if (glob[i + 1] === '/') i++
+      } else {
+        re += '[^/]*'
+      }
+    } else if (c === '?') {
+      re += '[^/]'
+    } else if (c === '.') {
+      re += '\\.'
+    } else if ('+^${}()|[]\\'.includes(c)) {
+      re += '\\' + c
+    } else {
+      re += c
+    }
+  }
+  return new RegExp(re + '$')
+}
+
+async function globWalk(
+  root: string,
+  dir: string,
+  re: RegExp,
+  out: string[],
+): Promise<void> {
+  let entries
+  try {
+    entries = await readdir(dir, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const e of entries) {
+    const full = resolve(dir, e.name)
+    if (re.test(relative(root, full))) out.push(relative(root, full))
+    if (e.isDirectory() && !e.isSymbolicLink()) {
+      await globWalk(root, full, re, out)
+    }
   }
 }
 

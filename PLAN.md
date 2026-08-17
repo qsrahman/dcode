@@ -62,7 +62,7 @@ src/
   agent/loop.ts       # runTurn: stream -> collect tool calls -> execute -> feed back
   agent/types.ts      # Tool, ToolResult, AgentInput
   tools/registry.ts   # register/list/get; zod->JSON-schema for Responses defs
-  tools/local/fs.ts   # read_file, list_dir, grep, stat     (read-only)
+  tools/local/fs.ts   # read_file, list_dir, grep, stat, glob (read-only)
   tools/local/write.ts# write_file, edit_file                (mutating)
   tools/local/shell.ts# run shell command                   (mutating)
   tools/local/git.ts  # status/diff/log (+ add/commit)       (mixed)
@@ -237,7 +237,7 @@ focused commit.
 
 ### 11.1 Scope
 - **In:** tool types + registry, zod→JSON-schema conversion, three read-only
-  tools (`read_file`, `list_dir`, `grep`, `stat`), the async agent loop (parallel
+  tools (`read_file`, `list_dir`, `grep`, `stat`, `glob`), the async agent loop (parallel
   read-only execution, capped, error-fed), tool-status rendering, and the
   `/tools` command (deferred from P2).
 - **Out:** mutating tools (`write_file`/`edit_file`/`shell`/`git`) → P4;
@@ -276,7 +276,7 @@ focused commit.
 - **`agent/types.ts` (new).** `Tool`, `ToolCall`, `ToolContext`, `ToolResult`.
 - **`tools/registry.ts` (new).** `register`/`get`/`list` + `toResponsesTool(tool)`
   (zod → JSON Schema). Returns `OpenAI.Responses.Tool[]` for the client.
-- **`tools/local/fs.ts` (new).** `read_file`, `list_dir`, `grep`, `stat`; path-confined
+- **`tools/local/fs.ts` (new).** `read_file`, `list_dir`, `grep`, `stat`, `glob`; path-confined
   to `config.root`.
 - **`ui/render.ts` (new).** `renderToolResult(name, ok, ms)` → status lines.
 - **`cli/repl.ts`.** Add `/tools` dispatch (lists registered tools).
@@ -336,6 +336,7 @@ dependency). Use **`strict: false`** on the generated schemas.
 - `list_dir(path)` — list a directory under `root`.
 - `grep(pattern, path?)` — search file contents under `root`.
 - `stat(path?)` — report type/size/mtime of a file or directory under `root`.
+- `glob(pattern)` — list files matching a glob pattern (`**` recursive) under `root`.
 All results truncated to `config.maxToolOutputBytes` with a note (decision F).
 Tool output is untrusted data (decision H).
 
