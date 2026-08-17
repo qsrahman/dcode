@@ -21,11 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   module-local `ReplSession`, slash commands (`/help` `/model` `/clear`
   `/reset` `/version` `/exit`), capped multi-turn history (decision B), Ctrl-C
   abort of the in-flight stream (decision L), and reuses the `runTurn` turn
-  runner from `agent/run.ts`. `/mode` and `/tools` remain deferred (P5/P3).
+  runner from `agent/run.ts`. `/mode` remains deferred (P5).
 - REPL: `/model` with no argument prints the current in-use model; `/model <id>`
   still switches it.
 - REPL prompt now shows a persistent `Ask anything, /help for commands...` hint
   above a `>` prompt on each turn.
+- Tools + agent loop (P3): `tools/` defines read-only tools (`read_file`,
+  `list_dir`, `grep`) confined to `root`, a `ToolRegistry`, and a hand-rolled
+  zod→JSON-Schema converter (`strict: false`, no new dependency). `agent/loop.ts`
+  runs the agentic loop — stream, execute tool calls in parallel, feed results
+  back, repeat up to `maxToolIterations` — while `agent/run.ts#runTool` applies
+  `toolTimeout` and truncates output to `maxToolOutputBytes`. `/tools` lists
+  available tools in the REPL.
 
 ### Changed
 - Version is read from package.json at runtime via `createRequire` instead of

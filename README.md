@@ -3,9 +3,9 @@
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
 
-> Status: **P2 complete** — one-shot and the interactive REPL both work.
-> Tools, permissions, and MCP land in P3+. See [PLAN.md](./PLAN.md) for the
-> full roadmap.
+> Status: **P3 complete** — one-shot, the interactive REPL, and the tool-using
+> agent loop (read-only tools) all work. Permissions and mutating tools land in
+> P4/P5. See [PLAN.md](./PLAN.md) for the full roadmap.
 
 ## Requirements
 
@@ -53,11 +53,27 @@ dcode                                                # REPL
 
 ### REPL slash commands
 
-`/help` `/model` `/clear` `/reset` `/version` `/exit`
+`/help` `/model` `/tools` `/clear` `/reset` `/version` `/exit`
 
 (`/clear` clears the screen; `/reset` drops the conversation history. `/model`
-with no argument prints the current model; `/model <id>` switches it. `/mode` and
-`/tools` arrive with permissions (P5) and tools (P3) respectively.)
+with no argument prints the current model; `/model <id>` switches it. `/tools`
+lists the tools the agent can call.)
+
+### Tools (read-only, P3)
+
+The agent can call a small set of read-only tools, confined to the working
+directory (`root`). Tool calls are executed in parallel, their results fed back
+to the model, and the loop repeats up to `maxToolIterations` (default 16).
+
+| Tool | Purpose |
+|------|---------|
+| `read_file` | Read a UTF-8 text file under the working directory. |
+| `list_dir` | List a directory under the working directory. |
+| `grep` | Search file contents for a regular expression. |
+
+Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
+(default 32 KiB), and tool errors are returned to the model so it can
+self-correct.
 
 ## Configuration (`dcode.json`)
 
@@ -95,7 +111,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 | P0 | Scaffold & tooling |
 | P1 | Config + OpenAI client + one-shot |
 | P2 | REPL + slash commands | **Done** |
-| P3 | Tool core + read-only tools + async loop |
+| P3 | Tool core + read-only tools + async loop | **Done** |
 | P4 | Mutating local tools |
 | P5 | Declarative permissions + modes |
 | P6 | MCP integration |

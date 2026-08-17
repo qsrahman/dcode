@@ -5,7 +5,8 @@ import { startRepl } from './cli/repl.ts'
 import { buildConfig } from './config/config.ts'
 import { appConfigSchema } from './config/schema.ts'
 import { createClient } from './agent/client.ts'
-import { runOneShot } from './agent/run.ts'
+import { runOneShot } from './agent/loop.ts'
+import { createLocalTools } from './tools/index.ts'
 import { createLogger, errorMessage } from './util/log.ts'
 import { getVersion } from './version.ts'
 
@@ -44,12 +45,13 @@ async function main(): Promise<void> {
     }
     const config = buildConfig(args)
     logger = createLogger(config)
+    const tools = createLocalTools()
     if (!args.prompt) {
       await startRepl(config, logger)
       return
     }
     const client = createClient(config, logger)
-    await runOneShot(client, config, args.prompt, process.stdout, logger)
+    await runOneShot(client, config, args.prompt, process.stdout, logger, tools)
   } catch (err) {
     logger.error(errorMessage(err))
     process.exit(1)

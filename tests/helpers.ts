@@ -1,18 +1,27 @@
 import { appConfigSchema, type AppConfig } from '../src/config/schema.ts'
-import type { Client } from '../src/agent/client.ts'
+import type { Client, OpenAIResponse } from '../src/agent/client.ts'
 
 export function cfg(over: Partial<AppConfig> = {}): AppConfig {
   return appConfigSchema.parse(over)
 }
 
-export function fakeClient(text: string, split = false): Client {
+export function fakeClient(
+  text: string,
+  split = false,
+  output: unknown[] = [],
+): Client {
   return {
-    async *stream() {
-      if (split) {
-        yield text.slice(0, 5)
-        yield text.slice(5)
-      } else {
-        yield text
+    stream() {
+      return {
+        async *[Symbol.asyncIterator]() {
+          if (split) {
+            yield text.slice(0, 5)
+            yield text.slice(5)
+          } else {
+            yield text
+          }
+        },
+        finalResponse: async () => ({ output }) as unknown as OpenAIResponse,
       }
     },
   }

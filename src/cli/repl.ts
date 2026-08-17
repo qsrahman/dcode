@@ -4,7 +4,9 @@ import type { AppConfig } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
 import type { ResponseInput } from '../agent/client.ts'
 import { buildSystemPrompt } from '../agent/system.ts'
-import { runTurn, type RunSink } from '../agent/run.ts'
+import { runAgent } from '../agent/loop.ts'
+import { createLocalTools } from '../tools/index.ts'
+import type { RunSink } from '../agent/run.ts'
 import { type Logger, errorMessage } from '../util/log.ts'
 import {
   type Session,
@@ -13,7 +15,7 @@ import {
   parseCommand,
 } from './commands.ts'
 
-const HINT = 'Ask anything, /help for commands...'
+const HINT = '\nAsk anything, /help for commands...'
 const PROMPT = ansis.cyan('> ')
 
 export function createSession(config: AppConfig, logger: Logger): Session {
@@ -22,6 +24,7 @@ export function createSession(config: AppConfig, logger: Logger): Session {
     logger,
     client: createClient(config, logger),
     history: [{ role: 'system', content: buildSystemPrompt(config) }],
+    tools: createLocalTools(),
   }
 }
 
@@ -44,15 +47,12 @@ export async function handleLine(
 
   session.history.push({ role: 'user', content: trimmed })
   try {
-    const text = await runTurn(
-      session.client,
-      session.config,
-      session.history,
+    await runAgent(session.client, session.config, session.history, {
       sink,
-      session.logger,
+      logger: session.logger,
       signal,
-    )
-    session.history.push({ role: 'assistant', content: text })
+      tools: session.tools,
+    })
     trimHistory(session.history, session.config.maxHistoryItems)
   } catch (err) {
     if (signal?.aborted) {

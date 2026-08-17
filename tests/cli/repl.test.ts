@@ -72,7 +72,7 @@ describe('handleLine commands', () => {
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/model gpt-x', sink)).toBe('ok')
     expect(s.config.model).toBe('gpt-x')
-    expect(out.join('')).toBe('model set to gpt-x\n\n')
+    expect(out.join('')).toBe('model set to gpt-x\n')
   })
   it('/model with no args prints the current model', async () => {
     const s = makeSession()
@@ -86,7 +86,7 @@ describe('handleLine commands', () => {
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/reset', sink)).toBe('ok')
     expect(s.history.length).toBe(1)
-    expect(out.join('')).toBe('session reset\n\n')
+    expect(out.join('')).toBe('session reset\n')
   })
   it('unknown command is reported', async () => {
     const s = makeSession()
@@ -143,9 +143,12 @@ vi.mock('node:readline', () => ({
 
 vi.mock('../../src/agent/client.ts', () => ({
   createClient: () => ({
-    async *stream() {
-      yield 'streamed'
-    },
+    stream: () => ({
+      async *[Symbol.asyncIterator]() {
+        yield 'streamed'
+      },
+      finalResponse: async () => ({ output: [] }),
+    }),
   }),
 }))
 

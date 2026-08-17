@@ -131,7 +131,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 | P0 | Scaffold & tooling (this document set) | **Done** |
 | P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
 | P2 | REPL + slash commands + streaming in REPL | **Done** |
-| P3 | Tool core + read-only tools + async loop (parallel read-only) | **Specified** — see §11 |
+| P3 | Tool core + read-only tools + async loop (parallel read-only) | **Done** |
 | P4 | Mutating local tools (write/edit/shell/git) | |
 | P5 | Declarative permissions + modes | |
 | P6 | MCP integration | |
@@ -228,7 +228,7 @@ Mirror the split so `readline` I/O is the only untested seam:
 - Docs after merge: this section (mark P2 done), CHANGELOG (Unreleased → Added:
   REPL), README (REPL usage)
 
-## 11. P3 Specification (Tool core + read-only tools + async loop)
+## 11. P3 Specification (Tool core + read-only tools + async loop) — implemented
 
 Status: **Specified** — implementation pending. This section is the authoritative
 P3 design, grounded in research of the OpenAI Responses API and the `openai-node`
