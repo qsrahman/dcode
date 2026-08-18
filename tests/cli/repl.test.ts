@@ -147,7 +147,7 @@ vi.mock('../../src/agent/client.ts', () => ({
       async *[Symbol.asyncIterator]() {
         yield 'streamed'
       },
-      finalResponse: async () => ({ output: [] }),
+      finalResponse: async () => ({ output: [], output_text: 'streamed' }),
     }),
   }),
 }))

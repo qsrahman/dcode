@@ -21,7 +21,8 @@ export function fakeClient(
             yield text
           }
         },
-        finalResponse: async () => ({ output }) as unknown as OpenAIResponse,
+        finalResponse: async () =>
+          ({ output, output_text: text }) as unknown as OpenAIResponse,
       }
     },
   }

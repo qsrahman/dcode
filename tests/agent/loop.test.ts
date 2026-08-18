@@ -15,14 +15,15 @@ function fakeClientWithCalls(calls: unknown[][]): Client {
   let turn = 0
   return {
     stream() {
+      const text = `turn ${turn}`
       return {
         async *[Symbol.asyncIterator]() {
-          yield `turn ${turn}`
+          yield text
         },
         finalResponse: async () => {
           const output = calls[turn] ?? []
           turn++
-          return { output } as unknown as OpenAIResponse
+          return { output, output_text: text } as unknown as OpenAIResponse
         },
       }
     },
@@ -91,6 +92,7 @@ describe('runAgent', () => {
                   arguments: '{}',
                 },
               ],
+              output_text: 'loop',
             }) as unknown as OpenAIResponse,
         }
       },

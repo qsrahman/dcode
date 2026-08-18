@@ -11,7 +11,9 @@ export interface RunSink {
 
 // Universal turn runner shared by one-shot and the REPL. Streams output to
 // `sink` and forwards `signal` so callers (REPL) can abort an in-flight stream
-// (decision L). Returns the full text plus the SDK response (for tool calls).
+// (decision L). Returns the SDK's own aggregated text (Response.output_text)
+// plus the full response (for tool calls) — the delta loop below exists only
+// to render output live, not to reconstruct the final text.
 export async function runTurn(
   client: Client,
   config: AppConfig,
@@ -22,15 +24,13 @@ export async function runTurn(
   tools?: ResponsesTool[],
 ): Promise<{ text: string; response: OpenAIResponse }> {
   logger.debug('run turn model=%s', config.model)
-  let full = ''
   const stream = client.stream(input, { signal, tools })
   for await (const delta of stream) {
-    full += delta
     sink.write(delta)
   }
-  if (full) sink.write('\n')
   const response = await stream.finalResponse()
-  return { text: full, response }
+  if (response.output_text) sink.write('\n')
+  return { text: response.output_text, response }
 }
 
 // Execute a single tool call with a per-tool timeout (decision: toolTimeout
