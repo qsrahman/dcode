@@ -4,8 +4,9 @@ Product Requirements Document for **dcode**, a CLI-based AI coding agent built o
 the OpenAI Responses SDK.
 
 Status: **P4 complete** (mutating local tools + harness gate); P5
-(declarative permissions + modes) is next. Phases
-advance one at a time; each lands as code + tests + docs + a focused commit.
+(declarative permissions + modes) is **specified** — decisions locked, see
+§13. Phases advance one at a time; each lands as code + tests + docs + a focused
+commit.
 This document is the source of truth for features, architecture, and
 conventions — keep it in sync after every phase.
 
@@ -93,13 +94,19 @@ src/
 ### Permission model
 
 Declarative, harness-enforced. A policy maps tool names to `allow` / `deny` /
-`ask`. Three modes:
+`ask`. Modes set the baseline; rules override per tool. **Locked decisions
+(full spec in §13):** evaluation is **first match, deny → ask → allow**; an
+explicit rule always beats the mode baseline (a `deny` rule blocks even in
+`auto`); `ask` with no interactive prompt (one-shot/piped) resolves to **deny**;
+a `deny` rule may also hide the tool from the model's tool list. Four modes:
 
 - `interactive` (default): read-only auto-allowed; mutating prompts `y/n/a`.
-- `auto`: mutating auto-approved.
+- `auto`: mutating auto-approved (subject to deny rules).
 - `plan`: mutating denied; read-only only.
+- `dontAsk`: deny anything not explicitly allowed — the right mode for one-shot
+  / CI; `ask` rules become denials rather than prompts.
 
-`a` (always) approves a single tool for the rest of the session (cleared by
+`a` (always) approves a **single tool** for the rest of the session (cleared by
 `/reset`); it never persists to disk.
 
 ## 6. Locked decisions
@@ -139,7 +146,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 | P2 | REPL + slash commands + streaming in REPL | **Done** |
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | **Done** |
  | P4 | Mutating local tools (write_file/edit_file/run_shell) + harness gate | **Done** — see §12 |
-| P5 | Declarative permissions + modes | |
+ | P5 | Declarative permissions + modes | **Specified** — see §13 |
 | P6 | MCP integration | |
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | |
 
@@ -496,3 +503,108 @@ read-only calls (parallel) from mutating ones (sequential, each gated), keeping
 original call order in history. `Session` carries the gate; `/tools` annotates
 mutating entries with ` *`. Covered by `tests/tools/mutate.test.ts` and loop
 gating/ordering tests.
+
+## 13. P5 Specification (Declarative permissions + modes) — specified
+
+Builds on the P4 gate seam (`src/agent/gate.ts`). Plugs a declarative policy
+(`config.permissions`, already in `config/schema.ts`) into the `Gate` so tool
+calls are resolved by mode + rules instead of a fixed deny/confirm behavior.
+**Inspired by** Claude Code (tiered mode/rules, first-match
+deny→ask→allow, deny strongest, `dontAsk` for CI), OpenCode (tool-keyed
+`permission` with wildcards), and Pi (capability-based "tool doesn't exist" as
+the strongest guarantee — applied here as hiding denied tools from the model).
+
+### 13.1 Scope
+- Declarative policy evaluation: `evaluate(tool, call, mode, rules, session) ->
+  'allow' | 'deny' | 'ask'`.
+- Four modes: `interactive` (default), `auto`, `plan`, `dontAsk`.
+- Per-tool rules (`allow`/`deny`/`ask`) keyed by exact tool name plus a single
+  `*` wildcard; no argument/command specifiers in P5.
+- Wire the policy into the existing `Gate` at the REPL and one-shot call sites;
+  add `/mode` command and make `/reset` also clear in-session approvals.
+- In-session `a` (always) approval is per-tool and session-scoped.
+
+### 13.2 Locked decisions (from research review)
+1. **Rule keys** — exact tool name (`write_file`, `run_shell`, …) plus a `*`
+   catch-all. No path/command specifiers this phase (tool-level only).
+2. **`a` scope** — per-tool (only that tool, rest of session), cleared by
+   `/reset`. Matches decision E; not durable/project-scoped.
+3. **Rules beat mode** — an explicit rule always wins over the mode baseline.
+   A `deny` rule blocks even in `auto`/`dontAsk`. (Claude Code: "Deny rules
+   block in every mode, including `bypassPermissions`.")
+4. **`ask` with no TTY** — resolves to **deny** (one-shot/piped has no prompt).
+   One-shot therefore behaves like `dontAsk`: only `allow` rules / `auto` mode
+   let mutating calls through.
+5. **`/mode` persistence** — in-session only (ephemeral, like `a`); config files
+   stay user-edited.
+6. **Argument-aware rules** — out of scope for P5 (tool-level only).
+7. **`deny` can block reads** — a `deny` rule is honored for any tool (incl.
+   read-only); `allow`/`ask` on a read-only tool are no-ops since reads are
+   already allowed.
+8. **`dontAsk` mode (new)** — deny anything not explicitly `allow`; `ask` rules
+   become denials rather than prompts. The mode for one-shot / CI.
+9. **Hide denied tools** — when a tool is `deny`-ruled, also drop it from the
+   Responses tool list sent to the model (Pi's "incapable" idea, applied
+   surgically). Read-only tools stay available unless explicitly denied.
+
+### 13.3 Evaluation algorithm (`evaluate`)
+Order, per tool call:
+1. **Explicit rule** for the tool name (or `*`): if `deny` → `deny`; if `ask` →
+   `ask`; if `allow` → `allow`. First match wins; specificity does not reorder.
+2. **No rule** → mode baseline:
+   - `interactive` → `ask` (for mutating); reads → `allow`.
+   - `auto` → `allow` (mutating included); reads → `allow`.
+   - `plan` → `deny` (mutating); reads → `allow`.
+   - `dontAsk` → `deny` (mutating and anything not explicitly allowed);
+     reads → `allow` unless a `deny` rule says otherwise.
+3. **In-session `a`** — a prior `a` on this tool upgrades the result to `allow`
+   for the rest of the session (does not override an explicit `deny` rule).
+Read-only tools (`read_file`, `list_dir`, `grep`, `stat`, `glob`) short-circuit
+to `allow` before step 1 unless a `deny` rule targets them (decision 7).
+
+### 13.4 Module changes
+- `permissions/policy.ts` (new): pure `evaluate(...)` + `resolveGate(ctx)` that
+  returns a `Gate` from `(config, sessionState, ask)`.
+- `permissions/harness.ts` (new): glue — `evaluate` → `allow`⇒`true`,
+  `deny`⇒`false`, `ask`⇒ injected `askPermission` (REPL) → `y`/`a`⇒`true`,
+  `n`⇒`false`; `a` records per-tool session approval. Used by both REPL and
+  one-shot; one-shot injects an `ask` that returns `n`.
+- `ui/prompt.ts` (new): `askPermission(tool, call): Promise<'y'|'n'|'a'>`
+  (REPL wires to readline; one-shot injects a no-op returning `n`).
+- `src/tools/registry.ts` or `src/agent/loop.ts`: filter `toResponsesTools()`
+  to exclude tools whose policy resolves to `deny` for the active session
+  (decision 9).
+- `src/cli/repl.ts` / `src/cli/commands.ts`: build the policy gate; add `/mode`
+  (get/set `session.config.permissions.mode`); `/reset` clears in-session
+  approvals. `Session` gains `approvals: Set<string>`.
+- `src/agent/loop.ts` / `src/index.ts`: pass the policy gate (not the P4
+  deny/confirm gates) into `runAgent` / `runOneShot`.
+
+### 13.5 Slash commands
+- `/mode` — print current mode; `/mode <interactive|auto|plan|dontAsk>` sets it
+  in-session.
+- `/reset` — history back to `[system]` **and** clears in-session `a`
+  approvals.
+- `/tools` — already annotates mutating with ` *`; may also show each tool's
+  effective policy (optional).
+
+### 13.6 Tests
+- `tests/permissions/policy.test.ts`: pure `evaluate` across mode × rule ×
+  read-only/mutating × in-session `a` × `*` wildcard.
+- `tests/permissions/harness.test.ts`: `ask`→`y`/`n`/`a` mapping; `a` persists
+  per-tool; one-shot `ask`→deny; `*` wildcard; `deny` hides tool from schema.
+- `tests/cli/repl.test.ts`: `/mode` get/set; `/reset` clears approvals.
+
+### 13.7 Files touched
+`permissions/policy.ts` (new), `permissions/harness.ts` (new), `ui/prompt.ts`
+(new), `src/tools/registry.ts` (or `src/agent/loop.ts`), `src/cli/repl.ts`,
+`src/cli/commands.ts`, `src/agent/loop.ts`, `src/index.ts`, `README.md`,
+`CHANGELOG.md`. Version → `0.4.0` on completion.
+
+### 13.8 Out of scope
+Argument/command specifiers (`run_shell(rm *)`), durable/project-scoped
+approvals, hooks, sandboxing, managed/enterprise policy layers. Revisit in P7 if
+needed.
+
+### 13.9 Status
+**Specified** — decisions locked; not yet implemented.
