@@ -1,25 +1,25 @@
 import { z } from 'zod'
-import type { Tool } from '../agent/types.ts'
+import type { ToolDefinition } from '../agent/types.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
 
 export class ToolRegistry {
-  private tools = new Map<string, Tool>()
+  private tools = new Map<string, ToolDefinition>()
   private responsesCache?: ResponsesTool[]
 
-  constructor(tools: Tool[] = []) {
+  constructor(tools: ToolDefinition[] = []) {
     for (const t of tools) this.register(t)
   }
 
-  register(tool: Tool): void {
+  register(tool: ToolDefinition): void {
     this.tools.set(tool.name, tool)
     this.responsesCache = undefined
   }
 
-  get(name: string): Tool | undefined {
+  get(name: string): ToolDefinition | undefined {
     return this.tools.get(name)
   }
 
-  list(): Tool[] {
+  list(): ToolDefinition[] {
     return [...this.tools.values()]
   }
 
@@ -35,7 +35,7 @@ export class ToolRegistry {
 
 // zod v4's built-in converter emits a JSON Schema (draft 2020-12) that the
 // Responses API accepts; strict:false keeps arg parsing lenient.
-export function toResponsesTool(tool: Tool): ResponsesTool {
+export function toResponsesTool(tool: ToolDefinition): ResponsesTool {
   return {
     type: 'function',
     name: tool.name,

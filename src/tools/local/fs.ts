@@ -2,9 +2,9 @@ import { readFile, readdir, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { resolve, relative, sep } from 'node:path'
 import { z } from 'zod'
-import type { Tool, ToolContext } from '../../agent/types.ts'
+import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 
-export function createFsTools(): Tool[] {
+export function createFsTools(): ToolDefinition[] {
   return [readFileTool(), listDirTool(), grepTool(), statTool(), globTool()]
 }
 
@@ -52,7 +52,7 @@ async function* walkDirs(
   }
 }
 
-function readFileTool(): Tool<{ path: string }> {
+function readFileTool(): ToolDefinition<{ path: string }> {
   return {
     name: 'read_file',
     description: 'Read a UTF-8 text file under the working directory.',
@@ -70,7 +70,7 @@ function readFileTool(): Tool<{ path: string }> {
   }
 }
 
-function listDirTool(): Tool<{ path?: string }> {
+function listDirTool(): ToolDefinition<{ path?: string }> {
   return {
     name: 'list_dir',
     description: 'List a directory under the working directory.',
@@ -95,7 +95,7 @@ function listDirTool(): Tool<{ path?: string }> {
   }
 }
 
-function grepTool(): Tool<{ pattern: string; path?: string }> {
+function grepTool(): ToolDefinition<{ pattern: string; path?: string }> {
   return {
     name: 'grep',
     description:
@@ -136,7 +136,7 @@ function grepTool(): Tool<{ pattern: string; path?: string }> {
   }
 }
 
-function statTool(): Tool<{ path?: string }> {
+function statTool(): ToolDefinition<{ path?: string }> {
   return {
     name: 'stat',
     description:
@@ -198,7 +198,7 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(re + '$')
 }
 
-function globTool(): Tool<{ pattern: string }> {
+function globTool(): ToolDefinition<{ pattern: string }> {
   return {
     name: 'glob',
     description:

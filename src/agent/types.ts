@@ -8,7 +8,7 @@ export interface ToolContext {
   logger: Logger
 }
 
-export interface Tool<P = unknown> {
+export interface ToolDefinition<P = unknown> {
   name: string
   description: string
   parameters: z.ZodType<P>

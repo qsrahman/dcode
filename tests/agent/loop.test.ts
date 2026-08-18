@@ -6,7 +6,7 @@ import type {
   ResponseInput,
 } from '../../src/agent/client.ts'
 import { runAgent } from '../../src/agent/loop.ts'
-import type { Tool } from '../../src/agent/types.ts'
+import type { ToolDefinition } from '../../src/agent/types.ts'
 import { ToolRegistry } from '../../src/tools/registry.ts'
 import { createLogger } from '../../src/util/log.ts'
 import { cfg } from '../helpers.ts'
@@ -30,7 +30,7 @@ function fakeClientWithCalls(calls: unknown[][]): Client {
   }
 }
 
-const readTool: Tool = {
+const readTool: ToolDefinition = {
   name: 'read_file',
   description: 'reads',
   parameters: z.object({}),
