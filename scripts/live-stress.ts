@@ -1,0 +1,132 @@
+import { createClient } from '../src/agent/client.ts'
+import { runAgent } from '../src/agent/loop.ts'
+import { buildSystemPrompt } from '../src/agent/system.ts'
+import type { ResponseInput } from '../src/agent/client.ts'
+import { buildConfig } from '../src/config/config.ts'
+import { parseCli } from '../src/cli/args.ts'
+import { createLocalTools } from '../src/tools/index.ts'
+import { createLogger, errorMessage } from '../src/util/log.ts'
+
+// Live end-to-end stress test. Talks to the real model (Ollama per .env) and
+// drives the real agent loop + fs tools over THIS repository. Not part of the
+// unit suite: run it explicitly with `node --env-file-if-exists=.env
+// scripts/live-stress.ts`. Exercises tool iteration, truncation, read-only
+// scope, and parallel runs.
+
+type Item = { type?: string; [k: string]: unknown }
+
+function count(history: ResponseInput, type: string): number {
+  return (history as Item[]).filter((h) => h.type === type).length
+}
+
+interface Scenario {
+  name: string
+  prompt: string
+}
+
+const scenarios: Scenario[] = [
+  {
+    name: 'narrow-read',
+    prompt:
+      'Read src/agent/types.ts with the read_file tool and describe the Tool interface in one paragraph.',
+  },
+  {
+    name: 'broad-explore',
+    prompt:
+      'Explore the dcode source under src/. Use list_dir on src, glob for every "**/*.ts" file, then grep for the word "Tool" across them, and summarize where the tools are defined and registered.',
+  },
+  {
+    name: 'large-grep',
+    prompt:
+      'Run grep for the token "import" across the entire repository and report roughly how many matches there are and which files dominate.',
+  },
+  {
+    name: 'read-only-refusal',
+    prompt:
+      'Edit src/index.ts to add a new CLI flag called --foo that prints "foo" and apply the change.',
+  },
+  {
+    name: 'deep-chain',
+    prompt:
+      'Find the file that defines runAgent, read it, then grep the whole repo to list every caller of runAgent and report the call sites.',
+  },
+]
+
+async function runScenario(
+  client: ReturnType<typeof createClient>,
+  config: ReturnType<typeof buildConfig>,
+  logger: ReturnType<typeof createLogger>,
+  tools: ReturnType<typeof createLocalTools>,
+  scenario: Scenario,
+): Promise<void> {
+  const history: ResponseInput = [
+    { role: 'system', content: buildSystemPrompt(config) },
+    { role: 'user', content: scenario.prompt },
+  ]
+  let streamed = 0
+  const sink = { write: (s: string) => void (streamed += s.length) }
+  const t0 = Date.now()
+  const text = await runAgent(client, config, history, { logger, sink, tools })
+  const dt = Date.now() - t0
+  const calls = count(history, 'function_call')
+  const outputs = count(history, 'function_call_output')
+  const ok = text.trim().length > 0
+  const status = ok ? 'ok ' : 'EMPTY'
+  console.log(
+    `[${status}] ${scenario.name.padEnd(18)} toolCalls=${calls} outputs=${outputs} ` +
+      `streamed=${streamed} finalLen=${text.trim().length} time=${dt}ms`,
+  )
+  if (!ok) throw new Error(`${scenario.name}: model returned empty answer`)
+}
+
+async function main(): Promise<void> {
+  const config = buildConfig(parseCli(process.argv.slice(2)))
+  const logger = createLogger(config)
+  const client = createClient(config, logger)
+  const tools = createLocalTools()
+
+  console.log(
+    `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +
+      `root=${config.root ?? process.cwd()} maxToolIterations=${config.maxToolIterations}`,
+  )
+
+  let failed = 0
+  const start = Date.now()
+  for (const s of scenarios) {
+    try {
+      await runScenario(client, config, logger, tools, s)
+    } catch (err) {
+      failed++
+      console.log(`[FAIL] ${s.name}: ${errorMessage(err)}`)
+    }
+  }
+
+  // Concurrency burst: run several scenarios in parallel to stress the shared
+  // client/streaming and confirm runs don't cross-contaminate (each has its own
+  // history/input).
+  console.log('\nconcurrency burst (3 parallel runs):')
+  const burst = scenarios.slice(0, 3)
+  const burstStart = Date.now()
+  const results = await Promise.all(
+    burst.map(async (s) => {
+      try {
+        await runScenario(client, config, logger, tools, s)
+        return true
+      } catch (err) {
+        console.log(`[FAIL] ${s.name}: ${errorMessage(err)}`)
+        return false
+      }
+    }),
+  )
+  failed += results.filter((r) => !r).length
+  console.log(`burst time=${Date.now() - burstStart}ms`)
+
+  const total = Date.now() - start
+  console.log(`\ntotal time=${total}ms  failures=${failed}`)
+  if (failed > 0) process.exit(1)
+}
+
+main().catch((err) => {
+  console.error(errorMessage(err))
+  process.exit(1)
+})

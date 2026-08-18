@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A missing default config (`dcode.json`/`.dcode.json`) still falls back to
   schema defaults, but an explicit `--config <path>` that doesn't exist now
   throws instead of being silently ignored (`config/config.ts#loadConfig`).
+- `pnpm stress` runs a live end-to-end stress test (`scripts/live-stress.ts`)
+  that drives the real agent loop and fs tools against the configured model;
+  `scripts/**/*.ts` is now included in the typecheck gate.
 - `dcode`'s own `Tool` interface (`agent/types.ts`) renamed to `ToolDefinition`
   to stop colliding by name with `openai`'s `Tool` type (the Responses API's
   wire-format tool shape), which every import site already aliased as
