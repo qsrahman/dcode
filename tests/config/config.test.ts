@@ -7,7 +7,7 @@ import {
   loadConfig,
   mergeConfigs,
 } from '../../src/config/config.ts'
-import { appConfigSchema } from '../../src/config/schema.ts'
+import { configSchema } from '../../src/config/schema.ts'
 import { parseCli } from '../../src/cli/args.ts'
 
 describe('loadConfig', () => {
@@ -99,9 +99,9 @@ describe('buildConfig', () => {
   })
 })
 
-describe('appConfigSchema', () => {
+describe('configSchema', () => {
   it('parses a full config including an mcp server', () => {
-    const cfg = appConfigSchema.parse({
+    const cfg = configSchema.parse({
       model: 'gpt-5',
       mcp: [
         {

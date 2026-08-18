@@ -3,7 +3,7 @@
 import { parseCli } from './cli/args.ts'
 import { startRepl } from './cli/repl.ts'
 import { buildConfig } from './config/config.ts'
-import { appConfigSchema } from './config/schema.ts'
+import { configSchema } from './config/schema.ts'
 import { createClient } from './agent/client.ts'
 import { runOneShot } from './agent/loop.ts'
 import { createLocalTools } from './tools/index.ts'
@@ -33,7 +33,7 @@ async function main(): Promise<void> {
   // A defaults logger is created up front so the catch block can report
   // arg/config parse failures. The real, config-driven logger isn't built
   // until buildConfig succeeds, and that call can itself throw.
-  let logger = createLogger(appConfigSchema.parse({}))
+  let logger = createLogger(configSchema.parse({}))
   try {
     const args = parseCli(process.argv.slice(2))
     if (args.version) {

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ParsedArgs } from '../cli/args.ts'
-import { appConfigSchema, type AppConfig } from './schema.ts'
+import { configSchema, type AppConfig } from './schema.ts'
 
 const DEFAULT_CONFIG_FILES = ['dcode.json', '.dcode.json']
 
@@ -20,7 +20,7 @@ export function loadConfig(path?: string): Partial<AppConfig> {
         // .strict() (not .partial()) catches typo'd keys — every field already
         // tolerates absence via .optional()/.default(), so .partial() was a
         // no-op that also silently accepted unrecognized keys.
-        return appConfigSchema.strict().parse(JSON.parse(raw))
+        return configSchema.strict().parse(JSON.parse(raw))
       } catch (err) {
         throw new Error(
           `Failed to load config ${abs}: ${err instanceof Error ? err.message : String(err)}`,
@@ -48,7 +48,7 @@ export function mergeConfigs(
     ...(file.permissions ?? {}),
     ...(mode !== undefined && { mode }),
   }
-  return appConfigSchema.parse(merged)
+  return configSchema.parse(merged)
 }
 
 export function buildConfig(args: ParsedArgs): AppConfig {

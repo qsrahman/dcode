@@ -30,7 +30,7 @@ const mcpServerSchema = z
   })
   .strict()
 
-export const appConfigSchema = z.object({
+export const configSchema = z.object({
   model: z.string().default('gpt-5'),
   baseURL: z.string().optional(),
   apiKey: z.string().optional(),
@@ -46,4 +46,4 @@ export const appConfigSchema = z.object({
   permissions: permissionsSchema.default({ mode: 'interactive', rules: {} }),
   mcp: z.array(mcpServerSchema).default([]),
 })
-export type AppConfig = z.infer<typeof appConfigSchema>
+export type AppConfig = z.infer<typeof configSchema>

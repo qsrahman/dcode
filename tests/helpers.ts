@@ -1,8 +1,8 @@
-import { appConfigSchema, type AppConfig } from '../src/config/schema.ts'
+import { configSchema, type AppConfig } from '../src/config/schema.ts'
 import type { Client, OpenAIResponse } from '../src/agent/client.ts'
 
 export function cfg(over: Partial<AppConfig> = {}): AppConfig {
-  return appConfigSchema.parse(over)
+  return configSchema.parse(over)
 }
 
 export function fakeClient(
