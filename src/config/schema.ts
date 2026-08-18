@@ -4,25 +4,31 @@ const modeSchema = z.enum(['interactive', 'auto', 'plan'])
 
 const permissionRuleSchema = z.enum(['allow', 'deny', 'ask'])
 
-const permissionsSchema = z.object({
-  mode: modeSchema.default('interactive'),
-  rules: z.record(z.string(), permissionRuleSchema).default({}),
-})
+const permissionsSchema = z
+  .object({
+    mode: modeSchema.default('interactive'),
+    rules: z.record(z.string(), permissionRuleSchema).default({}),
+  })
+  .strict()
 
-const mcpServerSchema = z.object({
-  name: z.string(),
-  transport: z.discriminatedUnion('type', [
-    z.object({
-      type: z.literal('stdio'),
-      command: z.string(),
-      args: z.array(z.string()).default([]),
-      env: z.record(z.string(), z.string()).optional(),
-      cwd: z.string().optional(),
-    }),
-    z.object({ type: z.literal('http'), url: z.string() }),
-  ]),
-  trust: z.boolean().default(false),
-})
+const mcpServerSchema = z
+  .object({
+    name: z.string(),
+    transport: z.discriminatedUnion('type', [
+      z
+        .object({
+          type: z.literal('stdio'),
+          command: z.string(),
+          args: z.array(z.string()).default([]),
+          env: z.record(z.string(), z.string()).optional(),
+          cwd: z.string().optional(),
+        })
+        .strict(),
+      z.object({ type: z.literal('http'), url: z.string() }).strict(),
+    ]),
+    trust: z.boolean().default(false),
+  })
+  .strict()
 
 export const appConfigSchema = z.object({
   model: z.string().default('gpt-5'),
