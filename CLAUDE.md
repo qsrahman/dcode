@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `dcode` — a CLI-based AI coding agent built on the OpenAI Responses SDK. Runs
-locally via Node's type stripping (no build step). Currently at P2 (REPL +
-slash commands); tools/permissions/MCP land in later phases (see PLAN.md §8).
+locally via Node's type stripping (no build step). Currently at P3 (tool core +
+read-only tools + agent loop); mutating tools, permissions, and MCP land in
+later phases (see PLAN.md §8).
 
 **Read [AGENTS.md](./AGENTS.md) and [PLAN.md](./PLAN.md) before changing code.**
 AGENTS.md has the full developer guide (stack constraints, code style, config
@@ -46,22 +47,37 @@ AGENTS.md's phase workflow).
 
 ## Architecture
 
-Agent turns flow through `agent/run.ts`: `runTurn(client, config, input, sink,
-logger, signal)` streams deltas from the OpenAI Responses client to a `sink`
-and returns the full text; `runOneShot` is a thin wrapper that builds
-`[system, user]` and delegates to `runTurn`. The REPL (`cli/repl.ts` +
-`cli/commands.ts`) reuses `runTurn` directly, keeping a module-local
-`ReplSession` (`{ config, client, logger, history }`) and dispatching
-slash commands (`parseCommand`/`dispatch` in `commands.ts`) before falling
-through to a model turn. `index.ts` wires CLI args -> config -> either
-`runOneShot` (prompt given) or `startRepl` (no prompt).
+`agent/run.ts` holds the low-level per-turn/per-tool primitives: `runTurn`
+streams deltas from the OpenAI Responses client to a `sink` and returns the
+full text plus the raw SDK response (so callers can inspect tool calls);
+`runTool` executes a single tool call with a timeout and output truncation.
+`agent/loop.ts` owns orchestration on top of those: `runAgent` drives the
+tool-calling loop (stream a turn, run any tool calls in parallel, feed
+`function_call_output`s back, repeat up to `maxToolIterations`), and
+`runOneShot` is a thin wrapper that builds `[system, user]` and delegates to
+`runAgent`. Tools live under `tools/`: `tools/registry.ts`'s `ToolRegistry`
+registers `Tool` objects (zod-typed params, converted to Responses JSON
+Schema via `z.toJSONSchema`) and `tools/local/fs.ts` implements the read-only
+set (`read_file`, `list_dir`, `grep`, `stat`, `glob`) over a shared
+`walkDirs` traversal, path-confined to the working directory.
+
+The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
+keeping a module-local `Session` (`{ config, client, logger, history, tools }`)
+and dispatching slash commands (`parseCommand`/`dispatch` in `commands.ts`)
+before falling through to a model turn. `index.ts` wires CLI args -> config ->
+either `runOneShot` (prompt given, with its own `ToolRegistry`) or `startRepl`
+(no prompt, builds its own `ToolRegistry` inside `createSession`).
 
 Config resolution precedence is **CLI > env > file > schema defaults**,
 implemented as pure `mergeConfigs` in `config/config.ts` with `config/schema.ts`
-(zod) as the source of truth for shape and defaults.
+(zod) as the source of truth for shape and defaults. `resolveRoot(config)`
+(also in `config/config.ts`) is the single place that resolves the effective
+working-directory root (`config.root ?? process.cwd()`), used by both the
+system prompt and the tool context.
 
-See PLAN.md §5 for the full target module tree (including tools, permissions,
-and MCP modules not yet built) and §10 for the current phase's detailed spec.
+See PLAN.md §5 for the full target module tree (including mutating tools,
+permissions, and MCP modules not yet built) and §10+ for the current phase's
+detailed spec.
 
 ## Testing
 

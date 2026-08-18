@@ -45,12 +45,12 @@ async function main(): Promise<void> {
     }
     const config = buildConfig(args)
     logger = createLogger(config)
-    const tools = createLocalTools()
     if (!args.prompt) {
       await startRepl(config, logger)
       return
     }
     const client = createClient(config, logger)
+    const tools = createLocalTools()
     await runOneShot(client, config, args.prompt, process.stdout, logger, tools)
   } catch (err) {
     logger.error(errorMessage(err))

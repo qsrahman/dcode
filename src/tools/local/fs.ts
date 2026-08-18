@@ -125,9 +125,10 @@ function grepTool(): Tool<{ pattern: string; path?: string }> {
         } catch {
           continue
         }
+        const rel = relative(ctx.root, full)
         content.split('\n').forEach((line, i) => {
           re.lastIndex = 0
-          if (re.test(line)) matches.push(`${full}:${i + 1}: ${line}`)
+          if (re.test(line)) matches.push(`${rel}:${i + 1}: ${line}`)
         })
       }
       return matches.join('\n') || '(no matches)'
@@ -169,33 +170,6 @@ function statTool(): Tool<{ path?: string }> {
   }
 }
 
-function globTool(): Tool<{ pattern: string }> {
-  return {
-    name: 'glob',
-    description:
-      'List files matching a glob pattern under the working directory. Recursive; `**` matches any number of directories.',
-    parameters: z.object({
-      pattern: z
-        .string()
-        .describe('Glob pattern, e.g. "**/*.ts" or "src/**/*.ts"'),
-    }),
-    async execute(args: { pattern: string }, ctx: ToolContext) {
-      let re: RegExp
-      try {
-        re = globToRegExp(args.pattern)
-      } catch {
-        throw new Error(`invalid glob pattern: ${args.pattern}`)
-      }
-      const matches: string[] = []
-      for await (const { rel } of walkDirs(ctx.root)) {
-        if (re.test(rel)) matches.push(rel)
-      }
-      matches.sort()
-      return matches.join('\n') || '(no matches)'
-    },
-  }
-}
-
 // Minimal glob -> RegExp: `*` matches within a path segment, `?` a single char,
 // `**` matches any number of directories (including none). The project has no
 // glob dependency, so this covers the patterns the agent needs.
@@ -222,4 +196,26 @@ function globToRegExp(glob: string): RegExp {
     }
   }
   return new RegExp(re + '$')
+}
+
+function globTool(): Tool<{ pattern: string }> {
+  return {
+    name: 'glob',
+    description:
+      'List files matching a glob pattern under the working directory. Recursive; `**` matches any number of directories.',
+    parameters: z.object({
+      pattern: z
+        .string()
+        .describe('Glob pattern, e.g. "**/*.ts" or "src/**/*.ts"'),
+    }),
+    async execute(args: { pattern: string }, ctx: ToolContext) {
+      const re = globToRegExp(args.pattern)
+      const matches: string[] = []
+      for await (const { rel } of walkDirs(ctx.root)) {
+        if (re.test(rel)) matches.push(rel)
+      }
+      matches.sort()
+      return matches.join('\n') || '(no matches)'
+    },
+  }
 }
