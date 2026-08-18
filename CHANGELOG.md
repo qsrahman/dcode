@@ -5,9 +5,36 @@ All notable changes to **dcode** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] - 2026-08-18
 
 ### Added
+- Mutating local tools join the read-only set: `write_file` (create/overwrite a
+  file), `edit_file` (literal old/new string replace; requires a unique match
+  unless `replace_all`), and `run_shell` (arbitrary shell command with
+  `cwd=root` + `toolTimeout`, capturing combined stdout/stderr) — all in
+  `tools/local/mutate.ts`, reusing the `resolvePath` root-confinement helper
+  exported from `tools/local/fs.ts`.
+- Harness gate (`agent/gate.ts`) decides per-call whether a tool runs: the
+  default deny gate (one-shot) blocks mutating calls, the confirm gate (REPL)
+  prompts `y`/`n`/`a` per mutating call (with `a` approving the rest of the
+  session), and an allow gate auto-approves. `ToolDefinition` gains a `mutates?`
+  flag.
+- `agent/loop.ts` now splits a turn's tool calls into read-only (run in
+  parallel) and mutating (run sequentially, each harness-gated), preserving the
+  original call order in history. `/tools` annotates mutating entries with ` *`.
+
+### Changed
+- `agent/system.ts`'s base system prompt now describes the inspect-and-modify
+  scope (prefer `edit_file`, mutating tools may need approval) instead of the
+  old read-only "you cannot modify files" wording.
+- `cli/repl.ts`'s `startRepl` drives input via `rl.on('line')` (with a
+  `pendingGate` resolver so a gate confirmation is answered on the next line
+  without being treated as a new command) and resolves only when the REPL
+  closes, rather than a `for await` over the readline iterator.
+- `cli/commands.ts`'s `Session` now carries the `gate`; `createSession` accepts
+  it (defaulting to allow) and `startRepl` wires the confirm gate.
+
+### Added (from prior unreleased work)
 - Tools: `stat` (type/size/mtime of a file or directory) and `glob`
   (recursive `**`-pattern file matching, hand-rolled glob→RegExp, no new
   dependency) join `read_file`/`list_dir`/`grep` in `tools/local/fs.ts`.

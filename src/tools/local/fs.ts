@@ -8,7 +8,7 @@ export function createFsTools(): ToolDefinition[] {
   return [readFileTool(), listDirTool(), grepTool(), statTool(), globTool()]
 }
 
-function resolvePath(root: string, p: string): string {
+export function resolvePath(root: string, p: string): string {
   const resolved = resolve(root, p)
   if (resolved !== root && !resolved.startsWith(root + sep)) {
     throw new Error(`path escapes working directory: ${p}`)

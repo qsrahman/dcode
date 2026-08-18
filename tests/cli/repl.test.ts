@@ -59,7 +59,7 @@ describe('handleLine commands', () => {
     const s = makeSession()
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/version', sink)).toBe('ok')
-    expect(out.join('')).toContain('dcode v0.2.0')
+    expect(out.join('')).toContain('dcode v0.3.0')
   })
   it('/help writes the command list', async () => {
     const s = makeSession()
@@ -119,27 +119,27 @@ describe('handleLine prompt turn', () => {
   })
 })
 
-vi.mock('node:readline', () => ({
-  createInterface: () => {
-    const lines = ['/version', 'hello world', '/exit']
-    return {
-      [Symbol.asyncIterator]() {
-        let i = 0
-        return {
-          async next() {
-            if (i < lines.length) return { value: lines[i++], done: false }
-            return { value: undefined, done: true }
-          },
-        }
-      },
-      prompt() {},
-      close() {},
-      on() {
-        return this
-      },
+vi.mock('node:readline', () => {
+  class FakeInterface {
+    private listeners: Record<string, ((...a: unknown[]) => void)[]> = {}
+    private lines: string[]
+    constructor() {
+      this.lines = ['/version', 'hello world', '/exit']
     }
-  },
-}))
+    on(event: string, cb: (...a: unknown[]) => void) {
+      ;(this.listeners[event] ??= []).push(cb)
+      return this
+    }
+    prompt() {
+      const line = this.lines.shift()
+      if (line !== undefined) this.listeners['line']?.forEach((cb) => cb(line))
+    }
+    close() {
+      this.listeners['close']?.forEach((cb) => cb())
+    }
+  }
+  return { createInterface: () => new FakeInterface() as never }
+})
 
 vi.mock('../../src/agent/client.ts', () => ({
   createClient: () => ({
@@ -160,7 +160,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
     const config = cfg()
     await startRepl(config, createLogger(config))
     const out = write.mock.calls.map((c) => c[0]).join('')
-    expect(out).toContain('dcode v0.2.0')
+    expect(out).toContain('dcode v0.3.0')
     expect(out).toContain('streamed')
     write.mockRestore()
   })

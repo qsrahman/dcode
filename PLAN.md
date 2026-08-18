@@ -3,8 +3,8 @@
 Product Requirements Document for **dcode**, a CLI-based AI coding agent built on
 the OpenAI Responses SDK.
 
-Status: **P3 complete** (tool core + read-only tools + async loop); P4
-(mutating tools + harness gate) is specified but not yet implemented. Phases
+Status: **P4 complete** (mutating local tools + harness gate); P5
+(declarative permissions + modes) is next. Phases
 advance one at a time; each lands as code + tests + docs + a focused commit.
 This document is the source of truth for features, architecture, and
 conventions — keep it in sync after every phase.
@@ -138,7 +138,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 | P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
 | P2 | REPL + slash commands + streaming in REPL | **Done** |
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | **Done** |
-| P4 | Mutating local tools (write_file/edit_file/run_shell) + harness gate | **Specified** — see §12 |
+ | P4 | Mutating local tools (write_file/edit_file/run_shell) + harness gate | **Done** — see §12 |
 | P5 | Declarative permissions + modes | |
 | P6 | MCP integration | |
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | |
@@ -487,3 +487,12 @@ same auto-TTY behavior as P3. No change.
 4. **Shell scope:** full arbitrary shell, gated + `cwd=root` + `toolTimeout`.
 5. **Ordering:** reads parallel, then mutating sequential (in model emission order).
 6. **Undo/backup:** out of scope for P4.
+
+### 12.12 Status
+**Done.** `write_file`/`edit_file`/`run_shell` live in `src/tools/local/mutate.ts`
+(exporting `resolvePath` from `fs.ts`); the harness gate (`src/agent/gate.ts`)
+defaults to deny (one-shot) and prompts `y/n/a` in the REPL. `runAgent` splits
+read-only calls (parallel) from mutating ones (sequential, each gated), keeping
+original call order in history. `Session` carries the gate; `/tools` annotates
+mutating entries with ` *`. Covered by `tests/tools/mutate.test.ts` and loop
+gating/ordering tests.

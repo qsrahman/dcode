@@ -27,7 +27,7 @@ describe('buildSystemPrompt', () => {
 
   it('tells the model to use its (system-supplied) tools', () => {
     expect(prompt).toContain('tools')
-    expect(prompt).toContain('Inspect with tools before you answer')
+    expect(prompt).toContain('Inspect with tools before you change anything')
   })
 
   it('does not enumerate tools in the prompt (the SDK supplies them)', () => {
@@ -38,13 +38,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('glob')
   })
 
-  it('states the read-only scope accurately', () => {
-    expect(prompt).toContain('read-only')
-    expect(prompt).toContain('cannot modify files')
+  it('states the inspect-and-modify scope accurately', () => {
+    expect(prompt).toContain('Inspect with tools before you change anything')
+    expect(prompt).toContain('edit_file')
+    expect(prompt).toContain('run_shell')
   })
 
-  it('does not claim editing/shell/git are available', () => {
-    expect(prompt).not.toContain('reading and editing files')
-    expect(prompt).not.toContain('editing files')
+  it('no longer claims the agent is read-only', () => {
+    expect(prompt).not.toContain('read-only')
+    expect(prompt).not.toContain('cannot modify files')
   })
 })

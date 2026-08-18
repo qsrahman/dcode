@@ -3,9 +3,10 @@
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
 
-> Status: **P3 complete** — one-shot, the interactive REPL, and the tool-using
-> agent loop (read-only tools) all work. Permissions and mutating tools land in
-> P4/P5. See [PLAN.md](./PLAN.md) for the full roadmap.
+> Status: **P4 complete** — one-shot, the interactive REPL, and the tool-using
+> agent loop (read-only and mutating tools behind a harness gate) all work.
+> Declarative permissions/modes land in P5. See [PLAN.md](./PLAN.md) for the full
+> roadmap.
 
 ## Requirements
 
@@ -59,23 +60,29 @@ dcode                                                # REPL
 with no argument prints the current model; `/model <id>` switches it. `/tools`
 lists the tools the agent can call.)
 
-### Tools (read-only, P3)
+### Tools
 
-The agent can call a small set of read-only tools, confined to the working
-directory (`root`). Tool calls are executed in parallel, their results fed back
-to the model, and the loop repeats up to `maxToolIterations` (default 16).
+The agent can call a small set of tools, confined to the working directory
+(`root`). Read-only calls run in parallel; mutating calls run sequentially and
+each must be approved by the harness gate. Results are fed back to the model and
+the loop repeats up to `maxToolIterations` (default 16).
 
-| Tool | Purpose |
-|------|---------|
-| `read_file` | Read a UTF-8 text file under the working directory. |
-| `list_dir` | List a directory under the working directory. |
-| `grep` | Search file contents for a regular expression. |
-| `stat` | Report type/size/mtime of a file or directory. |
-| `glob` | List files matching a glob pattern (`**` recursive). |
+| Tool | Purpose | Mutates |
+|------|---------|:--------:|
+| `read_file` | Read a UTF-8 text file under the working directory. | |
+| `list_dir` | List a directory under the working directory. | |
+| `grep` | Search file contents for a regular expression. | |
+| `stat` | Report type/size/mtime of a file or directory. | |
+| `glob` | List files matching a glob pattern (`**` recursive). | |
+| `write_file` | Create or overwrite a UTF-8 text file. | `*` |
+| `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). | `*` |
+| `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`). | `*` |
 
-Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
-(default 32 KiB), and tool errors are returned to the model so it can
-self-correct.
+Mutating tools (`*`) are auto-denied in one-shot runs. In the REPL they prompt
+`y` (approve once) / `n` (deny) / `a` (approve all remaining this session) before
+each call. Tool output is untrusted data; results are truncated to
+`maxToolOutputBytes` (default 32 KiB), and tool errors are returned to the model
+so it can self-correct.
 
 ## Configuration (`dcode.json`)
 
@@ -114,7 +121,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 | P1 | Config + OpenAI client + one-shot |
 | P2 | REPL + slash commands | **Done** |
 | P3 | Tool core + read-only tools + async loop | **Done** |
-| P4 | Mutating local tools |
+| P4 | Mutating local tools + harness gate | **Done** |
 | P5 | Declarative permissions + modes |
 | P6 | MCP integration |
 | P7 | Polish |
@@ -123,7 +130,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 
 - Standard tasks: `pnpm dev`, `pnpm test`, `pnpm typecheck`, `pnpm format`.
 - `pnpm stress` runs a **live** end-to-end stress test (`scripts/live-stress.ts`):
-  it drives the real agent loop and read-only tools against the configured model
+  it drives the real agent loop and tools against the configured model
   (Ollama via `.env`) with heavy sequential scenarios plus a concurrency burst.
   It requires a reachable model endpoint and is intentionally outside the unit
   suite so `pnpm test` stays offline.

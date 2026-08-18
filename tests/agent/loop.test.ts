@@ -8,6 +8,7 @@ import type {
 import { runAgent } from '../../src/agent/loop.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { ToolRegistry } from '../../src/tools/registry.ts'
+import { createAllowGate, createDenyGate } from '../../src/agent/gate.ts'
 import { createLogger } from '../../src/util/log.ts'
 import { cfg } from '../helpers.ts'
 
@@ -36,6 +37,16 @@ const readTool: ToolDefinition = {
   parameters: z.object({}),
   async execute() {
     return 'file contents'
+  },
+}
+
+const writeTool: ToolDefinition = {
+  name: 'write_file',
+  description: 'writes',
+  mutates: true,
+  parameters: z.object({ path: z.string() }),
+  async execute(args: { path: string }) {
+    return `wrote ${args.path}`
   },
 }
 
@@ -106,5 +117,138 @@ describe('runAgent', () => {
       (h) => (h as { type?: string }).type === 'function_call_output',
     )
     expect(outputs).toHaveLength(3)
+  })
+
+  it('denies mutating tools under the default deny gate', async () => {
+    const client = fakeClientWithCalls([
+      [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'write_file',
+          arguments: '{"path":"a.txt"}',
+        },
+      ],
+      [],
+    ])
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([writeTool]),
+      gate: createDenyGate(),
+    })
+    const outputs = history.filter(
+      (h) => (h as { type?: string }).type === 'function_call_output',
+    )
+    expect((outputs[0] as { output: string }).output).toBe('denied by user')
+  })
+
+  it('allows mutating tools with an allow gate', async () => {
+    const client = fakeClientWithCalls([
+      [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'write_file',
+          arguments: '{"path":"a.txt"}',
+        },
+      ],
+      [],
+    ])
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([writeTool]),
+      gate: createAllowGate(),
+    })
+    const outputs = history.filter(
+      (h) => (h as { type?: string }).type === 'function_call_output',
+    )
+    expect((outputs[0] as { output: string }).output).toBe('wrote a.txt')
+  })
+
+  it('runs mutating tools sequentially in call order', async () => {
+    const order: string[] = []
+    const seqTool: ToolDefinition = {
+      name: 'write_file',
+      description: 'writes',
+      mutates: true,
+      parameters: z.object({ path: z.string() }),
+      async execute(args: { path: string }) {
+        order.push(args.path)
+        return `wrote ${args.path}`
+      },
+    }
+    const client = fakeClientWithCalls([
+      [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'write_file',
+          arguments: '{"path":"a"}',
+        },
+        {
+          type: 'function_call',
+          call_id: 'c2',
+          name: 'write_file',
+          arguments: '{"path":"b"}',
+        },
+      ],
+      [],
+    ])
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([seqTool]),
+      gate: createAllowGate(),
+    })
+    expect(order).toEqual(['a', 'b'])
+  })
+
+  it('preserves call order in history across read and mutate results', async () => {
+    const readTool2: ToolDefinition = {
+      name: 'read_file',
+      description: 'reads',
+      parameters: z.object({ path: z.string() }),
+      async execute() {
+        return 'ok'
+      },
+    }
+    const writeTool2: ToolDefinition = {
+      name: 'write_file',
+      description: 'writes',
+      mutates: true,
+      parameters: z.object({ path: z.string() }),
+      async execute() {
+        return 'ok'
+      },
+    }
+    const client = fakeClientWithCalls([
+      [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'write_file',
+          arguments: '{"path":"a"}',
+        },
+        {
+          type: 'function_call',
+          call_id: 'c2',
+          name: 'read_file',
+          arguments: '{"path":"b"}',
+        },
+      ],
+      [],
+    ])
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([readTool2, writeTool2]),
+      gate: createAllowGate(),
+    })
+    const outputs = history.filter(
+      (h) => (h as { type?: string }).type === 'function_call_output',
+    ) as { call_id: string; output: string }[]
+    expect(outputs.map((o) => o.call_id)).toEqual(['c1', 'c2'])
   })
 })
