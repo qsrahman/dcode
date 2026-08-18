@@ -30,8 +30,9 @@ Flags:
 }
 
 async function main(): Promise<void> {
-  // Fallback logger (defaults) covers failures during arg/config parsing,
-  // which can throw before the real logger (built from config) exists.
+  // A defaults logger is created up front so the catch block can report
+  // arg/config parse failures. The real, config-driven logger isn't built
+  // until buildConfig succeeds, and that call can itself throw.
   let logger = createLogger(appConfigSchema.parse({}))
   try {
     const args = parseCli(process.argv.slice(2))
