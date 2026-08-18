@@ -30,8 +30,18 @@ describe('loadConfig', () => {
     expect(cfg.permissions?.mode).toBe('auto')
   })
 
-  it('returns {} when the file is absent', () => {
-    expect(loadConfig(join(dir, 'missing.json'))).toEqual({})
+  it('throws when an explicit --config path is missing', () => {
+    expect(() => loadConfig(join(dir, 'missing.json'))).toThrow(/not found/)
+  })
+
+  it('returns {} when no default config file is found', () => {
+    const prev = process.cwd()
+    try {
+      process.chdir(dir)
+      expect(loadConfig()).toEqual({})
+    } finally {
+      process.chdir(prev)
+    }
   })
 
   it('rejects an invalid config value', () => {

@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `tools/registry.ts#toResponsesTool` now converts zod schemas to JSON Schema
   via zod v4's built-in `z.toJSONSchema`, replacing the hand-rolled converter
   originally specified for P3 (PLAN.md §11.12).
+- A missing default config (`dcode.json`/`.dcode.json`) still falls back to
+  schema defaults, but an explicit `--config <path>` that doesn't exist now
+  throws instead of being silently ignored (`config/config.ts#loadConfig`).
 - `dcode`'s own `Tool` interface (`agent/types.ts`) renamed to `ToolDefinition`
   to stop colliding by name with `openai`'s `Tool` type (the Responses API's
   wire-format tool shape), which every import site already aliased as
