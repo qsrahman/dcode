@@ -3,9 +3,11 @@
 Product Requirements Document for **dcode**, a CLI-based AI coding agent built on
 the OpenAI Responses SDK.
 
-Status: **P0 (scaffold) complete.** Phases advance one at a time; each lands as
-code + tests + docs + a focused commit. This document is the source of truth for
-features, architecture, and conventions — keep it in sync after every phase.
+Status: **P3 complete** (tool core + read-only tools + async loop); P4
+(mutating tools + harness gate) is specified but not yet implemented. Phases
+advance one at a time; each lands as code + tests + docs + a focused commit.
+This document is the source of truth for features, architecture, and
+conventions — keep it in sync after every phase.
 
 ## 1. Vision
 
@@ -55,22 +57,26 @@ Node 26 strips types but does **not** transform. Therefore:
 src/
   index.ts            # entry: parse CLI -> build config -> one-shot or REPL
   cli/args.ts         # parseCli(argv) -> ParsedArgs (pure, fully tested)
-  cli/repl.ts         # readline loop + slash-command dispatch
-  config/schema.ts    # zod schemas (AppConfig + permissions policy)
-  config/config.ts    # loadConfig(path) + merge(CLI, file, env)
-  agent/client.ts     # wraps OpenAI Responses API (streaming)
-  agent/loop.ts       # runTurn: stream -> collect tool calls -> execute -> feed back
-  agent/types.ts      # Tool, ToolResult, AgentInput
-  tools/registry.ts   # register/list/get; zod->JSON-schema for Responses defs
+  cli/repl.ts         # readline loop; builds the Session and drives runAgent
+  cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
+  config/schema.ts    # zod schemas (AppConfig + permissions policy), .strict()
+  config/config.ts    # loadConfig(path) + mergeConfigs(CLI, file, env) + resolveRoot
+  agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
+  agent/system.ts     # buildSystemPrompt(config)
+  agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
+  agent/loop.ts       # runAgent: tool-calling loop; runOneShot wraps it for one-shot
+  agent/types.ts      # ToolContext, ToolDefinition, ToolCall, ToolResult
+  tools/index.ts      # createLocalTools() -> ToolRegistry of local tools
+  tools/registry.ts   # ToolRegistry: register/list/get; zod->JSON-schema via z.toJSONSchema
   tools/local/fs.ts   # read_file, list_dir, grep, stat, glob (read-only)
-  tools/local/write.ts# write_file, edit_file                (mutating)
-  tools/local/shell.ts# run shell command                   (mutating)
-  tools/local/git.ts  # status/diff/log (+ add/commit)       (mixed)
-  tools/mcp/manager.ts# connect servers, cache tools, callTool
-  permissions/policy.ts  # declarative evaluate(tool,args,mode,rules) -> allow/deny/ask
-  permissions/harness.ts # executeToolCall: policy -> (auto/ask/deny) -> run
-  ui/render.ts        # ansis output: streamed text, tool status lines, timing
-  ui/prompt.ts        # permission prompt (y/n/a) + REPL prompt
+  tools/local/write.ts# write_file, edit_file                (mutating, P4)
+  tools/local/shell.ts# run shell command                   (mutating, P4)
+  tools/local/git.ts  # status/diff/log (+ add/commit)       (mixed, P4+)
+  tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
+  permissions/policy.ts  # declarative evaluate(tool,args,mode,rules) -> allow/deny/ask (P5)
+  permissions/harness.ts # executeToolCall: policy -> (auto/ask/deny) -> run (P5)
+  ui/render.ts        # renderToolResult(name, ok, ms) -> status line
+  ui/prompt.ts        # permission prompt (y/n/a) (P5)
   util/log.ts         # diagnostics -> stderr (never console.log)
 ```
 
@@ -230,10 +236,11 @@ Mirror the split so `readline` I/O is the only untested seam:
 
 ## 11. P3 Specification (Tool core + read-only tools + async loop) — implemented
 
-Status: **Specified** — implementation pending. This section is the authoritative
-P3 design, grounded in research of the OpenAI Responses API and the `openai-node`
-SDK (`client.responses.stream(...)`). Implement it as code + tests + docs + a
-focused commit.
+Status: **Done**. This section is the authoritative P3 design, grounded in
+research of the OpenAI Responses API and the `openai-node` SDK
+(`client.responses.stream(...)`); it was implemented as code + tests + docs
+across several focused commits. A few implementation details evolved past
+what's written below — see §11.12.
 
 ### 11.1 Scope
 - **In:** tool types + registry, zod→JSON-schema conversion, three read-only
@@ -273,7 +280,7 @@ focused commit.
   registry lookup → zod parse → execute → truncate (decision F) → wrap as
   `function_call_output`. (`runOneShot` keeps returning just `text` for tool-less
   one-shots.)
-- **`agent/types.ts` (new).** `Tool`, `ToolCall`, `ToolContext`, `ToolResult`.
+- **`agent/types.ts` (new).** `ToolDefinition`, `ToolCall`, `ToolContext`, `ToolResult`.
 - **`tools/registry.ts` (new).** `register`/`get`/`list` + `toResponsesTool(tool)`
   (zod → JSON Schema). Returns `OpenAI.Responses.Tool[]` for the client.
 - **`tools/local/fs.ts` (new).** `read_file`, `list_dir`, `grep`, `stat`, `glob`; path-confined
@@ -319,7 +326,7 @@ is an alternative but more churn).
 ### 11.6 Tool interface & registry
 ```ts
 export interface ToolContext { root: string; config: AppConfig; logger: Logger }
-export interface Tool {
+export interface ToolDefinition {
   name: string
   description: string
   parameters: z.ZodType
@@ -328,8 +335,9 @@ export interface Tool {
 export interface ToolCall { id: string; name: string; arguments: string }
 ```
 `toResponsesTool` converts `parameters` (zod) → JSON Schema for
-`OpenAI.Responses.Tool`. **Decision: hand-roll** a minimal converter (no new
-dependency). Use **`strict: false`** on the generated schemas.
+`OpenAI.Responses.Tool` via zod v4's built-in `z.toJSONSchema` (superseding
+the hand-rolled converter this section originally specified — see §11.12).
+Use **`strict: false`** on the generated schemas.
 
 ### 11.7 Read-only tools
 - `read_file(path)` — read a file under `root`; reject escapes.
@@ -369,7 +377,9 @@ before the next streamed model text — matching the REPL layout.
   CHANGELOG (Unreleased → Added: tools/loop), README (tools overview).
 
 ### 11.12 Resolved decisions
-1. **zod→JSON Schema:** hand-roll a minimal converter (no new dependency).
+1. **zod→JSON Schema:** originally hand-rolled (no new dependency); later
+   switched to zod v4's built-in `z.toJSONSchema`, which emits a compatible
+   JSON Schema (draft 2020-12) and removed the need to maintain a converter.
 2. **`strict: false`** on tool schemas.
 3. **Workdir confinement uses `config.root`** (the actual schema field); §6 G's
    `--cwd` wording updated to `root`.
@@ -398,9 +408,9 @@ Reuses §11.2 — `client.responses.stream`, `finalResponse().output` tool-call
 extraction, JSON-Schema `tools` param. No new SDK surface.
 
 ### 12.3 Module changes
-- `src/agent/types.ts`: `Tool` gains `mutates?: boolean` (default `false`).
+- `src/agent/types.ts`: `ToolDefinition` gains `mutates?: boolean` (default `false`).
 - `src/agent/loop.ts`: `runAgent` opts gain
-  `gate?: (tool: Tool, call: ToolCall) => Promise<boolean>`; the per-turn call
+  `gate?: (tool: ToolDefinition, call: ToolCall) => Promise<boolean>`; the per-turn call
   list is split into read-only (parallel) and mutating (sequential + gated).
 - `src/tools/local/mutate.ts` (new): `write_file`, `edit_file`, `run_shell`.
 - `src/tools/index.ts`: register mutating tools alongside read-only ones.
@@ -412,7 +422,7 @@ extraction, JSON-Schema `tools` param. No new SDK surface.
 
 ### 12.4 Tool interface & gate
 ```ts
-export interface Tool {
+export interface ToolDefinition {
   name: string
   description: string
   parameters: z.ZodType
@@ -420,7 +430,7 @@ export interface Tool {
   mutates?: boolean // default false → read-only, parallel, ungated
 }
 ```
-`gate: (tool: Tool, call: ToolCall) => Promise<boolean>` is supplied by the
+`gate: (tool: ToolDefinition, call: ToolCall) => Promise<boolean>` is supplied by the
 harness. `runAgent` calls it before any mutating `runTool`; a `false` result
 yields an `ok:false` outcome with output `"denied by user"` (decision D), fed
 back as `function_call_output` so the model self-corrects.
