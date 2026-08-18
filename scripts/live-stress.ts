@@ -5,13 +5,16 @@ import type { ResponseInput } from '../src/agent/client.ts'
 import { buildConfig } from '../src/config/config.ts'
 import { parseCli } from '../src/cli/args.ts'
 import { createLocalTools } from '../src/tools/index.ts'
+import type { RunSink } from '../src/agent/run.ts'
 import { createLogger, errorMessage } from '../src/util/log.ts'
+import ansis from 'ansis'
 
 // Live end-to-end stress test. Talks to the real model (Ollama per .env) and
 // drives the real agent loop + fs tools over THIS repository. Not part of the
 // unit suite: run it explicitly with `node --env-file-if-exists=.env
 // scripts/live-stress.ts`. Exercises tool iteration, truncation, read-only
-// scope, and parallel runs.
+// scope, and parallel runs, and verifies the UI/UX spacing of the rendered
+// output (exactly one well-formed line per tool call).
 
 type Item = { type?: string; [k: string]: unknown }
 
@@ -52,6 +55,39 @@ const scenarios: Scenario[] = [
   },
 ]
 
+// Captures everything the agent loop writes to its sink (streamed model text +
+// tool-render lines) so we can assert on UI/UX spacing without printing it.
+class CapturingSink implements RunSink {
+  text = ''
+  get bytes(): number {
+    return Buffer.byteLength(this.text)
+  }
+  write(s: string): void {
+    this.text += s
+  }
+}
+
+// UI/UX spacing check: each tool call must render exactly one well-formed,
+// line-separated status line. Catches missing/duplicated renders and any
+// regression in the per-tool output spacing.
+function checkUiSpacing(name: string, out: string, toolOutputs: number): void {
+  const clean = ansis.strip(out)
+  const toolLines = clean.split('\n').filter((l) => l.startsWith('› '))
+  if (toolLines.length !== toolOutputs) {
+    throw new Error(
+      `${name}: UI/UX: expected ${toolOutputs} tool-result lines, got ${toolLines.length}`,
+    )
+  }
+  const malformed = toolLines.find(
+    (l) => !/^› [^:]+: [\u2713\u2717] done \(\d+\.\d+s\)$/.test(l),
+  )
+  if (malformed) {
+    throw new Error(
+      `${name}: UI/UX: malformed tool line: ${JSON.stringify(malformed)}`,
+    )
+  }
+}
+
 async function runScenario(
   client: ReturnType<typeof createClient>,
   config: ReturnType<typeof buildConfig>,
@@ -63,18 +99,19 @@ async function runScenario(
     { role: 'system', content: buildSystemPrompt(config) },
     { role: 'user', content: scenario.prompt },
   ]
-  let streamed = 0
-  const sink = { write: (s: string) => void (streamed += s.length) }
+  const sink = new CapturingSink()
   const t0 = Date.now()
   const text = await runAgent(client, config, history, { logger, sink, tools })
   const dt = Date.now() - t0
   const calls = count(history, 'function_call')
   const outputs = count(history, 'function_call_output')
+  checkUiSpacing(scenario.name, sink.text, outputs)
+  if (config.verbose) process.stdout.write(sink.text)
   const ok = text.trim().length > 0
   const status = ok ? 'ok ' : 'EMPTY'
   console.log(
     `[${status}] ${scenario.name.padEnd(18)} toolCalls=${calls} outputs=${outputs} ` +
-      `streamed=${streamed} finalLen=${text.trim().length} time=${dt}ms`,
+      `streamed=${sink.bytes} finalLen=${text.trim().length} time=${dt}ms`,
   )
   if (!ok) throw new Error(`${scenario.name}: model returned empty answer`)
 }
@@ -89,6 +126,7 @@ async function main(): Promise<void> {
     `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +
       `root=${config.root ?? process.cwd()} maxToolIterations=${config.maxToolIterations}`,
   )
+  console.log('')
 
   let failed = 0
   const start = Date.now()
@@ -99,12 +137,13 @@ async function main(): Promise<void> {
       failed++
       console.log(`[FAIL] ${s.name}: ${errorMessage(err)}`)
     }
+    console.log('')
   }
 
   // Concurrency burst: run several scenarios in parallel to stress the shared
   // client/streaming and confirm runs don't cross-contaminate (each has its own
   // history/input).
-  console.log('\nconcurrency burst (3 parallel runs):')
+  console.log('concurrency burst (3 parallel runs):')
   const burst = scenarios.slice(0, 3)
   const burstStart = Date.now()
   const results = await Promise.all(
@@ -120,9 +159,10 @@ async function main(): Promise<void> {
   )
   failed += results.filter((r) => !r).length
   console.log(`burst time=${Date.now() - burstStart}ms`)
+  console.log('')
 
   const total = Date.now() - start
-  console.log(`\ntotal time=${total}ms  failures=${failed}`)
+  console.log(`total time=${total}ms  failures=${failed}`)
   if (failed > 0) process.exit(1)
 }
 

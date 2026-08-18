@@ -119,6 +119,15 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 | P6 | MCP integration |
 | P7 | Polish |
 
+## Development
+
+- Standard tasks: `pnpm dev`, `pnpm test`, `pnpm typecheck`, `pnpm format`.
+- `pnpm stress` runs a **live** end-to-end stress test (`scripts/live-stress.ts`):
+  it drives the real agent loop and read-only tools against the configured model
+  (Ollama via `.env`) with heavy sequential scenarios plus a concurrency burst.
+  It requires a reachable model endpoint and is intentionally outside the unit
+  suite so `pnpm test` stays offline.
+
 ## License
 
 Internal / MIT (TBD).

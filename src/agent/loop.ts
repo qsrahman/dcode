@@ -14,6 +14,18 @@ import type { ResponseFunctionToolCall } from 'openai/resources/responses/respon
 // results back, and repeat up to `maxToolIterations` (decision D). Text is
 // streamed as it arrives; tool results are rendered between turns. Returns the
 // final assistant text.
+//
+// Tool outputs are grouped into a single block (no blank line between them),
+// with exactly one blank line separating that block from the final answer.
+// Because the answer turn is only known to be final after it streams, post-tool
+// turns are buffered and flushed (with a leading blank if they are the answer).
+class CapturingSink implements RunSink {
+  text = ''
+  write(s: string): void {
+    this.text += s
+  }
+}
+
 export async function runAgent(
   client: Client,
   config: AppConfig,
@@ -36,13 +48,15 @@ export async function runAgent(
     ? registry.toResponsesTools()
     : undefined
   let finalText = ''
+  let prevHadTools = false
 
   for (let i = 0; i < config.maxToolIterations; i++) {
+    const target: RunSink = prevHadTools ? new CapturingSink() : sink
     const { text, response } = await runTurn(
       client,
       config,
       history,
-      sink,
+      target,
       opts.logger,
       opts.signal,
       responses,
@@ -58,7 +72,15 @@ export async function runAgent(
       (o): o is ResponseFunctionToolCall => o.type === 'function_call',
     )
     for (const c of calls) history.push(c as ResponseInput[number])
-    if (calls.length === 0) break
+    if (calls.length === 0) {
+      if (prevHadTools) {
+        sink.write('\n')
+        sink.write((target as CapturingSink).text)
+      }
+      break
+    }
+    if (prevHadTools) sink.write((target as CapturingSink).text)
+    prevHadTools = true
     const results = await Promise.all(
       calls.map(async (c): Promise<{ id: string; outcome: ToolResult }> => {
         const tool = registry.get(c.name)
@@ -87,7 +109,6 @@ export async function runAgent(
       sink.write(`${renderToolResult(outcome.name, outcome.ok, outcome.ms)}\n`)
       if (config.verbose) sink.write(`${outcome.output}\n`)
     }
-    sink.write('\n')
   }
   return finalText
 }

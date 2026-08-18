@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `tools/local/fs.ts`'s directory walk was factored into a shared `walkDirs`
   generator (renamed from `walk`) used by `grep` and `glob`, and `ToolRegistry`
   now caches its converted Responses tool list instead of rebuilding it.
+- The `/tools` REPL command now prints a single compact `Tools: a, b, c` line
+  instead of one verbose `name — description` line per tool (`cli/commands.ts`).
+- The live stress script (`scripts/live-stress.ts`) now captures the agent
+  loop's rendered output per scenario and asserts UI/UX spacing (exactly one
+  well-formed, line-separated status line per tool call).
 
 ### Fixed
 - `grep` now returns paths relative to the working directory root, matching
@@ -44,13 +49,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `grep`'s directory walk no longer follows symlinks (avoiding infinite
   loops) and no longer crashes on unreadable/binary files; `tools/index.ts`
   falls back gracefully if zod schema conversion fails for a tool.
-- `agent/system.ts`'s base system prompt now names the read-only tools that
-  actually exist, instead of a stale, pre-P3 description.
+- `agent/system.ts`'s base system prompt no longer hand-lists tools (the SDK
+  supplies each tool's name/description/arguments to the model); it now only
+  describes the read-only working-directory scope.
+- Tool outputs from multi-turn tool calls are now grouped into a single block
+  with exactly one blank line separating them from the final answer; previously
+  each tool turn appended its own trailing blank, leaving blank lines between
+  individual tool results (`agent/loop.ts`).
 - `runTool` now validates model-supplied tool-call arguments against the
   tool's zod schema before executing and returns a model-readable error
   instead of throwing raw exceptions on malformed args.
-- `config/config.ts#loadConfig` now parses `dcode.json` with
-  `appConfigSchema.strict()` instead of `.partial()`. The `.partial()` call
+-   `config/config.ts#loadConfig` now parses `dcode.json` with
+  `configSchema.strict()` instead of `.partial()`. The `.partial()` call
   was a no-op (every field already tolerates absence via `.optional()`/
   `.default()`) and, worse, silently accepted typo'd/unknown keys (zod's
   default object mode strips unrecognized keys); a typo like `"modle"` now

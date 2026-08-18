@@ -22,6 +22,7 @@ pnpm test:watch   # vitest
 pnpm typecheck    # tsc --noEmit  (gate)
 pnpm format       # prettier --write .
 pnpm format:check # prettier --check . (gate)
+pnpm stress       # live end-to-end stress test (scripts/live-stress.ts)
 ```
 
 ## Code style
@@ -49,7 +50,9 @@ architecture, or conventions.
 - All other diagnostics go to **stderr** via `util/log.ts` — `createLogger(config)`
   returns `{ debug, info, warn, error }`, where `debug`/`info` are gated by
   `config.verbose` and `warn`/`error` always emit. Color comes from the `ansis`
-  dependency (disabled when `config.color` is false).
+  dependency (disabled when `config.color` is false). `--verbose` also echoes
+  each tool call's raw output to the terminal (in addition to stderr
+  diagnostics) — see README's flag reference.
 
 ## Configuration sources
 

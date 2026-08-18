@@ -65,9 +65,9 @@ src/
   agent/system.ts     # buildSystemPrompt(config)
   agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
   agent/loop.ts       # runAgent: tool-calling loop; runOneShot wraps it for one-shot
-  agent/types.ts      # ToolContext, ToolDefinition, ToolCall, ToolResult
+  agent/types.ts      # ToolDefinition<P>, ToolContext, ToolCall, ToolResult
   tools/index.ts      # createLocalTools() -> ToolRegistry of local tools
-  tools/registry.ts   # ToolRegistry: register/list/get; zod->JSON-schema via z.toJSONSchema
+  tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
   tools/local/fs.ts   # read_file, list_dir, grep, stat, glob (read-only)
   tools/local/write.ts# write_file, edit_file                (mutating, P4)
   tools/local/shell.ts# run shell command                   (mutating, P4)
@@ -276,11 +276,11 @@ what's written below — see §11.12.
   (single tool exec). Grows `history` (a `ResponseInput`) with output + output
   items and feeds `function_call_output` back (decision B).
 - **`agent/run.ts`.** `runTurn` now returns `{ text: string, response: Response }`
-  and still streams deltas to `sink`. Add `runTool(call, config, logger)`:
+  and still streams deltas to `sink`.   Add `runTool(tool, raw, config)`:
   registry lookup → zod parse → execute → truncate (decision F) → wrap as
   `function_call_output`. (`runOneShot` keeps returning just `text` for tool-less
   one-shots.)
-- **`agent/types.ts` (new).** `ToolDefinition`, `ToolCall`, `ToolContext`, `ToolResult`.
+- **`agent/types.ts` (new).** `ToolDefinition<P>`, `ToolCall`, `ToolContext`, `ToolResult`.
 - **`tools/registry.ts` (new).** `register`/`get`/`list` + `toResponsesTool(tool)`
   (zod → JSON Schema). Returns `OpenAI.Responses.Tool[]` for the client.
 - **`tools/local/fs.ts` (new).** `read_file`, `list_dir`, `grep`, `stat`, `glob`; path-confined
@@ -312,7 +312,7 @@ is an alternative but more churn).
 2. Push the assistant `output` items onto `history`.
 3. `calls = response.output.filter(function_call)`; if none, break (final text
    already streamed).
-4. `results = await Promise.all(calls.map(c => runTool(c, config, logger)))` —
+4. `results = await Promise.all(calls.map(c => runTool(tool, c.arguments, config)))` —
    P3 tools are all read-only, so run in parallel; the read-only/mutating split
    (parallel vs sequential, harness-gated) is added in **P4**.
 5. Push `results` (`function_call_output`) onto `history`; repeat.

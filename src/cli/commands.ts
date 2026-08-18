@@ -69,9 +69,12 @@ export function dispatch(
       sink.write('session reset\n')
       return 'ok'
     case 'tools':
-      for (const t of session.tools.list()) {
-        sink.write(`${t.name} — ${t.description}\n`)
-      }
+      sink.write(
+        `Tools: ${session.tools
+          .list()
+          .map((t) => t.name)
+          .join(', ')}\n`,
+      )
       return 'ok'
     case 'clear':
       sink.write(CLEAR)

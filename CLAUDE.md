@@ -24,6 +24,7 @@ pnpm test:watch   # vitest
 pnpm typecheck    # tsc --noEmit  (gate)
 pnpm format       # prettier --write .
 pnpm format:check # prettier --check . (gate)
+pnpm stress       # live end-to-end stress test (scripts/live-stress.ts)
 ```
 
 Run a single test file: `pnpm vitest run tests/cli/repl.test.ts`.
@@ -57,14 +58,16 @@ executes a single tool call with a timeout and output truncation.
 tool-calling loop (stream a turn, run any tool calls in parallel, feed
 `function_call_output`s back, repeat up to `maxToolIterations`), and
 `runOneShot` is a thin wrapper that builds `[system, user]` and delegates to
-`runAgent`. Tools live under `tools/`: `tools/registry.ts`'s `ToolRegistry`
-registers `ToolDefinition` objects (zod-typed params, converted to Responses
-JSON Schema via `z.toJSONSchema`; named `ToolDefinition` rather than `Tool` to
-avoid colliding with the SDK's own `Tool` type, which every import site aliases
-as `ResponsesTool`) and `tools/local/fs.ts` implements the read-only set
-(`read_file`, `list_dir`, `grep`, `stat`, `glob`) over a shared `walkDirs`
-traversal, path-confined to the working directory and returning root-relative
-paths.
+`runAgent`. Tools live under `tools/`: `tools/registry.ts`'s `ToolRegistry` (built once
+per session; `toResponsesTools()` is memoized) registers `ToolDefinition<P>` objects — a
+generic with zod-typed params and a type-safe `execute(args: P, ctx)`;
+it is named `ToolDefinition` rather than `Tool` to avoid colliding with the
+SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — and
+converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/fs.ts`
+implements the read-only set (`read_file`, `list_dir`, `grep`, `stat`, `glob`)
+over a shared `walkDirs` traversal, path-confined to the working directory and
+returning root-relative paths. `createLocalTools()` returns the `ToolRegistry`
+(no config argument) and is used by both `runOneShot` and the REPL.
 
 The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
 keeping a module-local `Session` (`{ config, client, logger, history, tools }`)
@@ -79,10 +82,13 @@ implemented as pure `mergeConfigs` in `config/config.ts` with `config/schema.ts`
 (also in `config/config.ts`) is the single place that resolves the effective
 working-directory root (`config.root ?? process.cwd()`), used by both the
 system prompt and the tool context. `loadConfig` parses the config file with
-`appConfigSchema.strict()` (not `.partial()` — every field already tolerates
+`configSchema.strict()` (not `.partial()` — every field already tolerates
 absence via `.optional()`/`.default()`), so a typo'd key in `dcode.json` fails
 loudly instead of being silently ignored; `permissionsSchema`/`mcpServerSchema`
-are strict too, since `.strict()` doesn't cascade into nested objects.
+are strict too, since `.strict()` doesn't cascade into nested objects. A missing
+default config (`dcode.json`/`.dcode.json`) falls back to schema defaults
+(`{}`), but an explicit `--config <path>` that doesn't exist throws rather than
+being silently ignored.
 
 See PLAN.md §5 for the full target module tree (including mutating tools,
 permissions, and MCP modules not yet built) and §10+ for the current phase's
