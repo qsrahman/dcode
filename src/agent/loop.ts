@@ -4,7 +4,7 @@ import { resolveRoot } from '../config/config.ts'
 import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
-import { runTurn, runTool } from './run.ts'
+import { runTurn, runTool, CapturingSink } from './run.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import { renderToolResult } from '../ui/render.ts'
@@ -20,12 +20,6 @@ import type { ResponseFunctionToolCall } from 'openai/resources/responses/respon
 // with exactly one blank line separating that block from the final answer.
 // Because the answer turn is only known to be final after it streams, post-tool
 // turns are buffered and flushed (with a leading blank if they are the answer).
-class CapturingSink implements RunSink {
-  text = ''
-  write(s: string): void {
-    this.text += s
-  }
-}
 
 export async function runAgent(
   client: Client,

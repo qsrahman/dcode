@@ -5,7 +5,7 @@ import type { ResponseInput } from '../src/agent/client.ts'
 import { buildConfig } from '../src/config/config.ts'
 import { parseCli } from '../src/cli/args.ts'
 import { createLocalTools } from '../src/tools/index.ts'
-import type { RunSink } from '../src/agent/run.ts'
+import { CapturingSink } from '../src/agent/run.ts'
 import { createLogger, errorMessage } from '../src/util/log.ts'
 import ansis from 'ansis'
 
@@ -55,18 +55,6 @@ const scenarios: Scenario[] = [
   },
 ]
 
-// Captures everything the agent loop writes to its sink (streamed model text +
-// tool-render lines) so we can assert on UI/UX spacing without printing it.
-class CapturingSink implements RunSink {
-  text = ''
-  get bytes(): number {
-    return Buffer.byteLength(this.text)
-  }
-  write(s: string): void {
-    this.text += s
-  }
-}
-
 // UI/UX spacing check: each tool call must render exactly one well-formed,
 // line-separated status line. Catches missing/duplicated renders and any
 // regression in the per-tool output spacing.
@@ -111,7 +99,7 @@ async function runScenario(
   const status = ok ? 'ok ' : 'EMPTY'
   console.log(
     `[${status}] ${scenario.name.padEnd(18)} toolCalls=${calls} outputs=${outputs} ` +
-      `streamed=${sink.bytes} finalLen=${text.trim().length} time=${dt}ms`,
+      `streamed=${Buffer.byteLength(sink.text)} finalLen=${text.trim().length} time=${dt}ms`,
   )
   if (!ok) throw new Error(`${scenario.name}: model returned empty answer`)
 }

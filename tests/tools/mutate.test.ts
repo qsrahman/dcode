@@ -78,6 +78,15 @@ describe('mutate tools', () => {
     expect(out).toContain('hi')
   })
 
+  it('run_shell preserves stdout and stderr when the command fails', async () => {
+    await expect(
+      get('run_shell').execute(
+        { command: 'echo out; echo err 1>&2; exit 3' },
+        ctx,
+      ),
+    ).rejects.toThrow(/exit 3: out\nerr/)
+  })
+
   it('rejects paths that escape the working directory', async () => {
     await expect(
       get('write_file').execute({ path: '../escape.txt', content: 'x' }, ctx),

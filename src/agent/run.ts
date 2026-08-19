@@ -14,6 +14,16 @@ export interface RunSink {
   write(text: string): void
 }
 
+// A RunSink that accumulates everything written instead of forwarding it —
+// used to buffer output for later inspection or reordering (e.g. delaying a
+// turn's text until it's known whether the turn was the final answer).
+export class CapturingSink implements RunSink {
+  text = ''
+  write(s: string): void {
+    this.text += s
+  }
+}
+
 // Universal turn runner shared by one-shot and the REPL. Streams output to
 // `sink` and forwards `signal` so callers (REPL) can abort an in-flight stream
 // (decision L). Returns the SDK's own aggregated text (Response.output_text)

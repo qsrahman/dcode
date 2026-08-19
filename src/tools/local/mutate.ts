@@ -89,14 +89,26 @@ function runShellTool(): ToolDefinition<{ command: string }> {
       command: z.string().describe('Shell command to execute'),
     }),
     async execute(args: { command: string }, ctx: ToolContext) {
-      const { stdout, stderr } = await execFileAsync(args.command, [], {
-        cwd: ctx.root,
-        shell: true,
-        timeout: ctx.config.toolTimeout,
-        maxBuffer: ctx.config.maxToolOutputBytes,
-      })
-      const out = `${stdout}${stderr}`.trim()
-      return out || '(no output)'
+      try {
+        const { stdout, stderr } = await execFileAsync(args.command, [], {
+          cwd: ctx.root,
+          shell: true,
+          timeout: ctx.config.toolTimeout,
+          maxBuffer: ctx.config.maxToolOutputBytes,
+        })
+        return `${stdout}${stderr}`.trim() || '(no output)'
+      } catch (err) {
+        // execFile rejects on a non-zero exit (or timeout) with stdout/stderr
+        // attached to the error rather than returned — surface them the same
+        // way a successful run does instead of losing stdout to err.message.
+        const e = err as NodeJS.ErrnoException & {
+          stdout?: string
+          stderr?: string
+          code?: number | string
+        }
+        const out = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim()
+        throw new Error(`exit ${e.code ?? '?'}: ${out || '(no output)'}`)
+      }
     },
   }
 }
