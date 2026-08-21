@@ -37,6 +37,7 @@ export async function runAgent(
     root: resolveRoot(config),
     config,
     logger: opts.logger,
+    signal: opts.signal,
   }
   const responses = registry.list().length
     ? registry.toResponsesTools()
@@ -85,6 +86,10 @@ export async function runAgent(
       sink.write(`${renderToolResult(outcome.name, outcome.ok, outcome.ms)}\n`)
       if (config.verbose) sink.write(`${outcome.output}\n`)
     }
+    // Abort only after every call has a recorded output, so history stays
+    // balanced (no function_call without its function_call_output) and the
+    // conversation can be resumed. handleLine catches this and logs `aborted`.
+    if (opts.signal?.aborted) throw new Error('aborted')
   }
   return finalText
 }
@@ -107,8 +112,9 @@ export async function runOneShot(
 }
 
 // Execute one turn's tool calls in the order the model emitted them. Every call
-// runs unconditionally; outcomes are returned in the same order so history and
-// rendering stay aligned.
+// yields exactly one outcome — an unknown-tool error, an `aborted` marker if the
+// user cancelled before it ran, or the tool's real result — so history and
+// rendering stay aligned and every function_call gets a function_call_output.
 async function runCalls(
   calls: ResponseFunctionToolCall[],
   registry: ToolRegistry,
@@ -116,22 +122,29 @@ async function runCalls(
 ): Promise<{ id: string; outcome: ToolResult }[]> {
   const results: { id: string; outcome: ToolResult }[] = []
   for (const c of calls) {
-    const tool = registry.get(c.name)
     const call = { id: c.call_id, name: c.name, arguments: c.arguments }
-    if (!tool) {
-      results.push({
+    const tool = registry.get(c.name)
+    let outcome: ToolResult
+    if (ctx.signal?.aborted) {
+      outcome = {
         id: c.call_id,
-        outcome: {
-          id: c.call_id,
-          name: c.name,
-          output: `error: unknown tool "${c.name}"`,
-          ok: false,
-          ms: 0,
-        },
-      })
-      continue
+        name: c.name,
+        output: 'aborted',
+        ok: false,
+        ms: 0,
+      }
+    } else if (!tool) {
+      outcome = {
+        id: c.call_id,
+        name: c.name,
+        output: `error: unknown tool "${c.name}"`,
+        ok: false,
+        ms: 0,
+      }
+    } else {
+      outcome = await runTool(call, tool, ctx)
     }
-    results.push({ id: c.call_id, outcome: await runTool(call, tool, ctx) })
+    results.push({ id: c.call_id, outcome })
   }
   return results
 }

@@ -56,6 +56,27 @@ describe('read-only tools', () => {
     expect(out).toContain('a.txt:1: foo bar')
   })
 
+  it('grep and glob prune ignored directories (node_modules, .git)', async () => {
+    await mkdir(join(root, 'node_modules'))
+    await writeFile(join(root, 'node_modules', 'dep.ts'), 'needle')
+    await writeFile(join(root, 'app.ts'), 'needle')
+    const g = await tool('grep').execute({ pattern: 'needle' }, ctx)
+    expect(g).toContain('app.ts')
+    expect(g).not.toContain('node_modules')
+    const gl = await tool('glob').execute({ pattern: '**/*.ts' }, ctx)
+    expect(gl).toContain('app.ts')
+    expect(gl).not.toContain('node_modules')
+  })
+
+  it('grep caps total matches with a note', async () => {
+    const lines = Array.from({ length: 300 }, (_, i) => `m${i}`).join('\n')
+    await writeFile(join(root, 'big.txt'), lines)
+    const out = await tool('grep').execute({ pattern: 'm' }, ctx)
+    const hits = out.split('\n').filter((l) => l.startsWith('big.txt'))
+    expect(hits.length).toBe(200)
+    expect(out).toMatch(/stopped at 200 matches/)
+  })
+
   it('stat reports a file type/size/mtime', async () => {
     await writeFile(join(root, 'a.txt'), 'hello')
     const out = await tool('stat').execute({ path: 'a.txt' }, ctx)
@@ -200,6 +221,27 @@ describe('mutating tools', () => {
     // and confirm it never appears — proving the child was actually SIGTERM'd.
     await new Promise((r) => setTimeout(r, 900))
     await expect(access(join(root, 'marker.txt'))).rejects.toThrow()
+  })
+
+  it('run_shell aborts promptly when ctx.signal fires', async () => {
+    const ac = new AbortController()
+    const abortCtx = {
+      ...ctx,
+      signal: ac.signal,
+      config: cfg({ toolTimeout: 60_000 }),
+    }
+    setTimeout(() => ac.abort(), 100)
+    const t0 = Date.now()
+    await expect(
+      tool('run_shell').execute(
+        { command: 'sleep 5; touch nope.txt' },
+        abortCtx,
+      ),
+    ).rejects.toThrow()
+    expect(Date.now() - t0).toBeLessThan(2000)
+    // The child was killed before its sleep completed, so no file was written.
+    await new Promise((r) => setTimeout(r, 200))
+    await expect(access(join(root, 'nope.txt'))).rejects.toThrow()
   })
 
   it('rejects paths that escape the working directory', async () => {

@@ -6,6 +6,9 @@ export interface ToolContext {
   root: string
   config: AppConfig
   logger: Logger
+  // Aborted when the user cancels the turn (Ctrl-C). Tools that spawn processes
+  // forward it so the child is killed; runTool also races against it.
+  signal?: AbortSignal
 }
 
 export interface ToolDefinition<P = unknown> {

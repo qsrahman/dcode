@@ -73,9 +73,11 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). |
 | `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`). |
 
-Tool output is untrusted data; results are truncated to
-`maxToolOutputBytes` (default 32 KiB), and tool errors are returned to the model
-so it can self-correct.
+The recursive tools (`grep`, `glob`) skip directories named in `ignore`
+(default `.git`, `node_modules`), and `grep` caps its output at 200 matches.
+Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
+(default 32 KiB), and tool errors are returned to the model so it can
+self-correct. In-flight tools (including `run_shell`) are cancelled on Ctrl-C.
 
 ## Configuration (`dcode.json`)
 
@@ -87,6 +89,7 @@ JSON, loaded from `--config <path>` or a default location. Example:
   "maxToolIterations": 16,
   "maxHistoryItems": 100,
   "maxToolOutputBytes": 32768,
+  "ignore": [".git", "node_modules"],
   "mcp": [
     {
       "name": "fs-extra",

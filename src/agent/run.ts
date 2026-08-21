@@ -49,7 +49,8 @@ export async function runTurn(
 }
 
 // Execute a single tool call with a per-tool timeout (decision: toolTimeout
-// bounds execution) and output truncation (decision F). Tool failures are
+// bounds execution), abort support (Ctrl-C via ctx.signal), and output
+// truncation (decision F). Tool failures — including a timeout or abort — are
 // returned as outcomes, never thrown, so the loop can feed them back to the
 // model (decision D).
 export async function runTool(
@@ -61,9 +62,10 @@ export async function runTool(
   try {
     const raw = call.arguments ? JSON.parse(call.arguments) : {}
     const args = tool.parameters.parse(raw)
-    const result = await withTimeout(
+    const result = await withDeadline(
       tool.execute(args, ctx),
       ctx.config.toolTimeout,
+      ctx.signal,
     )
     return {
       id: call.id,
@@ -86,21 +88,41 @@ export async function runTool(
   }
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+// Race a tool's execution against its timeout and the caller's abort signal.
+// Rejects promptly on either; the tool promise still settles (its rejection is
+// handled here, so no unhandled rejection). Process-spawning tools also receive
+// ctx.signal directly, so the abort actually kills the child, not just this
+// wrapper.
+function withDeadline<T>(
+  p: Promise<T>,
+  ms: number,
+  signal?: AbortSignal,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(
-      () => reject(new Error(`tool timed out after ${ms}ms`)),
+    if (signal?.aborted) {
+      reject(new Error('aborted'))
+      return
+    }
+    let done = false
+    let timer: ReturnType<typeof setTimeout>
+    function finish(settle: () => void): void {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      settle()
+    }
+    function onAbort(): void {
+      finish(() => reject(new Error('aborted')))
+    }
+    timer = setTimeout(
+      () => finish(() => reject(new Error(`tool timed out after ${ms}ms`))),
       ms,
     )
+    signal?.addEventListener('abort', onAbort, { once: true })
     p.then(
-      (v) => {
-        clearTimeout(t)
-        resolve(v)
-      },
-      (e) => {
-        clearTimeout(t)
-        reject(e)
-      },
+      (v) => finish(() => resolve(v)),
+      (e) => finish(() => reject(e)),
     )
   })
 }

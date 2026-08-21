@@ -28,10 +28,23 @@ export function createSession(config: AppConfig, logger: Logger): Session {
   }
 }
 
-// Keep history[0] (the system message) and the last `max` items.
+// Keep history[0] (the system message) and roughly the last `max` items. The
+// cut point is advanced forward past any tool items so the retained region
+// always begins at a message boundary — otherwise trimming could keep a
+// function_call_output whose function_call was dropped (or a function_call
+// whose sibling output was dropped), which the Responses API rejects as an
+// orphaned tool call. Erring toward keeping fewer items is fine; correctness
+// beats hitting `max` exactly.
 export function trimHistory(history: ResponseInput, max: number): void {
   if (history.length - 1 <= max) return
-  history.splice(1, history.length - 1 - max)
+  let keepFrom = history.length - max
+  while (keepFrom < history.length && isToolItem(history[keepFrom]!)) keepFrom++
+  history.splice(1, keepFrom - 1)
+}
+
+function isToolItem(item: ResponseInput[number]): boolean {
+  const type = (item as { type?: string }).type
+  return type === 'function_call' || type === 'function_call_output'
 }
 
 export async function handleLine(

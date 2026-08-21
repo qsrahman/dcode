@@ -5,6 +5,28 @@ All notable changes to **dcode** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- `ignore` config field (default `['.git', 'node_modules']`): `grep` and `glob`
+  now prune these directory names during traversal instead of walking the whole
+  tree, so searches on a real repo return source matches rather than dependency
+  noise. `grep` also caps output at 200 matches with a truncation note.
+- Ctrl-C now cancels an in-flight tool, not just the model stream. The abort
+  signal is threaded through `runTool` (which races against it) into
+  `ToolContext.signal`, and `run_shell` forwards it to the child process so it
+  is actually killed. The loop only aborts after each call has a recorded
+  output, so conversation history stays balanced and resumable.
+
+### Fixed
+- `trimHistory` no longer risks orphaning a tool call from its output. It now
+  advances the cut point to a message boundary, so it never retains a
+  `function_call_output` whose `function_call` was trimmed (or vice versa),
+  which the Responses API rejects.
+- Restored a `maxBuffer` bound on `run_shell` (10 MiB) that the fs/mutate merge
+  had dropped, so very large output is bounded rather than relying on the
+  default.
+
 ## [0.3.0] - 2026-08-18
 
 ### Added

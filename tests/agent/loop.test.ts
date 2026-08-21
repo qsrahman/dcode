@@ -220,4 +220,43 @@ describe('runAgent', () => {
     ) as { call_id: string; output: string }[]
     expect(outputs.map((o) => o.call_id)).toEqual(['c1', 'c2'])
   })
+
+  it('on abort, throws but leaves history balanced (every call has an output)', async () => {
+    const client = fakeClientWithCalls([
+      [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'read_file',
+          arguments: '{}',
+        },
+        {
+          type: 'function_call',
+          call_id: 'c2',
+          name: 'read_file',
+          arguments: '{}',
+        },
+      ],
+      [],
+    ])
+    const ac = new AbortController()
+    ac.abort()
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await expect(
+      runAgent(client, cfg(), history, {
+        logger: createLogger(cfg()),
+        tools: new ToolRegistry([readTool]),
+        signal: ac.signal,
+      }),
+    ).rejects.toThrow(/aborted/)
+    const calls = history.filter(
+      (h) => (h as { type?: string }).type === 'function_call',
+    )
+    const outputs = history.filter(
+      (h) => (h as { type?: string }).type === 'function_call_output',
+    )
+    expect(calls).toHaveLength(2)
+    expect(outputs).toHaveLength(2)
+    expect((outputs[0] as { output: string }).output).toBe('aborted')
+  })
 })

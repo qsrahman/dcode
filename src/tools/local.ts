@@ -8,6 +8,15 @@ import type { ToolDefinition, ToolContext } from '../agent/types.ts'
 
 const execFileAsync = promisify(execFile)
 
+// Cap grep output so a broad pattern over a large tree can't flood the model's
+// context (runTool's byte-truncation is a blunt backstop, not a real limit).
+const GREP_MAX_MATCHES = 200
+
+// run_shell buffers combined stdout/stderr up to this before the child is
+// killed. Comfortably above maxToolOutputBytes so normal large output is
+// truncated (decision F) rather than failing the whole command.
+const SHELL_MAX_BUFFER = 10 * 1024 * 1024
+
 // Shared path confinement: every tool resolves against the session root and
 // refuses to escape it (decision G). `resolvePath` is the single chokepoint.
 function resolvePath(root: string, p: string): string {
@@ -32,10 +41,12 @@ function fsError(err: unknown, path: string): string {
 }
 
 // Shared recursive directory walk: yields every entry with its path relative to
-// root. Skips symlinks (don't follow) and silently continues past unreadable
-// directories — the same traversal rules grep and glob need.
+// root. Skips symlinks (don't follow), silently continues past unreadable
+// directories, and prunes ignored directory names (e.g. .git, node_modules) —
+// the same traversal rules grep and glob need.
 async function* walkDirs(
   root: string,
+  ignore: ReadonlySet<string>,
 ): AsyncGenerator<{ full: string; rel: string; entry: Dirent }> {
   const stack = [root]
   while (stack.length) {
@@ -47,6 +58,7 @@ async function* walkDirs(
       continue
     }
     for (const entry of entries) {
+      if (entry.isDirectory() && ignore.has(entry.name)) continue
       const full = resolve(dir, entry.name)
       yield { full, rel: relative(root, full), entry }
       if (entry.isDirectory() && !entry.isSymbolicLink()) stack.push(full)
@@ -118,8 +130,10 @@ function grepTool(): ToolDefinition<{ pattern: string; path?: string }> {
         throw new Error(`invalid regular expression: ${args.pattern}`)
       }
       const dir = resolvePath(ctx.root, target)
+      const ignore = new Set(ctx.config.ignore)
       const matches: string[] = []
-      for await (const { full, entry } of walkDirs(dir)) {
+      let capped = false
+      outer: for await (const { full, entry } of walkDirs(dir, ignore)) {
         if (!entry.isFile()) continue
         let content: string
         try {
@@ -128,12 +142,23 @@ function grepTool(): ToolDefinition<{ pattern: string; path?: string }> {
           continue
         }
         const rel = relative(ctx.root, full)
-        content.split('\n').forEach((line, i) => {
+        const lines = content.split('\n')
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i]!
           re.lastIndex = 0
-          if (re.test(line)) matches.push(`${rel}:${i + 1}: ${line}`)
-        })
+          if (!re.test(line)) continue
+          matches.push(`${rel}:${i + 1}: ${line}`)
+          if (matches.length >= GREP_MAX_MATCHES) {
+            capped = true
+            break outer
+          }
+        }
       }
-      return matches.join('\n') || '(no matches)'
+      let out = matches.join('\n') || '(no matches)'
+      if (capped) {
+        out += `\n… (stopped at ${GREP_MAX_MATCHES} matches; narrow the pattern or path)`
+      }
+      return out
     },
   }
 }
@@ -212,8 +237,9 @@ function globTool(): ToolDefinition<{ pattern: string }> {
     }),
     async execute(args: { pattern: string }, ctx: ToolContext) {
       const re = globToRegExp(args.pattern)
+      const ignore = new Set(ctx.config.ignore)
       const matches: string[] = []
-      for await (const { rel } of walkDirs(ctx.root)) {
+      for await (const { rel } of walkDirs(ctx.root, ignore)) {
         if (re.test(rel)) matches.push(rel)
       }
       matches.sort()
@@ -298,13 +324,15 @@ function runShellTool(): ToolDefinition<{ command: string }> {
     }),
     async execute(args: { command: string }, ctx: ToolContext) {
       try {
-        // `timeout` here (not just runTool's withTimeout wrapper) is what
-        // actually SIGTERMs the child: withTimeout only rejects the promise,
-        // leaving the process running and holding the event loop open.
+        // `timeout` and `signal` both kill the child directly: the runTool
+        // deadline/abort race only rejects the promise, which would otherwise
+        // leave the process running and holding the event loop open.
         const { stdout, stderr } = await execFileAsync(args.command, [], {
           cwd: ctx.root,
           shell: true,
           timeout: ctx.config.toolTimeout,
+          maxBuffer: SHELL_MAX_BUFFER,
+          signal: ctx.signal,
         })
         return `${stdout}${stderr}`.trim() || '(no output)'
       } catch (err) {

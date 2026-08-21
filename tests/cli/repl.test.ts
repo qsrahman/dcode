@@ -52,6 +52,23 @@ describe('trimHistory', () => {
     trimHistory(h, 10)
     expect(h.length).toBe(2)
   })
+  it('never orphans a tool pair: cuts at a message boundary', () => {
+    const h: ResponseInput = [
+      { role: 'system', content: 's' },
+      { role: 'user', content: 'u1' },
+      { type: 'function_call', call_id: 'a', name: 'x', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'a', output: 'ok' },
+      { role: 'assistant', content: 'a1' },
+    ] as unknown as ResponseInput
+    trimHistory(h, 2)
+    expect(h[0]).toEqual({ role: 'system', content: 's' })
+    // The naive cut would keep the orphaned output (call 'a' dropped); the fixed
+    // version advances past both tool items to the next message.
+    for (const item of h.slice(1)) {
+      expect((item as { type?: string }).type).not.toBe('function_call_output')
+      expect((item as { type?: string }).type).not.toBe('function_call')
+    }
+  })
 })
 
 describe('handleLine commands', () => {

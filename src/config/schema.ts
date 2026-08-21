@@ -32,6 +32,9 @@ export const configSchema = z.object({
   maxTokens: z.number().int().positive().default(8192),
   maxRetries: z.number().int().nonnegative().default(3),
   toolTimeout: z.number().int().positive().default(30000),
+  // Directory names skipped by the recursive tools (grep/glob). These flood
+  // results and are almost never what the model wants to search.
+  ignore: z.array(z.string()).default(['.git', 'node_modules']),
   mcp: z.array(mcpServerSchema).default([]),
 })
 export type AppConfig = z.infer<typeof configSchema>
