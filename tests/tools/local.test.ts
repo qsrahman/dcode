@@ -6,6 +6,7 @@ import {
   readFile,
   mkdir,
   access,
+  symlink,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -248,6 +249,58 @@ describe('mutating tools', () => {
     await expect(
       tool('write_file').execute({ path: '../escape.txt', content: 'x' }, ctx),
     ).rejects.toThrow(/escapes/)
+  })
+})
+
+describe('symlink confinement', () => {
+  let outside: string
+  beforeEach(async () => {
+    outside = await mkdtemp(join(tmpdir(), 'dcode-outside-'))
+    await writeFile(join(outside, 'secret.txt'), 'TOP SECRET')
+  })
+  afterEach(async () => {
+    await rm(outside, { recursive: true, force: true })
+  })
+
+  it('rejects reading through a symlinked dir that points outside root', async () => {
+    await symlink(outside, join(root, 'link'))
+    await expect(
+      tool('read_file').execute({ path: 'link/secret.txt' }, ctx),
+    ).rejects.toThrow(/escapes/)
+  })
+
+  it('rejects writing through a symlinked dir that points outside root', async () => {
+    await symlink(outside, join(root, 'link'))
+    await expect(
+      tool('write_file').execute({ path: 'link/evil.txt', content: 'x' }, ctx),
+    ).rejects.toThrow(/escapes/)
+    await expect(access(join(outside, 'evil.txt'))).rejects.toThrow()
+  })
+
+  it('rejects reading a leaf symlink whose target is outside root', async () => {
+    await symlink(join(outside, 'secret.txt'), join(root, 'leak.txt'))
+    await expect(
+      tool('read_file').execute({ path: 'leak.txt' }, ctx),
+    ).rejects.toThrow(/escapes/)
+  })
+
+  it('grep and glob do not follow symlinks out of root', async () => {
+    await symlink(outside, join(root, 'link'))
+    await writeFile(join(root, 'in.txt'), 'TOP SECRET')
+    const g = await tool('grep').execute({ pattern: 'TOP SECRET' }, ctx)
+    expect(g).toContain('in.txt')
+    expect(g).not.toContain('secret.txt')
+    const gl = await tool('glob').execute({ pattern: '**/*' }, ctx)
+    expect(gl).toContain('in.txt')
+    expect(gl).not.toContain('link')
+  })
+
+  it('still resolves a symlink that stays inside root', async () => {
+    await writeFile(join(root, 'real.txt'), 'inside')
+    await symlink(join(root, 'real.txt'), join(root, 'alias.txt'))
+    expect(await tool('read_file').execute({ path: 'alias.txt' }, ctx)).toBe(
+      'inside',
+    )
   })
 })
 

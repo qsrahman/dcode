@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { readFile, writeFile, readdir, stat, realpath } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
-import { resolve, relative, sep } from 'node:path'
+import { resolve, relative, sep, dirname, basename, join } from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../agent/types.ts'
 
@@ -17,11 +17,39 @@ const GREP_MAX_MATCHES = 200
 // truncated (decision F) rather than failing the whole command.
 const SHELL_MAX_BUFFER = 10 * 1024 * 1024
 
+// Canonicalize a path, tolerating a not-yet-existing leaf (e.g. write_file
+// creating a file): realpath resolves every symlink but requires the path to
+// exist, so fall back to the nearest existing ancestor plus the remaining tail.
+async function canonicalize(target: string): Promise<string> {
+  const tail: string[] = []
+  let cur = target
+  for (;;) {
+    try {
+      const real = await realpath(cur)
+      return tail.length ? join(real, ...tail) : real
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+      const parent = dirname(cur)
+      if (parent === cur) return target // reached filesystem root; nothing real
+      tail.unshift(basename(cur))
+      cur = parent
+    }
+  }
+}
+
 // Shared path confinement: every tool resolves against the session root and
 // refuses to escape it (decision G). `resolvePath` is the single chokepoint.
-function resolvePath(root: string, p: string): string {
+// The lexical check rejects `../` escapes; the realpath check then rejects
+// symlink escapes — a link inside root whose target lies outside it — which the
+// lexical check alone misses. Returns the lexical path for the fs call to use.
+async function resolvePath(root: string, p: string): Promise<string> {
   const resolved = resolve(root, p)
   if (resolved !== root && !resolved.startsWith(root + sep)) {
+    throw new Error(`path escapes working directory: ${p}`)
+  }
+  const realRoot = await realpath(root)
+  const real = await canonicalize(resolved)
+  if (real !== realRoot && !real.startsWith(realRoot + sep)) {
     throw new Error(`path escapes working directory: ${p}`)
   }
   return resolved
@@ -41,9 +69,10 @@ function fsError(err: unknown, path: string): string {
 }
 
 // Shared recursive directory walk: yields every entry with its path relative to
-// root. Skips symlinks (don't follow), silently continues past unreadable
-// directories, and prunes ignored directory names (e.g. .git, node_modules) —
-// the same traversal rules grep and glob need.
+// root. Skips symlinks entirely (never follow — a symlink could point outside
+// root), silently continues past unreadable directories, and prunes ignored
+// directory names (e.g. .git, node_modules) — the traversal rules grep and glob
+// need.
 async function* walkDirs(
   root: string,
   ignore: ReadonlySet<string>,
@@ -58,10 +87,11 @@ async function* walkDirs(
       continue
     }
     for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue
       if (entry.isDirectory() && ignore.has(entry.name)) continue
       const full = resolve(dir, entry.name)
       yield { full, rel: relative(root, full), entry }
-      if (entry.isDirectory() && !entry.isSymbolicLink()) stack.push(full)
+      if (entry.isDirectory()) stack.push(full)
     }
   }
 }
@@ -74,7 +104,7 @@ function readFileTool(): ToolDefinition<{ path: string }> {
       path: z.string().describe('Relative path under the working directory'),
     }),
     async execute(args: { path: string }, ctx: ToolContext) {
-      const file = resolvePath(ctx.root, args.path)
+      const file = await resolvePath(ctx.root, args.path)
       try {
         return await readFile(file, 'utf8')
       } catch (err) {
@@ -96,7 +126,7 @@ function listDirTool(): ToolDefinition<{ path?: string }> {
     }),
     async execute(args: { path?: string }, ctx: ToolContext) {
       const target = args.path ?? '.'
-      const dir = resolvePath(ctx.root, target)
+      const dir = await resolvePath(ctx.root, target)
       try {
         const entries = await readdir(dir, { withFileTypes: true })
         return entries
@@ -129,7 +159,7 @@ function grepTool(): ToolDefinition<{ pattern: string; path?: string }> {
       } catch {
         throw new Error(`invalid regular expression: ${args.pattern}`)
       }
-      const dir = resolvePath(ctx.root, target)
+      const dir = await resolvePath(ctx.root, target)
       const ignore = new Set(ctx.config.ignore)
       const matches: string[] = []
       let capped = false
@@ -176,7 +206,7 @@ function statTool(): ToolDefinition<{ path?: string }> {
     }),
     async execute(args: { path?: string }, ctx: ToolContext) {
       const target = args.path ?? '.'
-      const full = resolvePath(ctx.root, target)
+      const full = await resolvePath(ctx.root, target)
       let info: Awaited<ReturnType<typeof stat>>
       try {
         info = await stat(full)
@@ -258,7 +288,7 @@ function writeFileTool(): ToolDefinition<{ path: string; content: string }> {
       content: z.string().describe('Full file contents to write'),
     }),
     async execute(args: { path: string; content: string }, ctx: ToolContext) {
-      const file = resolvePath(ctx.root, args.path)
+      const file = await resolvePath(ctx.root, args.path)
       await writeFile(file, args.content, 'utf8')
       return `wrote ${args.content.length} bytes to ${args.path}`
     },
@@ -296,7 +326,7 @@ function editFileTool(): ToolDefinition<{
       },
       ctx: ToolContext,
     ) {
-      const file = resolvePath(ctx.root, args.path)
+      const file = await resolvePath(ctx.root, args.path)
       const before = await readFile(file, 'utf8')
       const count = countOccurrences(before, args.old_string)
       if (count === 0) throw new Error(`old_string not found in ${args.path}`)

@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is actually killed. The loop only aborts after each call has a recorded
   output, so conversation history stays balanced and resumable.
 
+### Security
+- Closed a symlink path-traversal escape. Path confinement was purely lexical,
+  so a symlink inside root pointing outside it (e.g. `root/link → /etc`) passed
+  the check and let `read_file`/`write_file`/`edit_file` follow it out of the
+  working directory. `resolvePath` now also canonicalizes with `realpath`
+  (tolerating a not-yet-created leaf) and re-checks confinement, and `walkDirs`
+  skips symlink entries entirely so `grep`/`glob` can't read through them.
+
 ### Fixed
 - `trimHistory` no longer risks orphaning a tool call from its output. It now
   advances the cut point to a message boundary, so it never retains a
