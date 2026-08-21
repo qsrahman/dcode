@@ -298,9 +298,13 @@ function runShellTool(): ToolDefinition<{ command: string }> {
     }),
     async execute(args: { command: string }, ctx: ToolContext) {
       try {
+        // `timeout` here (not just runTool's withTimeout wrapper) is what
+        // actually SIGTERMs the child: withTimeout only rejects the promise,
+        // leaving the process running and holding the event loop open.
         const { stdout, stderr } = await execFileAsync(args.command, [], {
           cwd: ctx.root,
           shell: true,
+          timeout: ctx.config.toolTimeout,
         })
         return `${stdout}${stderr}`.trim() || '(no output)'
       } catch (err) {

@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
+import {
+  mkdtemp,
+  rm,
+  writeFile,
+  readFile,
+  mkdir,
+  access,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { localTools } from '../../src/tools/local.ts'
@@ -8,22 +15,24 @@ import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'
 
-describe('fs tools', () => {
-  let root: string
-  let ctx: ToolContext
+let root: string
+let ctx: ToolContext
 
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'dcode-fs-'))
-    ctx = { root, config: cfg(), logger: createLogger(cfg()) }
-  })
-  afterEach(async () => {
-    await rm(root, { recursive: true, force: true })
-  })
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), 'dcode-tools-'))
+  ctx = { root, config: cfg(), logger: createLogger(cfg()) }
+})
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true })
+})
 
-  function tool(name: string) {
-    return localTools.find((t) => t.name === name)!
-  }
+function tool(name: string) {
+  const t = localTools.find((x) => x.name === name)
+  if (!t) throw new Error(`missing tool ${name}`)
+  return t
+}
 
+describe('read-only tools', () => {
   it('read_file returns file contents and rejects escapes', async () => {
     await writeFile(join(root, 'a.txt'), 'hello')
     const out = await tool('read_file').execute({ path: 'a.txt' }, ctx)
@@ -114,8 +123,94 @@ describe('fs tools', () => {
       /invalid regular expression/,
     )
   })
+})
 
-  it('runTool validates args and returns a clear error on failure', async () => {
+describe('mutating tools', () => {
+  it('write_file writes content', async () => {
+    const out = await tool('write_file').execute(
+      { path: 'a.txt', content: 'hello' },
+      ctx,
+    )
+    expect(out).toContain('wrote')
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('hello')
+  })
+
+  it('edit_file replaces a unique occurrence', async () => {
+    await writeFile(join(root, 'a.txt'), 'foo bar baz')
+    const out = await tool('edit_file').execute(
+      { path: 'a.txt', old_string: 'foo', new_string: 'baz' },
+      ctx,
+    )
+    expect(out).toContain('edited')
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('baz bar baz')
+  })
+
+  it('edit_file errors when old_string is absent', async () => {
+    await writeFile(join(root, 'a.txt'), 'foo')
+    await expect(
+      tool('edit_file').execute(
+        { path: 'a.txt', old_string: 'nope', new_string: 'x' },
+        ctx,
+      ),
+    ).rejects.toThrow(/not found/)
+  })
+
+  it('edit_file errors when old_string is ambiguous without replace_all', async () => {
+    await writeFile(join(root, 'a.txt'), 'foo foo')
+    await expect(
+      tool('edit_file').execute(
+        { path: 'a.txt', old_string: 'foo', new_string: 'x' },
+        ctx,
+      ),
+    ).rejects.toThrow(/matches/)
+  })
+
+  it('edit_file replace_all replaces every occurrence', async () => {
+    await writeFile(join(root, 'a.txt'), 'foo foo')
+    await tool('edit_file').execute(
+      { path: 'a.txt', old_string: 'foo', new_string: 'x', replace_all: true },
+      ctx,
+    )
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('x x')
+  })
+
+  it('run_shell captures combined output', async () => {
+    const out = await tool('run_shell').execute({ command: 'echo hi' }, ctx)
+    expect(out).toContain('hi')
+  })
+
+  it('run_shell preserves stdout and stderr when the command fails', async () => {
+    await expect(
+      tool('run_shell').execute(
+        { command: 'echo out; echo err 1>&2; exit 3' },
+        ctx,
+      ),
+    ).rejects.toThrow(/exit 3: out\nerr/)
+  })
+
+  it('run_shell kills the child on timeout instead of orphaning it', async () => {
+    const fast = { ...ctx, config: cfg({ toolTimeout: 150 }) }
+    await expect(
+      tool('run_shell').execute(
+        { command: 'sleep 0.7; touch marker.txt' },
+        fast,
+      ),
+    ).rejects.toThrow()
+    // A live (orphaned) child would create marker.txt ~0.7s in; wait past that
+    // and confirm it never appears — proving the child was actually SIGTERM'd.
+    await new Promise((r) => setTimeout(r, 900))
+    await expect(access(join(root, 'marker.txt'))).rejects.toThrow()
+  })
+
+  it('rejects paths that escape the working directory', async () => {
+    await expect(
+      tool('write_file').execute({ path: '../escape.txt', content: 'x' }, ctx),
+    ).rejects.toThrow(/escapes/)
+  })
+})
+
+describe('runTool', () => {
+  it('validates args and returns a clear error on failure', async () => {
     const call: ToolCall = { id: 'c', name: 'read_file', arguments: '{}' }
     const res = await runTool(call, tool('read_file'), ctx)
     expect(res.ok).toBe(false)
@@ -123,7 +218,7 @@ describe('fs tools', () => {
     expect(res.output).toMatch(/path/i)
   })
 
-  it('runTool runs successfully on valid args', async () => {
+  it('runs successfully on valid args', async () => {
     await writeFile(join(root, 'a.txt'), 'hi')
     const call: ToolCall = {
       id: 'c',
