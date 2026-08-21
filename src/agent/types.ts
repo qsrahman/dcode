@@ -12,9 +12,6 @@ export interface ToolDefinition<P = unknown> {
   name: string
   description: string
   parameters: z.ZodType<P>
-  // Mutating tools (write_file/edit_file/run_shell) require permission approval
-  // from the harness gate; read-only tools run without prompting.
-  mutates?: boolean
   execute(args: P, ctx: ToolContext): Promise<string>
 }
 

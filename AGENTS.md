@@ -62,8 +62,7 @@ Config is resolved with precedence **CLI > env > file > schema defaults**:
   by `config/schema.ts` (zod).
 - Env: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_DEFAULT_MODEL` (Node 26 loads
   `.env` via `--env-file` in `dev`/`start`).
-- CLI flags (`--model`, `--mode`, `--no-color`, `--verbose`,
-  `--auto`, `--plan`) override the above.
+- CLI flags (`--model`, `--no-color`, `--verbose`) override the above.
 
 `config/config.ts` holds the pure `mergeConfigs` (tested) plus thin `loadConfig`
 and `buildConfig` wrappers.

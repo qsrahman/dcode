@@ -3,10 +3,10 @@
 Product Requirements Document for **dcode**, a CLI-based AI coding agent built on
 the OpenAI Responses SDK.
 
-Status: **P4 complete** (mutating local tools + harness gate); P5
-(declarative permissions + modes) is **specified** — decisions locked, see
-§13. Phases advance one at a time; each lands as code + tests + docs + a focused
-commit.
+Status: **P4 complete** (mutating local tools). The tool-permission
+architecture (harness gate + P5 modes/rules) was **removed** on the `experiment`
+branch — every tool call now runs unconditionally. Phases advance one at a time;
+each lands as code + tests + docs + a focused commit.
 This document is the source of truth for features, architecture, and
 conventions — keep it in sync after every phase.
 
@@ -17,8 +17,8 @@ A small, modular, locally-run coding agent you drive from a terminal:
 - One-shot: `dcode "add a CLI flag to parse --verbose"`
 - REPL: `dcode` then chat, with slash commands.
 - Uses local system tools (files, shell, git) and optional MCP servers.
-- Fully async agent loop; read-only tools run in parallel.
-- Streaming model output, configurable models, a declarative permission system.
+- Fully async agent loop; tool calls run in emission order.
+- Streaming model output, configurable models.
 
 ## 2. Goals
 
@@ -67,17 +67,11 @@ src/
   agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
   agent/loop.ts       # runAgent: tool-calling loop; runOneShot wraps it for one-shot
   agent/types.ts      # ToolDefinition<P>, ToolContext, ToolCall, ToolResult
-  tools/index.ts      # createLocalTools() -> ToolRegistry of local tools
+  tools/index.ts      # createLocalTools(): the single hub that registers all local tools into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
-  tools/local/fs.ts   # read_file, list_dir, grep, stat, glob (read-only)
-  tools/local/write.ts# write_file, edit_file                (mutating, P4)
-  tools/local/shell.ts# run shell command                   (mutating, P4)
-  tools/local/git.ts  # status/diff/log (+ add/commit)       (mixed, P4+)
+  tools/local.ts      # all local tools (read_file, list_dir, grep, stat, glob, write_file, edit_file, run_shell) + shared fs helpers
   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
-  permissions/policy.ts  # declarative evaluate(tool,args,mode,rules) -> allow/deny/ask (P5)
-  permissions/harness.ts # executeToolCall: policy -> (auto/ask/deny) -> run (P5)
   ui/render.ts        # renderToolResult(name, ok, ms) -> status line
-  ui/prompt.ts        # permission prompt (y/n/a) (P5)
   util/log.ts         # diagnostics -> stderr (never console.log)
 ```
 
@@ -93,21 +87,11 @@ src/
 
 ### Permission model
 
-Declarative, harness-enforced. A policy maps tool names to `allow` / `deny` /
-`ask`. Modes set the baseline; rules override per tool. **Locked decisions
-(full spec in §13):** evaluation is **first match, deny → ask → allow**; an
-explicit rule always beats the mode baseline (a `deny` rule blocks even in
-`auto`); `ask` with no interactive prompt (one-shot/piped) resolves to **deny**;
-a `deny` rule may also hide the tool from the model's tool list. Four modes:
-
-- `interactive` (default): read-only auto-allowed; mutating prompts `y/n/a`.
-- `auto`: mutating auto-approved (subject to deny rules).
-- `plan`: mutating denied; read-only only.
-- `dontAsk`: deny anything not explicitly allowed — the right mode for one-shot
-  / CI; `ask` rules become denials rather than prompts.
-
-`a` (always) approves a **single tool** for the rest of the session (cleared by
-`/reset`); it never persists to disk.
+**Removed.** On the `experiment` branch the harness gate and the P5
+modes/rules design were deleted; `src/agent/gate.ts` is gone, `ToolDefinition`
+has no `mutates` flag, and `runCalls` executes every tool call unconditionally in
+the order the model emitted it. There is no approval prompt and no `--mode` /
+`--auto` / `--plan` flags. See §13 for the cancelled design.
 
 ## 6. Locked decisions
 
@@ -130,11 +114,10 @@ a `deny` rule may also hide the tool from the model's tool list. Four modes:
 
 ```
 dcode [prompt]      one-shot when a prompt is given, REPL otherwise
-  --model <id>       --mode <interactive|auto|plan> --auto (=auto) --plan (=plan)
-  --config <path>    --verbose   --no-color   --version   --help
+  --model <id>       --config <path>    --verbose   --no-color   --version   --help
 ```
 
-Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
+Slash commands (REPL), registered incrementally: `/help` `/model`
 `/clear` `/reset` `/tools` `/version` `/exit`.
 
 ## 8. Phase plan
@@ -145,8 +128,8 @@ Slash commands (REPL), registered incrementally: `/help` `/model` `/mode`
 | P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
 | P2 | REPL + slash commands + streaming in REPL | **Done** |
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | **Done** |
- | P4 | Mutating local tools (write_file/edit_file/run_shell) + harness gate | **Done** — see §12 |
- | P5 | Declarative permissions + modes | **Specified** — see §13 |
+ | P4 | Mutating local tools (write_file/edit_file/run_shell) | **Done** — see §12 |
+ | P5 | Declarative permissions + modes | **Cancelled** (removed on `experiment`) |
 | P6 | MCP integration | |
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | |
 
@@ -504,7 +487,15 @@ original call order in history. `Session` carries the gate; `/tools` annotates
 mutating entries with ` *`. Covered by `tests/tools/mutate.test.ts` and loop
 gating/ordering tests.
 
-## 13. P5 Specification (Declarative permissions + modes) — specified
+> **Note:** the harness gate described above was removed on the `experiment`
+> branch — `src/agent/gate.ts` deleted, `mutates` flag dropped, and `runCalls`
+> now executes every call unconditionally (see §5). P4's mutating *tools* remain;
+> only the approval step is gone. The two tool-definition files
+> (`tools/local/fs.ts`, `tools/local/mutate.ts`) were also unified into a single
+> `tools/local.ts`, with `tools/index.ts` as the one hub that registers the
+> `localTools` array into the `ToolRegistry`.
+
+## 13. P5 Specification (Declarative permissions + modes) — cancelled
 
 Builds on the P4 gate seam (`src/agent/gate.ts`). Plugs a declarative policy
 (`config.permissions`, already in `config/schema.ts`) into the `Gate` so tool
@@ -607,4 +598,5 @@ approvals, hooks, sandboxing, managed/enterprise policy layers. Revisit in P7 if
 needed.
 
 ### 13.9 Status
-**Specified** — decisions locked; not yet implemented.
+**Cancelled** — the permission architecture was removed on the `experiment`
+branch (see §5); this design is no longer pursued.

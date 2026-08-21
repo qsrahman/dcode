@@ -8,7 +8,6 @@ import { runTurn, runTool, CapturingSink } from './run.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import { renderToolResult } from '../ui/render.ts'
-import { createDenyGate, type Gate } from './gate.ts'
 import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
 
 // Agent loop: run turns, execute any tool calls the model makes, feed the
@@ -30,12 +29,10 @@ export async function runAgent(
     logger: Logger
     signal?: AbortSignal
     tools?: ToolRegistry
-    gate?: Gate
   },
 ): Promise<string> {
   const sink = opts.sink ?? process.stdout
   const registry = opts.tools ?? new ToolRegistry()
-  const gate = opts.gate ?? createDenyGate()
   const ctx: ToolContext = {
     root: resolveRoot(config),
     config,
@@ -78,7 +75,7 @@ export async function runAgent(
     }
     if (prevHadTools) sink.write((target as CapturingSink).text)
     prevHadTools = true
-    const results = await runCalls(calls, registry, ctx, gate)
+    const results = await runCalls(calls, registry, ctx)
     for (const { id, outcome } of results) {
       history.push({
         type: 'function_call_output',
@@ -101,30 +98,28 @@ export async function runOneShot(
   sink: RunSink = process.stdout,
   logger: Logger,
   tools: ToolRegistry = new ToolRegistry(),
-  gate: Gate = createDenyGate(),
 ): Promise<string> {
   const input: ResponseInput = [
     { role: 'system', content: buildSystemPrompt(config) },
     { role: 'user', content: prompt },
   ]
-  return runAgent(client, config, input, { sink, logger, tools, gate })
+  return runAgent(client, config, input, { sink, logger, tools })
 }
 
-// Execute one turn's tool calls: read-only tools run in parallel; mutating tools
-// run sequentially and each is gated (the gate decides allow/deny). Outcomes are
-// returned in the original call order so history and rendering stay aligned.
+// Execute one turn's tool calls in the order the model emitted them. Every call
+// runs unconditionally; outcomes are returned in the same order so history and
+// rendering stay aligned.
 async function runCalls(
   calls: ResponseFunctionToolCall[],
   registry: ToolRegistry,
   ctx: ToolContext,
-  gate: Gate,
 ): Promise<{ id: string; outcome: ToolResult }[]> {
-  let chain: Promise<void> = Promise.resolve()
-  const ordered = calls.map((c) => {
+  const results: { id: string; outcome: ToolResult }[] = []
+  for (const c of calls) {
     const tool = registry.get(c.name)
     const call = { id: c.call_id, name: c.name, arguments: c.arguments }
     if (!tool) {
-      return Promise.resolve({
+      results.push({
         id: c.call_id,
         outcome: {
           id: c.call_id,
@@ -134,31 +129,9 @@ async function runCalls(
           ms: 0,
         },
       })
+      continue
     }
-    if (!tool.mutates) {
-      return runTool(call, tool, ctx).then((outcome) => ({
-        id: c.call_id,
-        outcome,
-      }))
-    }
-    const run = chain.then(async () => {
-      const allowed = await gate(tool, call)
-      if (!allowed) {
-        return {
-          id: c.call_id,
-          outcome: {
-            id: c.call_id,
-            name: c.name,
-            output: 'denied by user',
-            ok: false,
-            ms: 0,
-          },
-        }
-      }
-      return { id: c.call_id, outcome: await runTool(call, tool, ctx) }
-    })
-    chain = run.then(() => undefined)
-    return run
-  })
-  return Promise.all(ordered)
+    results.push({ id: c.call_id, outcome: await runTool(call, tool, ctx) })
+  }
+  return results
 }

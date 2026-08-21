@@ -8,7 +8,6 @@ import type {
 import { runAgent } from '../../src/agent/loop.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { ToolRegistry } from '../../src/tools/registry.ts'
-import { createAllowGate, createDenyGate } from '../../src/agent/gate.ts'
 import { createLogger } from '../../src/util/log.ts'
 import { cfg } from '../helpers.ts'
 
@@ -43,7 +42,6 @@ const readTool: ToolDefinition = {
 const writeTool: ToolDefinition = {
   name: 'write_file',
   description: 'writes',
-  mutates: true,
   parameters: z.object({ path: z.string() }),
   async execute(args: { path: string }) {
     return `wrote ${args.path}`
@@ -119,7 +117,7 @@ describe('runAgent', () => {
     expect(outputs).toHaveLength(3)
   })
 
-  it('denies mutating tools under the default deny gate', async () => {
+  it('runs mutating tools unconditionally', async () => {
     const client = fakeClientWithCalls([
       [
         {
@@ -135,31 +133,6 @@ describe('runAgent', () => {
     await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
       tools: new ToolRegistry([writeTool]),
-      gate: createDenyGate(),
-    })
-    const outputs = history.filter(
-      (h) => (h as { type?: string }).type === 'function_call_output',
-    )
-    expect((outputs[0] as { output: string }).output).toBe('denied by user')
-  })
-
-  it('allows mutating tools with an allow gate', async () => {
-    const client = fakeClientWithCalls([
-      [
-        {
-          type: 'function_call',
-          call_id: 'c1',
-          name: 'write_file',
-          arguments: '{"path":"a.txt"}',
-        },
-      ],
-      [],
-    ])
-    const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    await runAgent(client, cfg(), history, {
-      logger: createLogger(cfg()),
-      tools: new ToolRegistry([writeTool]),
-      gate: createAllowGate(),
     })
     const outputs = history.filter(
       (h) => (h as { type?: string }).type === 'function_call_output',
@@ -172,7 +145,6 @@ describe('runAgent', () => {
     const seqTool: ToolDefinition = {
       name: 'write_file',
       description: 'writes',
-      mutates: true,
       parameters: z.object({ path: z.string() }),
       async execute(args: { path: string }) {
         order.push(args.path)
@@ -200,7 +172,6 @@ describe('runAgent', () => {
     await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
       tools: new ToolRegistry([seqTool]),
-      gate: createAllowGate(),
     })
     expect(order).toEqual(['a', 'b'])
   })
@@ -217,7 +188,6 @@ describe('runAgent', () => {
     const writeTool2: ToolDefinition = {
       name: 'write_file',
       description: 'writes',
-      mutates: true,
       parameters: z.object({ path: z.string() }),
       async execute() {
         return 'ok'
@@ -244,7 +214,6 @@ describe('runAgent', () => {
     await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
       tools: new ToolRegistry([readTool2, writeTool2]),
-      gate: createAllowGate(),
     })
     const outputs = history.filter(
       (h) => (h as { type?: string }).type === 'function_call_output',

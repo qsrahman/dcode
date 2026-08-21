@@ -21,13 +21,9 @@ describe('loadConfig', () => {
 
   it('parses a JSON config and keeps nested defaults', () => {
     const p = join(dir, 'dcode.json')
-    writeFileSync(
-      p,
-      JSON.stringify({ model: 'gpt-4.1', permissions: { mode: 'auto' } }),
-    )
+    writeFileSync(p, JSON.stringify({ model: 'gpt-4.1' }))
     const cfg = loadConfig(p)
     expect(cfg.model).toBe('gpt-4.1')
-    expect(cfg.permissions?.mode).toBe('auto')
   })
 
   it('throws when an explicit --config path is missing', () => {
@@ -46,7 +42,7 @@ describe('loadConfig', () => {
 
   it('rejects an invalid config value', () => {
     const p = join(dir, 'dcode.json')
-    writeFileSync(p, JSON.stringify({ permissions: { mode: 'bogus' } }))
+    writeFileSync(p, JSON.stringify({ model: 123 }))
     expect(() => loadConfig(p)).toThrow()
   })
 })
@@ -57,8 +53,6 @@ describe('mergeConfigs', () => {
   it('applies schema defaults', () => {
     const cfg = mergeConfigs({}, {}, base)
     expect(cfg.model).toBe('gpt-5')
-    expect(cfg.permissions.mode).toBe('interactive')
-    expect(cfg.permissions.rules).toEqual({})
   })
 
   it('lets the file override defaults', () => {
@@ -78,16 +72,6 @@ describe('mergeConfigs', () => {
       parseCli(['--model', 'cli']),
     )
     expect(cfg.model).toBe('cli')
-  })
-
-  it('--auto sets the mode', () => {
-    expect(mergeConfigs({}, {}, parseCli(['--auto'])).permissions.mode).toBe(
-      'auto',
-    )
-  })
-
-  it('rejects an invalid --mode', () => {
-    expect(() => mergeConfigs({}, {}, parseCli(['--mode', 'bogus']))).toThrow()
   })
 })
 

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createFsTools } from '../../src/tools/local/fs.ts'
+import { localTools } from '../../src/tools/local.ts'
 import { runTool } from '../../src/agent/run.ts'
 import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
@@ -21,7 +21,7 @@ describe('fs tools', () => {
   })
 
   function tool(name: string) {
-    return createFsTools().find((t) => t.name === name)!
+    return localTools.find((t) => t.name === name)!
   }
 
   it('read_file returns file contents and rejects escapes', async () => {

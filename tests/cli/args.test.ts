@@ -6,8 +6,6 @@ describe('parseCli', () => {
     const a = parseCli([])
     expect(a.prompt).toBeUndefined()
     expect(a.noColor).toBe(false)
-    expect(a.auto).toBe(false)
-    expect(a.plan).toBe(false)
     expect(a.verbose).toBe(false)
     expect(a.version).toBe(false)
     expect(a.help).toBe(false)
@@ -30,22 +28,14 @@ describe('parseCli', () => {
     expect(parseCli(['--no-color']).noColor).toBe(true)
   })
 
-  it('parses --auto and --plan shorthands', () => {
-    expect(parseCli(['--auto']).auto).toBe(true)
-    expect(parseCli(['--plan']).plan).toBe(true)
-  })
-
-  it('parses --mode, --config, --verbose, --version, --help', () => {
+  it('parses --config, --verbose, --version, --help', () => {
     const a = parseCli([
-      '--mode',
-      'plan',
       '--config',
       './c.json',
       '--verbose',
       '--version',
       '--help',
     ])
-    expect(a.mode).toBe('plan')
     expect(a.config).toBe('./c.json')
     expect(a.verbose).toBe(true)
     expect(a.version).toBe(true)

@@ -1,16 +1,5 @@
 import { z } from 'zod'
 
-const modeSchema = z.enum(['interactive', 'auto', 'plan'])
-
-const permissionRuleSchema = z.enum(['allow', 'deny', 'ask'])
-
-const permissionsSchema = z
-  .object({
-    mode: modeSchema.default('interactive'),
-    rules: z.record(z.string(), permissionRuleSchema).default({}),
-  })
-  .strict()
-
 const mcpServerSchema = z
   .object({
     name: z.string(),
@@ -43,7 +32,6 @@ export const configSchema = z.object({
   maxTokens: z.number().int().positive().default(8192),
   maxRetries: z.number().int().nonnegative().default(3),
   toolTimeout: z.number().int().positive().default(30000),
-  permissions: permissionsSchema.default({ mode: 'interactive', rules: {} }),
   mcp: z.array(mcpServerSchema).default([]),
 })
 export type AppConfig = z.infer<typeof configSchema>

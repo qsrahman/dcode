@@ -4,7 +4,6 @@ import type { Client, ResponseInput } from '../agent/client.ts'
 import type { RunSink } from '../agent/run.ts'
 import type { Logger } from '../util/log.ts'
 import type { ToolRegistry } from '../tools/registry.ts'
-import type { Gate } from '../agent/gate.ts'
 import { getVersion } from '../version.ts'
 
 export interface Session {
@@ -13,7 +12,6 @@ export interface Session {
   client: Client
   history: ResponseInput
   tools: ToolRegistry
-  gate: Gate
 }
 
 export type HandleResult = 'ok' | 'exit'
@@ -74,7 +72,7 @@ export function dispatch(
       sink.write(
         `Tools: ${session.tools
           .list()
-          .map((t) => t.name + (t.mutates ? ' *' : ''))
+          .map((t) => t.name)
           .join(', ')}\n`,
       )
       return 'ok'

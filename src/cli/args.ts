@@ -3,9 +3,6 @@ import { parseArgs } from 'node:util'
 export interface ParsedArgs {
   prompt?: string
   model?: string
-  mode?: string
-  auto: boolean
-  plan: boolean
   config?: string
   noColor: boolean
   verbose: boolean
@@ -23,9 +20,6 @@ export function parseCli(argv: string[]): ParsedArgs {
     strict: false,
     options: {
       model: { type: 'string', short: 'm' },
-      mode: { type: 'string' },
-      auto: { type: 'boolean' },
-      plan: { type: 'boolean' },
       config: { type: 'string', short: 'c' },
       'no-color': { type: 'boolean' },
       verbose: { type: 'boolean' },
@@ -37,9 +31,6 @@ export function parseCli(argv: string[]): ParsedArgs {
   return {
     prompt: positionals.length ? positionals.join(' ') : undefined,
     model: typeof values.model === 'string' ? values.model : undefined,
-    mode: typeof values.mode === 'string' ? values.mode : undefined,
-    auto: values.auto === true,
-    plan: values.plan === true,
     config: typeof values.config === 'string' ? values.config : undefined,
     noColor: values['no-color'] === true,
     verbose: values.verbose === true,

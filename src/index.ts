@@ -21,7 +21,6 @@ Usage:
 
 Flags:
   --model <id>     Model id
-  --mode <m>       interactive | auto | plan   (--auto, --plan shorthands)
   --config <path>  Path to JSON config
   --verbose        Verbose diagnostics (stderr)
   --no-color       Disable color

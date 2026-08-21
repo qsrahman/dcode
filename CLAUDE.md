@@ -63,11 +63,13 @@ per session; `toResponsesTools()` is memoized) registers `ToolDefinition<P>` obj
 generic with zod-typed params and a type-safe `execute(args: P, ctx)`;
 it is named `ToolDefinition` rather than `Tool` to avoid colliding with the
 SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — and
-converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/fs.ts`
-implements the read-only set (`read_file`, `list_dir`, `grep`, `stat`, `glob`)
-over a shared `walkDirs` traversal, path-confined to the working directory and
-returning root-relative paths. `createLocalTools()` returns the `ToolRegistry`
-(no config argument) and is used by both `runOneShot` and the REPL.
+converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local.ts`
+implements the full local tool set (`read_file`, `list_dir`, `grep`, `stat`,
+`glob`, `write_file`, `edit_file`, `run_shell`) over a shared `walkDirs`
+traversal, path-confined to the working directory and returning root-relative
+paths. `createLocalTools()` is the single hub that registers them into the
+`ToolRegistry` (no config argument) and is used by both `runOneShot` and the
+REPL.
 
 The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
 keeping a module-local `Session` (`{ config, client, logger, history, tools }`)
@@ -84,15 +86,14 @@ working-directory root (`config.root ?? process.cwd()`), used by both the
 system prompt and the tool context. `loadConfig` parses the config file with
 `configSchema.strict()` (not `.partial()` — every field already tolerates
 absence via `.optional()`/`.default()`), so a typo'd key in `dcode.json` fails
-loudly instead of being silently ignored; `permissionsSchema`/`mcpServerSchema`
-are strict too, since `.strict()` doesn't cascade into nested objects. A missing
+loudly instead of being silently ignored; `mcpServerSchema` is strict too, since
+`.strict()` doesn't cascade into nested objects. A missing
 default config (`dcode.json`/`.dcode.json`) falls back to schema defaults
 (`{}`), but an explicit `--config <path>` that doesn't exist throws rather than
 being silently ignored.
 
-See PLAN.md §5 for the full target module tree (including mutating tools,
-permissions, and MCP modules not yet built) and §10+ for the current phase's
-detailed spec.
+See PLAN.md §5 for the full target module tree (including mutating tools and
+MCP modules not yet built) and §10+ for the current phase's detailed spec.
 
 ## Testing
 

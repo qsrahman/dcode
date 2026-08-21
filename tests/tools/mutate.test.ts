@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createMutateTools } from '../../src/tools/local/mutate.ts'
+import { localTools } from '../../src/tools/local.ts'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'
 import type { ToolContext } from '../../src/agent/types.ts'
 
-const tools = createMutateTools()
+const tools = localTools
 function get(name: string) {
   const t = tools.find((x) => x.name === name)
   if (!t) throw new Error(`missing tool ${name}`)
@@ -91,9 +91,5 @@ describe('mutate tools', () => {
     await expect(
       get('write_file').execute({ path: '../escape.txt', content: 'x' }, ctx),
     ).rejects.toThrow(/escapes/)
-  })
-
-  it('marks every mutate tool as mutates: true', () => {
-    for (const t of tools) expect(t.mutates).toBe(true)
   })
 })

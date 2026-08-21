@@ -42,18 +42,10 @@ export function mergeConfigs(
   env: Partial<AppConfig>,
   args: ParsedArgs,
 ): AppConfig {
-  // --mode is validated by the schema; --auto/--plan are shorthands.
-  const mode =
-    args.mode ?? (args.auto ? 'auto' : args.plan ? 'plan' : undefined)
-
   const merged: Record<string, unknown> = { ...file, ...env }
   if (args.model) merged.model = args.model
   if (args.noColor) merged.color = false
   if (args.verbose) merged.verbose = true
-  merged.permissions = {
-    ...(file.permissions ?? {}),
-    ...(mode !== undefined && { mode }),
-  }
   return configSchema.parse(merged)
 }
 
