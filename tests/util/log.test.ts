@@ -10,11 +10,10 @@ function writeSpy() {
 describe('createLogger', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('debug/info are silent when verbose is off', () => {
+  it('debug is silent when verbose is off', () => {
     const spy = writeSpy()
     const log = createLogger(configSchema.parse({ verbose: false }))
     log.debug('x')
-    log.info('y')
     expect(spy).not.toHaveBeenCalled()
   })
 

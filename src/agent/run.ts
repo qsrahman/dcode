@@ -49,7 +49,7 @@ export async function runTurn(
 }
 
 // Execute a single tool call with a per-tool timeout (decision: toolTimeout
-// gates execution) and output truncation (decision F). Tool failures are
+// bounds execution) and output truncation (decision F). Tool failures are
 // returned as outcomes, never thrown, so the loop can feed them back to the
 // model (decision D).
 export async function runTool(

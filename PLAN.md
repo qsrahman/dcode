@@ -494,6 +494,14 @@ gating/ordering tests.
 > (`tools/local/fs.ts`, `tools/local/mutate.ts`) were also unified into a single
 > `tools/local.ts`, with `tools/index.ts` as the one hub that registers the
 > `localTools` array into the `ToolRegistry`.
+>
+> **Future (not yet built):** all tool calls now run sequentially in emission
+> order, so read-only calls no longer run in parallel (the old `mutates` split
+> was removed with the gate). To restore parallel reads *without* reviving the
+> permission model, add a `parallel?: boolean` flag to `ToolDefinition` (default
+> `true`; `false` for `write_file`/`edit_file`/`run_shell`) and have `runCalls`
+> batch the parallelizable calls via `Promise.all` while running the rest
+> sequentially in emission order. Scheduling hint only — never approval.
 
 ## 13. P5 Specification (Declarative permissions + modes) — cancelled
 
