@@ -72,8 +72,10 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `write_file` | Create or overwrite a UTF-8 text file. |
 | `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). |
 | `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`). |
+| `web_search` | Search the web via Brave (`BRAVE_API_KEY` required). |
 
-The recursive tools (`grep`, `glob`) skip directories named in `ignore`
+`web_search` needs a Brave Search API key in the `BRAVE_API_KEY` environment
+variable; without it the tool returns an error instead of crashing. The recursive tools (`grep`, `glob`) skip directories named in `ignore`
 (default `.git`, `node_modules`), and `grep` caps its output at 200 matches.
 Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
 (default 32 KiB), and tool errors are returned to the model so it can

@@ -70,6 +70,7 @@ src/
   tools/index.ts      # createLocalTools(): the single hub that registers all local tools into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
   tools/local.ts      # all local tools (read_file, list_dir, grep, stat, glob, write_file, edit_file, run_shell) + shared fs helpers
+  tools/web.ts        # web_search (Brave Search API; key from BRAVE_API_KEY)
   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
   ui/render.ts        # renderToolResult(name, ok, ms) -> status line
   util/log.ts         # diagnostics -> stderr (never console.log)

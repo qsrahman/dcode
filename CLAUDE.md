@@ -67,9 +67,10 @@ converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local.ts`
 implements the full local tool set (`read_file`, `list_dir`, `grep`, `stat`,
 `glob`, `write_file`, `edit_file`, `run_shell`) over a shared `walkDirs`
 traversal, path-confined to the working directory and returning root-relative
-paths. `createLocalTools()` is the single hub that registers them into the
-`ToolRegistry` (no config argument) and is used by both `runOneShot` and the
-REPL.
+paths. `tools/web.ts` adds `web_search` (Brave Search API, key from
+`BRAVE_API_KEY`). `createLocalTools()` is the single hub that registers all
+built-in tools (filesystem + web) into the `ToolRegistry` (no config argument)
+and is used by both `runOneShot` and the REPL.
 
 The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
 keeping a module-local `Session` (`{ config, client, logger, history, tools }`)

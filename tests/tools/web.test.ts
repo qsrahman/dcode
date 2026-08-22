@@ -1,0 +1,70 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { webTools } from '../../src/tools/web.ts'
+import type { ToolContext } from '../../src/agent/types.ts'
+import { cfg } from '../helpers.ts'
+import { createLogger } from '../../src/util/log.ts'
+
+const tool = webTools[0]!
+const ctx: ToolContext = {
+  root: '/tmp',
+  config: cfg(),
+  logger: createLogger(cfg()),
+}
+
+function mockFetch(body: unknown, ok = true, status = 200): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(
+      async () =>
+        ({
+          ok,
+          status,
+          json: async () => body,
+        }) as unknown as Response,
+    ),
+  )
+}
+
+beforeEach(() => {
+  process.env.BRAVE_API_KEY = 'test-key'
+})
+afterEach(() => {
+  vi.unstubAllGlobals()
+  delete process.env.BRAVE_API_KEY
+})
+
+describe('web_search', () => {
+  it('formats Brave results as title/url/snippet blocks', async () => {
+    mockFetch({
+      web: {
+        results: [
+          { title: 'A', url: 'https://a.example', description: 'da' },
+          { title: 'B', url: 'https://b.example', description: 'db' },
+        ],
+      },
+    })
+    const out = await tool.execute({ query: 'q' }, ctx)
+    expect(out).toContain('A')
+    expect(out).toContain('https://a.example')
+    expect(out).toContain('da')
+    expect(out).toContain('B')
+  })
+
+  it('reports a missing API key', async () => {
+    delete process.env.BRAVE_API_KEY
+    const out = await tool.execute({ query: 'q' }, ctx)
+    expect(out).toContain('BRAVE_API_KEY')
+  })
+
+  it('returns (no results) when the result set is empty', async () => {
+    mockFetch({ web: { results: [] } })
+    const out = await tool.execute({ query: 'q' }, ctx)
+    expect(out).toBe('(no results)')
+  })
+
+  it('surfaces API errors', async () => {
+    mockFetch({}, false, 401)
+    const out = await tool.execute({ query: 'q' }, ctx)
+    expect(out).toContain('401')
+  })
+})
