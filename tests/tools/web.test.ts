@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { webTools } from '../../src/tools/local/web.ts'
+import { runTool } from '../../src/agent/run.ts'
 import type { ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'
@@ -52,8 +53,9 @@ describe('web_search', () => {
 
   it('reports a missing API key', async () => {
     delete process.env.BRAVE_API_KEY
-    const out = await tool.execute({ query: 'q' }, ctx)
-    expect(out).toContain('BRAVE_API_KEY')
+    await expect(tool.execute({ query: 'q' }, ctx)).rejects.toThrow(
+      'BRAVE_API_KEY',
+    )
   })
 
   it('returns (no results) when the result set is empty', async () => {
@@ -64,7 +66,31 @@ describe('web_search', () => {
 
   it('surfaces API errors', async () => {
     mockFetch({}, false, 401)
-    const out = await tool.execute({ query: 'q' }, ctx)
-    expect(out).toContain('401')
+    await expect(tool.execute({ query: 'q' }, ctx)).rejects.toThrow('401')
+  })
+
+  it('surfaces network failures', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('connection reset')
+      }),
+    )
+    await expect(tool.execute({ query: 'q' }, ctx)).rejects.toThrow(
+      'web search request failed: connection reset',
+    )
+  })
+
+  // Thrown tool errors must reach the model as ok:false outcomes (decision D),
+  // not as successful output that merely looks like an error.
+  it('yields ok:false via runTool on API error', async () => {
+    mockFetch({}, false, 401)
+    const outcome = await runTool(
+      { id: 'c1', name: 'web_search', arguments: '{"query":"q"}' },
+      tool,
+      ctx,
+    )
+    expect(outcome.ok).toBe(false)
+    expect(outcome.output).toContain('error: Brave API returned 401')
   })
 })

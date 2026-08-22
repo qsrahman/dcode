@@ -137,9 +137,11 @@ function editFileTool(): ToolDefinition<{
           `old_string matches ${count} times in ${args.path}; make it unique or pass replace_all`,
         )
       }
-      const after = args.replace_all
-        ? before.split(args.old_string).join(args.new_string)
-        : before.replace(args.old_string, args.new_string)
+      // count === 1 or replace_all is guaranteed here (checked above). split/
+      // join substitutes literally — replace/replaceAll would interpret
+      // `$&`/`` $` ``-style patterns in new_string and silently corrupt files
+      // whose content legitimately contains them (shell scripts, Makefiles).
+      const after = before.split(args.old_string).join(args.new_string)
       await writeFile(file, after, 'utf8')
       return `edited ${args.path}`
     },

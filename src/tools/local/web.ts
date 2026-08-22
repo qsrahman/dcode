@@ -11,8 +11,8 @@ interface BraveResult {
 
 // Web search via the Brave Search API. The key is read from BRAVE_API_KEY at
 // call time so tool construction stays config-free; a missing key (or any API
-// failure) is returned to the model as a tool error (decision D) rather than
-// crashing the agent.
+// failure) throws, which runTool feeds back to the model as an ok:false
+// outcome (decision D) — the same path every other tool uses.
 function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
   return {
     name: 'web_search',
@@ -31,7 +31,7 @@ function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
     async execute(args) {
       const key = process.env.BRAVE_API_KEY
       if (!key) {
-        return 'error: BRAVE_API_KEY is not set; cannot search the web'
+        throw new Error('BRAVE_API_KEY is not set; cannot search the web')
       }
       const url = new URL(BRAVE_ENDPOINT)
       url.searchParams.set('q', args.query)
@@ -46,10 +46,12 @@ function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
           },
         })
       } catch (err) {
-        return `error: web search request failed: ${err instanceof Error ? err.message : String(err)}`
+        throw new Error(
+          `web search request failed: ${err instanceof Error ? err.message : String(err)}`,
+        )
       }
       if (!res.ok) {
-        return `error: Brave API returned ${res.status}`
+        throw new Error(`Brave API returned ${res.status}`)
       }
       const data = (await res.json()) as { web?: { results?: BraveResult[] } }
       const results = data.web?.results ?? []

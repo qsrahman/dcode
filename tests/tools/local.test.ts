@@ -196,6 +196,17 @@ describe('mutating tools', () => {
     expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('x x')
   })
 
+  // String.replace would interpret `$&`-style patterns in new_string; the edit
+  // must be literal (e.g. shell/Makefile content containing `$@` or `$&`).
+  it('edit_file substitutes new_string literally, never as a $ pattern', async () => {
+    await writeFile(join(root, 'a.txt'), 'echo TARGET')
+    await tool('edit_file').execute(
+      { path: 'a.txt', old_string: 'TARGET', new_string: '$& $$ $`' },
+      ctx,
+    )
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('echo $& $$ $`')
+  })
+
   it('run_shell captures combined output', async () => {
     const out = await tool('run_shell').execute({ command: 'echo hi' }, ctx)
     expect(out).toContain('hi')
