@@ -60,16 +60,13 @@ async function main(): Promise<void> {
     }
     process.on('SIGINT', onSigint)
     try {
-      await runOneShot(
-        client,
-        config,
-        args.prompt,
-        process.stdout,
+      await runOneShot(client, config, args.prompt, {
+        sink: process.stdout,
         logger,
         tools,
-        ac.signal,
+        signal: ac.signal,
         streamRef,
-      )
+      })
     } catch (err) {
       if (ac.signal.aborted) return
       throw err

@@ -12,11 +12,13 @@ describe('runOneShot', () => {
       config,
       'hi',
       {
-        write: (t) => {
-          sink.push(t)
+        sink: {
+          write: (t) => {
+            sink.push(t)
+          },
         },
+        logger: createLogger(config),
       },
-      createLogger(config),
     )
     expect(text).toBe('hello world')
     expect(sink.join('')).toBe('hello world\n')

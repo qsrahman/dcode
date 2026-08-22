@@ -46,13 +46,18 @@ function isToolItem(item: ResponseInput[number]): boolean {
   return item.type === 'function_call' || item.type === 'function_call_output'
 }
 
+export interface LineOpts {
+  sink?: RunSink
+  signal?: AbortSignal
+  streamRef?: StreamRef
+}
+
 export async function handleLine(
   session: Session,
   line: string,
-  sink: RunSink = process.stdout,
-  signal?: AbortSignal,
-  streamRef?: StreamRef,
+  opts: LineOpts = {},
 ): Promise<HandleResult> {
+  const { sink = process.stdout } = opts
   const trimmed = line.trim()
   if (trimmed === '') return 'ok'
   const cmd = parseCommand(trimmed)
@@ -64,14 +69,14 @@ export async function handleLine(
     await runAgent(session.client, session.config, session.history, {
       sink,
       logger: session.logger,
-      signal,
+      signal: opts.signal,
       tools: session.tools,
-      streamRef,
+      streamRef: opts.streamRef,
     })
     sink.write('\n')
     trimHistory(session.history, session.config.maxHistoryItems)
   } catch (err) {
-    if (signal?.aborted) {
+    if (opts.signal?.aborted) {
       session.logger.warn('aborted')
     } else {
       session.logger.error(errorMessage(err))
@@ -130,13 +135,11 @@ export async function startRepl(
       let current: string | undefined = line
       while (current !== undefined) {
         ac = new AbortController()
-        const result = await handleLine(
-          session,
-          current,
-          process.stdout,
-          ac.signal,
+        const result = await handleLine(session, current, {
+          sink: process.stdout,
+          signal: ac.signal,
           streamRef,
-        )
+        })
         if (result === 'exit') {
           rl.close()
           return

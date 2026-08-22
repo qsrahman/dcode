@@ -49,15 +49,12 @@ export async function runAgent(
     // Every turn streams live to `sink`. A turn that follows a tool call gets a
     // leading blank line so its text is separated from the tool-output block.
     if (prevHadTools) sink.write('\n')
-    const { text, response } = await runTurn(
-      client,
-      config,
-      history,
+    const { text, response } = await runTurn(client, config, history, {
       sink,
-      opts.logger,
-      responses,
-      opts.streamRef,
-    )
+      logger: opts.logger,
+      tools: responses,
+      streamRef: opts.streamRef,
+    })
     finalText = text
     if (text.trim()) {
       history.push({
@@ -96,23 +93,19 @@ export async function runOneShot(
   client: Client,
   config: AppConfig,
   prompt: string,
-  sink: RunSink = process.stdout,
-  logger: Logger,
-  tools: ToolRegistry = new ToolRegistry(),
-  signal?: AbortSignal,
-  streamRef?: StreamRef,
+  opts: {
+    sink?: RunSink
+    logger: Logger
+    tools?: ToolRegistry
+    signal?: AbortSignal
+    streamRef?: StreamRef
+  },
 ): Promise<string> {
   const input: ResponseInput = [
     { role: 'system', content: buildSystemPrompt(config) },
     { role: 'user', content: prompt },
   ]
-  return runAgent(client, config, input, {
-    sink,
-    logger,
-    tools,
-    signal,
-    streamRef,
-  })
+  return runAgent(client, config, input, opts)
 }
 
 // Execute one turn's tool calls in the order the model emitted them. Every call

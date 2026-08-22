@@ -31,6 +31,13 @@ export class CapturingSink implements RunSink {
   }
 }
 
+export interface TurnOpts {
+  sink?: RunSink
+  logger: Logger
+  tools?: ResponsesTool[]
+  streamRef?: StreamRef
+}
+
 // Universal turn runner shared by one-shot and the REPL. Streams output to
 // `sink`; the model request is cancellable via the SDK-native stream abort
 // (callers set `streamRef.current` and invoke `abort()` on Ctrl-C, decision L).
@@ -41,14 +48,13 @@ export async function runTurn(
   client: Client,
   config: AppConfig,
   input: ResponseInput,
-  sink: RunSink = process.stdout,
-  logger: Logger,
-  tools?: ResponsesTool[],
-  streamRef?: StreamRef,
+  opts: TurnOpts,
 ): Promise<{ text: string; response: OpenAIResponse }> {
+  const { logger, tools } = opts
+  const sink = opts.sink ?? process.stdout
   logger.debug('run turn model=%s', config.model)
   const stream = client.stream(input, { tools })
-  if (streamRef) streamRef.current = stream
+  if (opts.streamRef) opts.streamRef.current = stream
   for await (const delta of stream) {
     sink.write(delta)
   }
