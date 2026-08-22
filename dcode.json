@@ -1,0 +1,13 @@
+{
+  "model": "gemma4:cloud",
+  "baseURL": "http://localhost:11434/v1",
+  "verbose": false,
+  "color": true,
+  "maxToolIterations": 16,
+  "maxHistoryItems": 100,
+  "maxToolOutputBytes": 32768,
+  "maxTokens": 8192,
+  "maxRetries": 3,
+  "toolTimeout": 30000,
+  "ignore": [".git", "node_modules"]
+}
