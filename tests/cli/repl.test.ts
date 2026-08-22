@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as readline from 'node:readline'
 import type { AppConfig } from '../../src/config/schema.ts'
 import {
   createSession,
@@ -137,50 +138,124 @@ describe('handleLine prompt turn', () => {
   })
 })
 
+// Lines are delivered via rl.emit(), never auto-fired from prompt(), so tests
+// can type "ahead" while a turn is busy. Instances are reachable through
+// __instances (exported from the mocked module to dodge hoisting/TDZ issues).
 vi.mock('node:readline', () => {
+  const instances: unknown[] = []
   class FakeInterface {
     private listeners: Record<string, ((...a: unknown[]) => void)[]> = {}
-    private lines: string[]
-    constructor() {
-      this.lines = ['/version', 'hello world', '/exit']
-    }
+    closed = false
     on(event: string, cb: (...a: unknown[]) => void) {
       ;(this.listeners[event] ??= []).push(cb)
       return this
     }
-    prompt() {
-      const line = this.lines.shift()
-      if (line !== undefined) this.listeners['line']?.forEach((cb) => cb(line))
+    emit(line: string) {
+      this.listeners['line']?.forEach((cb) => cb(line))
     }
+    prompt() {}
     close() {
+      this.closed = true
       this.listeners['close']?.forEach((cb) => cb())
     }
   }
-  return { createInterface: () => new FakeInterface() as never }
+  return {
+    __instances: instances,
+    createInterface: () => {
+      const it = new FakeInterface()
+      instances.push(it)
+      return it as never
+    },
+  }
 })
+
+function lastFake(): { emit(line: string): void; closed: boolean } {
+  const insts = (
+    readline as unknown as {
+      __instances: { emit(l: string): void; closed: boolean }[]
+    }
+  ).__instances
+  return insts.at(-1)!
+}
 
 vi.mock('../../src/agent/client.ts', () => ({
   createClient: () => ({
-    stream: () => ({
-      async *[Symbol.asyncIterator]() {
-        yield 'streamed'
-      },
-      finalResponse: async () => ({ output: [], output_text: 'streamed' }),
-    }),
+    // Echo the newest user message so each turn's output is distinguishable —
+    // needed to assert the order in which queued input is drained.
+    stream: (input: { role?: string; content?: unknown }[]) => {
+      const last = [...(input ?? [])].reverse().find((i) => i.role === 'user')
+      const text = typeof last?.content === 'string' ? last.content : ''
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield `echo:${text}`
+        },
+        finalResponse: async () =>
+          ({ output: [], output_text: `echo:${text}` }) as never,
+      }
+    },
   }),
 }))
 
 describe('startRepl (smoke, mocked boundaries)', () => {
-  it('drives a line sequence and exits on /exit', async () => {
-    const write = vi
-      .spyOn(process.stdout, 'write')
-      .mockImplementation(() => true)
+  function captured(): string {
+    return (writeSpy.mock.calls as unknown as unknown[][])
+      .map((c) => String(c[0]))
+      .join('')
+  }
+  let writeSpy: ReturnType<typeof vi.spyOn>
+
+  function start(): Promise<void> {
+    writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const config = cfg()
-    await startRepl(config, createLogger(config))
-    const out = write.mock.calls.map((c) => c[0]).join('')
+    return startRepl(config, createLogger(config))
+  }
+
+  it('drives a line sequence and exits on /exit', async () => {
+    const done = start()
+    const rl = lastFake()
+    rl.emit('/version')
+    rl.emit('say hi')
+    rl.emit('/exit')
+    await done
+    const out = captured()
     expect(out).toContain(`dcode v${getVersion()}`)
-    expect(out).toContain('streamed')
-    write.mockRestore()
+    expect(out).toContain('echo:say hi')
+  })
+
+  it('buffers lines typed while busy and drains them in order', async () => {
+    const done = start()
+    const rl = lastFake()
+    rl.emit('first')
+    // Arrives synchronously while the first turn is still running.
+    rl.emit('second')
+    await vi.waitFor(() => expect(captured()).toContain('echo:second'))
+    rl.emit('/exit')
+    await done
+    const out = captured()
+    expect(out).toContain('echo:first')
+    // Both turns ran; dropping the busy line would lose 'echo:second'.
+    expect(out.indexOf('echo:first')).toBeLessThan(out.indexOf('echo:second'))
+  })
+
+  it('processes a /exit typed while busy and closes the REPL', async () => {
+    const done = start()
+    const rl = lastFake()
+    rl.emit('working')
+    rl.emit('/exit')
+    await done
+    expect(rl.closed).toBe(true)
+    expect(captured()).toContain('echo:working')
+  })
+
+  it('prints the hint once at startup, not after every turn', async () => {
+    const done = start()
+    const rl = lastFake()
+    rl.emit('one')
+    rl.emit('two')
+    await vi.waitFor(() => expect(captured()).toContain('echo:two'))
+    expect(captured().split('Ask anything').length - 1).toBe(1)
+    rl.emit('/exit')
+    await done
   })
 })
 

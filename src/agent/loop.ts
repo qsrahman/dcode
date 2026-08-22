@@ -7,7 +7,7 @@ import type { RunSink, StreamRef } from './run.ts'
 import { runTurn, runTool } from './run.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
-import { renderToolResult } from '../ui/render.ts'
+import { renderToolResult, renderToolOutput } from '../ui/render.ts'
 import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
 
 // Agent loop: run turns, execute any tool calls the model makes, feed the
@@ -79,7 +79,8 @@ export async function runAgent(
         output: outcome.output,
       })
       sink.write(`${renderToolResult(outcome.name, outcome.ok, outcome.ms)}\n`)
-      if (config.verbose) sink.write(`${outcome.output}\n`)
+      if (config.verbose)
+        sink.write(`${renderToolOutput(outcome.name, outcome.output)}\n`)
     }
     // Abort only after every call has a recorded output, so history stays
     // balanced (no function_call without its function_call_output) and the

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import ansis from 'ansis'
-import { renderToolResult } from '../../src/ui/render.ts'
+import { renderToolResult, renderToolOutput } from '../../src/ui/render.ts'
 
 describe('renderToolResult', () => {
   it('shows a check for success and a cross for failure', () => {
@@ -8,7 +8,15 @@ describe('renderToolResult', () => {
       '› read_file: ✓ done (0.0s)',
     )
     expect(ansis.strip(renderToolResult('grep', false, 1200))).toBe(
-      '› grep: ✗ done (1.2s)',
+      '› grep: ✗ failed (1.2s)',
     )
+  })
+})
+
+describe('renderToolOutput', () => {
+  it('fences the raw output between rules naming the tool', () => {
+    const stripped = ansis.strip(renderToolOutput('grep', 'a\nb'))
+    expect(stripped).toContain('── grep output ─')
+    expect(stripped).toContain('\na\nb\n')
   })
 })

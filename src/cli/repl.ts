@@ -93,12 +93,14 @@ export async function startRepl(
   let busy = false
   let ac: AbortController | undefined
   const streamRef: StreamRef = { current: null }
+  // Lines typed while a turn runs are buffered and drained after it finishes;
+  // dropping them made users believe input they'd typed had been sent.
+  const pending: string[] = []
 
   // Piped/non-TTY stdin can hit EOF (auto-closing `rl`) while a turn is still
   // in flight; rl.prompt() after that throws ERR_USE_AFTER_CLOSE. `rl.closed`
   // exists at runtime but isn't in @types/node, so catch instead of probing it.
   const showPrompt = () => {
-    process.stdout.write(`${HINT}\n`)
     try {
       rl.prompt()
     } catch (err) {
@@ -119,23 +121,34 @@ export async function startRepl(
     }
   })
   rl.on('line', async (line: string) => {
-    if (busy) return
-    busy = true
-    ac = new AbortController()
-    const result = await handleLine(
-      session,
-      line,
-      process.stdout,
-      ac.signal,
-      streamRef,
-    )
-    busy = false
-    if (result === 'exit') {
-      rl.close()
+    if (busy) {
+      pending.push(line)
       return
+    }
+    busy = true
+    try {
+      let current: string | undefined = line
+      while (current !== undefined) {
+        ac = new AbortController()
+        const result = await handleLine(
+          session,
+          current,
+          process.stdout,
+          ac.signal,
+          streamRef,
+        )
+        if (result === 'exit') {
+          rl.close()
+          return
+        }
+        current = pending.shift()
+      }
+    } finally {
+      busy = false
     }
     showPrompt()
   })
+  process.stdout.write(`${HINT}\n`)
   return new Promise<void>((resolve) => {
     rl.on('close', () => resolve())
     showPrompt()
