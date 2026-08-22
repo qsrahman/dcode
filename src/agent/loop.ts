@@ -61,12 +61,12 @@ export async function runAgent(
       history.push({
         role: 'assistant',
         content: text,
-      } as ResponseInput[number])
+      })
     }
     const calls = (response.output ?? []).filter(
       (o): o is ResponseFunctionToolCall => o.type === 'function_call',
     )
-    for (const c of calls) history.push(c as ResponseInput[number])
+    for (const c of calls) history.push(c)
     if (calls.length === 0) {
       if (prevHadTools) {
         sink.write('\n')
@@ -82,7 +82,7 @@ export async function runAgent(
         type: 'function_call_output',
         call_id: id,
         output: outcome.output,
-      } as ResponseInput[number])
+      })
       sink.write(`${renderToolResult(outcome.name, outcome.ok, outcome.ms)}\n`)
       if (config.verbose) sink.write(`${outcome.output}\n`)
     }

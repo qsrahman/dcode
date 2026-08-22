@@ -43,8 +43,7 @@ export function trimHistory(history: ResponseInput, max: number): void {
 }
 
 function isToolItem(item: ResponseInput[number]): boolean {
-  const type = (item as { type?: string }).type
-  return type === 'function_call' || type === 'function_call_output'
+  return item.type === 'function_call' || item.type === 'function_call_output'
 }
 
 export async function handleLine(
