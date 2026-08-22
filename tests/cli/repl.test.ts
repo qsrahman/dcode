@@ -10,6 +10,7 @@ import { parseCommand, type Session } from '../../src/cli/commands.ts'
 import { createLogger } from '../../src/util/log.ts'
 import type { ResponseInput } from '../../src/agent/client.ts'
 import { cfg, fakeClient, makeSink } from '../helpers.ts'
+import { getVersion } from '../../src/version.ts'
 
 function makeSession(over: Partial<AppConfig> = {}): Session {
   const config = cfg(over)
@@ -76,7 +77,7 @@ describe('handleLine commands', () => {
     const s = makeSession()
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/version', sink)).toBe('ok')
-    expect(out.join('')).toContain('dcode v0.3.0')
+    expect(out.join('')).toContain(`dcode v${getVersion()}`)
   })
   it('/help writes the command list', async () => {
     const s = makeSession()
@@ -177,7 +178,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
     const config = cfg()
     await startRepl(config, createLogger(config))
     const out = write.mock.calls.map((c) => c[0]).join('')
-    expect(out).toContain('dcode v0.3.0')
+    expect(out).toContain(`dcode v${getVersion()}`)
     expect(out).toContain('streamed')
     write.mockRestore()
   })

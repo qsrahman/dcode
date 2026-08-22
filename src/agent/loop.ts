@@ -3,7 +3,7 @@ import type { AppConfig } from '../config/schema.ts'
 import { resolveRoot } from '../config/config.ts'
 import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
-import type { RunSink } from './run.ts'
+import type { RunSink, StreamRef } from './run.ts'
 import { runTurn, runTool, CapturingSink } from './run.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
@@ -29,6 +29,7 @@ export async function runAgent(
     logger: Logger
     signal?: AbortSignal
     tools?: ToolRegistry
+    streamRef?: StreamRef
   },
 ): Promise<string> {
   const sink = opts.sink ?? process.stdout
@@ -53,8 +54,8 @@ export async function runAgent(
       history,
       target,
       opts.logger,
-      opts.signal,
       responses,
+      opts.streamRef,
     )
     finalText = text
     if (text.trim()) {
@@ -103,12 +104,20 @@ export async function runOneShot(
   sink: RunSink = process.stdout,
   logger: Logger,
   tools: ToolRegistry = new ToolRegistry(),
+  signal?: AbortSignal,
+  streamRef?: StreamRef,
 ): Promise<string> {
   const input: ResponseInput = [
     { role: 'system', content: buildSystemPrompt(config) },
     { role: 'user', content: prompt },
   ]
-  return runAgent(client, config, input, { sink, logger, tools })
+  return runAgent(client, config, input, {
+    sink,
+    logger,
+    tools,
+    signal,
+    streamRef,
+  })
 }
 
 // Execute one turn's tool calls in the order the model emitted them. Every call

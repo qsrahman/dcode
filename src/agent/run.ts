@@ -1,4 +1,9 @@
-import type { Client, OpenAIResponse, ResponseInput } from './client.ts'
+import type {
+  Client,
+  ModelStream,
+  OpenAIResponse,
+  ResponseInput,
+} from './client.ts'
 import type { AppConfig } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 import { errorMessage } from '../util/log.ts'
@@ -9,6 +14,8 @@ import type {
   ToolResult,
 } from './types.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
+
+export type StreamRef = { current: ModelStream | null }
 
 export interface RunSink {
   write(text: string): void
@@ -25,21 +32,23 @@ export class CapturingSink implements RunSink {
 }
 
 // Universal turn runner shared by one-shot and the REPL. Streams output to
-// `sink` and forwards `signal` so callers (REPL) can abort an in-flight stream
-// (decision L). Returns the SDK's own aggregated text (Response.output_text)
-// plus the full response (for tool calls) — the delta loop below exists only
-// to render output live, not to reconstruct the final text.
+// `sink`; the model request is cancellable via the SDK-native stream abort
+// (callers set `streamRef.current` and invoke `abort()` on Ctrl-C, decision L).
+// Returns the SDK's own aggregated text (Response.output_text) plus the full
+// response (for tool calls) — the delta loop below exists only to render output
+// live, not to reconstruct the final text.
 export async function runTurn(
   client: Client,
   config: AppConfig,
   input: ResponseInput,
   sink: RunSink = process.stdout,
   logger: Logger,
-  signal?: AbortSignal,
   tools?: ResponsesTool[],
+  streamRef?: StreamRef,
 ): Promise<{ text: string; response: OpenAIResponse }> {
   logger.debug('run turn model=%s', config.model)
-  const stream = client.stream(input, { signal, tools })
+  const stream = client.stream(input, { tools })
+  if (streamRef) streamRef.current = stream
   for await (const delta of stream) {
     sink.write(delta)
   }

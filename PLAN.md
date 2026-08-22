@@ -138,7 +138,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model`
  | P4 | Mutating local tools (write_file/edit_file/run_shell) | **Done** — see §12 |
  | P5 | Declarative permissions + modes | **Cancelled** (removed on `experiment`) |
 | P6 | MCP integration | |
-| P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | |
+| P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 
 ## 9. Testing strategy
 

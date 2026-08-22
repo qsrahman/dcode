@@ -6,7 +6,7 @@ import type { ResponseInput } from '../agent/client.ts'
 import { buildSystemPrompt } from '../agent/system.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
-import type { RunSink } from '../agent/run.ts'
+import type { RunSink, StreamRef } from '../agent/run.ts'
 import { type Logger, errorMessage } from '../util/log.ts'
 import {
   type Session,
@@ -51,6 +51,7 @@ export async function handleLine(
   line: string,
   sink: RunSink = process.stdout,
   signal?: AbortSignal,
+  streamRef?: StreamRef,
 ): Promise<HandleResult> {
   const trimmed = line.trim()
   if (trimmed === '') return 'ok'
@@ -65,6 +66,7 @@ export async function handleLine(
       logger: session.logger,
       signal,
       tools: session.tools,
+      streamRef,
     })
     sink.write('\n')
     trimHistory(session.history, session.config.maxHistoryItems)
@@ -90,6 +92,7 @@ export async function startRepl(
   })
   let busy = false
   let ac: AbortController | undefined
+  const streamRef: StreamRef = { current: null }
 
   // Piped/non-TTY stdin can hit EOF (auto-closing `rl`) while a turn is still
   // in flight; rl.prompt() after that throws ERR_USE_AFTER_CLOSE. `rl.closed`
@@ -109,6 +112,7 @@ export async function startRepl(
   rl.on('SIGINT', () => {
     if (busy) {
       ac?.abort()
+      streamRef.current?.abort()
       process.stdout.write('\n(aborted)\n')
     } else {
       showPrompt()
@@ -118,7 +122,13 @@ export async function startRepl(
     if (busy) return
     busy = true
     ac = new AbortController()
-    const result = await handleLine(session, line, process.stdout, ac.signal)
+    const result = await handleLine(
+      session,
+      line,
+      process.stdout,
+      ac.signal,
+      streamRef,
+    )
     busy = false
     if (result === 'exit') {
       rl.close()

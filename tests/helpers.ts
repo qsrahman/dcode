@@ -23,6 +23,7 @@ export function fakeClient(
         },
         finalResponse: async () =>
           ({ output, output_text: text }) as unknown as OpenAIResponse,
+        abort: () => {},
       }
     },
   }

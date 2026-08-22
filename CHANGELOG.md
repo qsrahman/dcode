@@ -5,9 +5,29 @@ All notable changes to **dcode** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-08-22
 
 ### Added
+- `web_search` tool (Brave Search API; `BRAVE_API_KEY` required) joins the
+  built-in tool set, assembled by the `createLocalTools` hub.
+- One-shot mode (`dcode [prompt]`) now handles Ctrl-C gracefully: a `SIGINT`
+  aborts the in-flight model stream instead of killing the process.
+
+### Changed
+- Removed the permission/harness gate (P5 cancelled); all tools are now
+  auto-approved. `agent/gate.ts` is gone and `ToolDefinition` no longer carries a
+  `mutates` flag.
+- Tool layer restructured: `tools/local.ts` split into `tools/local/`
+  (`paths`, `traverse`, `fs`, `search`, `shell`, `web`, `index`);
+  `createLocalTools()` remains the single hub that assembles them into the
+  `ToolRegistry`.
+- Renamed env var `OPENAI_DEFAULT_MODEL` → `OPENAI_MODEL`.
+
+### Removed
+- The `--mode`/`--auto`/`--plan` CLI flags and `config.permissions` (both
+  belonged to the cancelled P5).
+
+### Added (from prior unreleased work)
 - `ignore` config field (default `['.git', 'node_modules']`): `grep` and `glob`
   now prune these directory names during traversal instead of walking the whole
   tree, so searches on a real repo return source matches rather than dependency

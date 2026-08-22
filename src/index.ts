@@ -7,6 +7,7 @@ import { configSchema } from './config/schema.ts'
 import { createClient } from './agent/client.ts'
 import { runOneShot } from './agent/loop.ts'
 import { createLocalTools } from './tools/index.ts'
+import type { StreamRef } from './agent/run.ts'
 import { createLogger, errorMessage } from './util/log.ts'
 import { getVersion } from './version.ts'
 
@@ -51,7 +52,30 @@ async function main(): Promise<void> {
     }
     const client = createClient(config, logger)
     const tools = createLocalTools()
-    await runOneShot(client, config, args.prompt, process.stdout, logger, tools)
+    const ac = new AbortController()
+    const streamRef: StreamRef = { current: null }
+    const onSigint = () => {
+      ac.abort()
+      streamRef.current?.abort()
+    }
+    process.on('SIGINT', onSigint)
+    try {
+      await runOneShot(
+        client,
+        config,
+        args.prompt,
+        process.stdout,
+        logger,
+        tools,
+        ac.signal,
+        streamRef,
+      )
+    } catch (err) {
+      if (ac.signal.aborted) return
+      throw err
+    } finally {
+      process.off('SIGINT', onSigint)
+    }
   } catch (err) {
     logger.error(errorMessage(err))
     process.exit(1)

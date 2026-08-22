@@ -12,13 +12,11 @@ export type { ResponseInput, OpenAIResponse }
 
 export interface ModelStream extends AsyncIterable<string> {
   finalResponse(): Promise<OpenAIResponse>
+  abort(): void
 }
 
 export interface Client {
-  stream(
-    input: ResponseInput,
-    opts?: { signal?: AbortSignal; tools?: ResponsesTool[] },
-  ): ModelStream
+  stream(input: ResponseInput, opts?: { tools?: ResponsesTool[] }): ModelStream
 }
 
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here
@@ -41,16 +39,17 @@ export function createClient(config: AppConfig, logger: Logger): Client {
         stream: true,
       }
       if (opts?.tools) params.tools = opts.tools
-      const stream = client.responses.stream(params, { signal: opts?.signal })
+      const s = client.responses.stream(params)
       return {
         async *[Symbol.asyncIterator]() {
-          for await (const event of stream) {
+          for await (const event of s) {
             if (event.type === 'response.output_text.delta') {
               yield event.delta
             }
           }
         },
-        finalResponse: () => stream.finalResponse(),
+        finalResponse: () => s.finalResponse(),
+        abort: () => s.abort(),
       }
     },
   }

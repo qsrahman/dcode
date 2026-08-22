@@ -106,16 +106,16 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 
 ## Phases
 
-| Phase | Scope |
-|-------|-------|
-| P0 | Scaffold & tooling |
-| P1 | Config + OpenAI client + one-shot |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| P0 | Scaffold & tooling | **Done** |
+| P1 | Config + OpenAI client + one-shot | **Done** |
 | P2 | REPL + slash commands | **Done** |
 | P3 | Tool core + read-only tools + async loop | **Done** |
 | P4 | Mutating local tools | **Done** |
 | P5 | Declarative permissions + modes | **Cancelled** |
-| P6 | MCP integration |
-| P7 | Polish |
+| P6 | MCP integration | |
+| P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 
 ## Development
 

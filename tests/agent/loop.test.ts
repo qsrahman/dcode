@@ -25,6 +25,7 @@ function fakeClientWithCalls(calls: unknown[][]): Client {
           turn++
           return { output, output_text: text } as unknown as OpenAIResponse
         },
+        abort: () => {},
       }
     },
   }
@@ -103,6 +104,7 @@ describe('runAgent', () => {
               ],
               output_text: 'loop',
             }) as unknown as OpenAIResponse,
+          abort: () => {},
         }
       },
     }
