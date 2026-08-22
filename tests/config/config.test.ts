@@ -76,19 +76,19 @@ describe('mergeConfigs', () => {
 })
 
 describe('buildConfig', () => {
-  const prev = process.env.OPENAI_DEFAULT_MODEL
+  const prev = process.env.OPENAI_MODEL
   afterEach(() => {
-    if (prev === undefined) delete process.env.OPENAI_DEFAULT_MODEL
-    else process.env.OPENAI_DEFAULT_MODEL = prev
+    if (prev === undefined) delete process.env.OPENAI_MODEL
+    else process.env.OPENAI_MODEL = prev
   })
 
-  it('reads OPENAI_DEFAULT_MODEL from the environment', () => {
-    process.env.OPENAI_DEFAULT_MODEL = 'gemma4:cloud'
+  it('reads OPENAI_MODEL from the environment', () => {
+    process.env.OPENAI_MODEL = 'gemma4:cloud'
     expect(buildConfig(parseCli([])).model).toBe('gemma4:cloud')
   })
 
   it('falls back to the schema default when unset', () => {
-    delete process.env.OPENAI_DEFAULT_MODEL
+    delete process.env.OPENAI_MODEL
     expect(buildConfig(parseCli([])).model).toBe('gpt-5')
   })
 })

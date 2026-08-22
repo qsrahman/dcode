@@ -54,7 +54,6 @@ export function buildConfig(args: ParsedArgs): AppConfig {
   const env: Partial<AppConfig> = {}
   if (process.env.OPENAI_API_KEY) env.apiKey = process.env.OPENAI_API_KEY
   if (process.env.OPENAI_BASE_URL) env.baseURL = process.env.OPENAI_BASE_URL
-  if (process.env.OPENAI_DEFAULT_MODEL)
-    env.model = process.env.OPENAI_DEFAULT_MODEL
+  if (process.env.OPENAI_MODEL) env.model = process.env.OPENAI_MODEL
   return mergeConfigs(file, env, args)
 }
