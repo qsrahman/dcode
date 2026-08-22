@@ -91,14 +91,7 @@ JSON, loaded from `--config <path>` or a default location. Example:
   "maxToolIterations": 16,
   "maxHistoryItems": 100,
   "maxToolOutputBytes": 32768,
-  "ignore": [".git", "node_modules"],
-  "mcp": [
-    {
-      "name": "fs-extra",
-      "transport": { "type": "stdio", "command": "node", "args": ["./mcp/fs-server.ts"] },
-      "trust": false
-    }
-  ]
+  "ignore": [".git", "node_modules"]
 }
 ```
 

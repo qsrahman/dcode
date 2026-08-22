@@ -60,7 +60,7 @@ src/
   cli/args.ts         # parseCli(argv) -> ParsedArgs (pure, fully tested)
   cli/repl.ts         # readline loop; builds the Session and drives runAgent
   cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
-  config/schema.ts    # zod schemas (AppConfig + permissions policy), .strict()
+  config/schema.ts    # zod schema (AppConfig), .strict()
   config/config.ts    # loadConfig(path) + mergeConfigs(CLI, file, env) + resolveRoot
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
   agent/system.ts     # buildSystemPrompt(config)

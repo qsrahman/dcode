@@ -5,6 +5,40 @@ All notable changes to **dcode** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-08-22
+
+### Changed
+- REPL: lines typed while a turn is running are queued and executed in order
+  when it finishes, instead of being silently dropped; a queued `/exit` still
+  quits. The startup hint (`Ask anything, /help for commands...`) now prints
+  once at startup rather than repeating above every prompt.
+- `--verbose` tool echoes are fenced between dim rules naming the tool, so raw
+  dumps don't read as more streamed model text.
+- Failed tool calls render `✗ failed` instead of `✗ done`.
+- `write_file` reports true byte length (`Buffer.byteLength`) instead of JS
+  string length (they differ for non-ASCII content).
+- `grep` skips binary files — a NUL byte in the leading chunk (git's heuristic)
+  — instead of decoding them into garbage match lines.
+- Internal: `runTurn`/`runOneShot`/`handleLine` take a single opts object
+  instead of positional params with interleaved defaults; `createClient(config)`
+  no longer takes a logger (its per-turn debug log duplicated `runTurn`'s);
+  `runTurn` clears its `StreamRef` once the stream completes; post-tool turns
+  stream live to the sink instead of buffering through `CapturingSink`.
+
+### Fixed
+- `edit_file` substitutes `new_string` literally in both branches:
+  `String.replace` interpreted `$&`-style replacement patterns and could
+  silently corrupt files whose content legitimately contains them (shell
+  scripts, Makefiles), disagreeing with the `replace_all` branch's literal
+  split/join.
+- `web_search` failures (missing key, network error, non-OK status) throw like
+  every other tool and surface as ok:false outcomes; previously they returned
+  error strings rendered as successful `✓ done` lines.
+
+### Removed
+- The unused `mcp` config schema: validated on load but consumed by nothing;
+  P6 will reintroduce config alongside the MCP manager itself.
+
 ## [0.4.0] - 2026-08-22
 
 ### Added
