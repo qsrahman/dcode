@@ -72,7 +72,7 @@ function checkUiSpacing(name: string, out: string, toolOutputs: number): void {
     )
   }
   const malformed = toolLines.find(
-    (l) => !/^› [^:]+: [\u2713\u2717] done \(\d+\.\d+s\)$/.test(l),
+    (l) => !/^› [^:]+: [\u2713\u2717] (?:done|failed) \(\d+\.\d+s\)$/.test(l),
   )
   if (malformed) {
     throw new Error(
