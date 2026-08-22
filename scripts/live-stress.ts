@@ -9,12 +9,12 @@ import { CapturingSink } from '../src/agent/run.ts'
 import { createLogger, errorMessage } from '../src/util/log.ts'
 import ansis from 'ansis'
 
-// Live end-to-end stress test. Talks to the real model (Ollama per .env) and
-// drives the real agent loop + fs tools over THIS repository. Not part of the
+// Live end-to-end stress test. Talks to the real model (configured via .env)
+// and drives the real agent loop + tools over THIS repository. Not part of the
 // unit suite: run it explicitly with `node --env-file-if-exists=.env
-// scripts/live-stress.ts`. Exercises tool iteration, truncation, read-only
-// scope, and parallel runs, and verifies the UI/UX spacing of the rendered
-// output (exactly one well-formed line per tool call).
+// scripts/live-stress.ts`. Exercises tool iteration, truncation, auto-approved
+// writes, web search, and concurrent runs, and verifies the UI/UX spacing of
+// the rendered output (exactly one well-formed line per tool call).
 
 type Item = { type?: string; [k: string]: unknown }
 
@@ -44,14 +44,19 @@ const scenarios: Scenario[] = [
       'Run grep for the token "import" across the entire repository and report roughly how many matches there are and which files dominate.',
   },
   {
-    name: 'read-only-refusal',
+    name: 'shell-write-read',
     prompt:
-      'Edit src/index.ts to add a new CLI flag called --foo that prints "foo" and apply the change.',
+      'Use the run_shell tool to write the text "dcode-stress" into /tmp/dcode-stress.txt and then print its contents back to me, then tell me what you wrote.',
   },
   {
     name: 'deep-chain',
     prompt:
       'Find the file that defines runAgent, read it, then grep the whole repo to list every caller of runAgent and report the call sites.',
+  },
+  {
+    name: 'web-search',
+    prompt:
+      'Use the web_search tool to look up the current Node.js LTS version and report the version number in one sentence.',
   },
 ]
 
