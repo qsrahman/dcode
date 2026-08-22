@@ -4,21 +4,20 @@ import { resolveRoot } from '../config/config.ts'
 import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink, StreamRef } from './run.ts'
-import { runTurn, runTool, CapturingSink } from './run.ts'
+import { runTurn, runTool } from './run.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import { renderToolResult } from '../ui/render.ts'
 import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
 
 // Agent loop: run turns, execute any tool calls the model makes, feed the
-// results back, and repeat up to `maxToolIterations` (decision D). Text is
-// streamed as it arrives; tool results are rendered between turns. Returns the
-// final assistant text.
+// results back, and repeat up to `maxToolIterations` (decision D). Every turn
+// streams its text live to `sink`; tool results are rendered between turns.
+// Returns the final assistant text.
 //
-// Tool outputs are grouped into a single block (no blank line between them),
-// with exactly one blank line separating that block from the final answer.
-// Because the answer turn is only known to be final after it streams, post-tool
-// turns are buffered and flushed (with a leading blank if they are the answer).
+// Tool outputs are grouped into a single block (no blank line between them).
+// A turn that follows a tool call gets a leading blank line so its streamed
+// text is visually separated from the tool-output block above it.
 
 export async function runAgent(
   client: Client,
@@ -47,12 +46,14 @@ export async function runAgent(
   let prevHadTools = false
 
   for (let i = 0; i < config.maxToolIterations; i++) {
-    const target: RunSink = prevHadTools ? new CapturingSink() : sink
+    // Every turn streams live to `sink`. A turn that follows a tool call gets a
+    // leading blank line so its text is separated from the tool-output block.
+    if (prevHadTools) sink.write('\n')
     const { text, response } = await runTurn(
       client,
       config,
       history,
-      target,
+      sink,
       opts.logger,
       responses,
       opts.streamRef,
@@ -68,14 +69,7 @@ export async function runAgent(
       (o): o is ResponseFunctionToolCall => o.type === 'function_call',
     )
     for (const c of calls) history.push(c)
-    if (calls.length === 0) {
-      if (prevHadTools) {
-        sink.write('\n')
-        sink.write((target as CapturingSink).text)
-      }
-      break
-    }
-    if (prevHadTools) sink.write((target as CapturingSink).text)
+    if (calls.length === 0) break
     prevHadTools = true
     const results = await runCalls(calls, registry, ctx)
     for (const { id, outcome } of results) {

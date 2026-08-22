@@ -76,10 +76,18 @@ describe('mergeConfigs', () => {
 })
 
 describe('buildConfig', () => {
-  const prev = process.env.OPENAI_MODEL
+  const prevEnv = process.env.OPENAI_MODEL
+  const prevCwd = process.cwd()
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'dcode-'))
+    process.chdir(dir)
+  })
   afterEach(() => {
-    if (prev === undefined) delete process.env.OPENAI_MODEL
-    else process.env.OPENAI_MODEL = prev
+    process.chdir(prevCwd)
+    rmSync(dir, { recursive: true, force: true })
+    if (prevEnv === undefined) delete process.env.OPENAI_MODEL
+    else process.env.OPENAI_MODEL = prevEnv
   })
 
   it('reads OPENAI_MODEL from the environment', () => {
