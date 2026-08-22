@@ -112,7 +112,7 @@ async function runScenario(
 async function main(): Promise<void> {
   const config = buildConfig(parseCli(process.argv.slice(2)))
   const logger = createLogger(config)
-  const client = createClient(config, logger)
+  const client = createClient(config)
   const tools = createLocalTools()
 
   console.log(

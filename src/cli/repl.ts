@@ -22,7 +22,7 @@ export function createSession(config: AppConfig, logger: Logger): Session {
   return {
     config,
     logger,
-    client: createClient(config, logger),
+    client: createClient(config),
     history: [{ role: 'system', content: buildSystemPrompt(config) }],
     tools: createLocalTools(),
   }

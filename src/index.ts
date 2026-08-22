@@ -50,7 +50,7 @@ async function main(): Promise<void> {
       await startRepl(config, logger)
       return
     }
-    const client = createClient(config, logger)
+    const client = createClient(config)
     const tools = createLocalTools()
     const ac = new AbortController()
     const streamRef: StreamRef = { current: null }

@@ -92,7 +92,8 @@ function writeFileTool(): ToolDefinition<{ path: string; content: string }> {
     async execute(args: { path: string; content: string }, ctx: ToolContext) {
       const file = await resolvePath(ctx.root, args.path)
       await writeFile(file, args.content, 'utf8')
-      return `wrote ${args.content.length} bytes to ${args.path}`
+      // Byte length, not JS string length: they differ for non-ASCII content.
+      return `wrote ${Buffer.byteLength(args.content)} bytes to ${args.path}`
     },
   }
 }
@@ -129,7 +130,12 @@ function editFileTool(): ToolDefinition<{
       ctx: ToolContext,
     ) {
       const file = await resolvePath(ctx.root, args.path)
-      const before = await readFile(file, 'utf8')
+      let before: string
+      try {
+        before = await readFile(file, 'utf8')
+      } catch (err) {
+        throw new Error(fsError(err, args.path))
+      }
       const count = countOccurrences(before, args.old_string)
       if (count === 0) throw new Error(`old_string not found in ${args.path}`)
       if (count > 1 && !args.replace_all) {
@@ -142,7 +148,11 @@ function editFileTool(): ToolDefinition<{
       // `$&`/`` $` ``-style patterns in new_string and silently corrupt files
       // whose content legitimately contains them (shell scripts, Makefiles).
       const after = before.split(args.old_string).join(args.new_string)
-      await writeFile(file, after, 'utf8')
+      try {
+        await writeFile(file, after, 'utf8')
+      } catch (err) {
+        throw new Error(fsError(err, args.path))
+      }
       return `edited ${args.path}`
     },
   }

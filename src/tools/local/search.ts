@@ -37,7 +37,12 @@ function grepTool(): ToolDefinition<{ pattern: string; path?: string }> {
         if (!entry.isFile()) continue
         let content: string
         try {
-          content = await readFile(full, 'utf8')
+          const buf = await readFile(full)
+          // Skip binaries: a NUL byte in the leading chunk (git's heuristic)
+          // means UTF-8 decoding would yield garbage lines that pollute
+          // match output.
+          if (buf.subarray(0, 8000).includes(0)) continue
+          content = buf.toString('utf8')
         } catch {
           continue
         }

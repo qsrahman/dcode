@@ -57,6 +57,19 @@ describe('read-only tools', () => {
     expect(out).toContain('a.txt:1: foo bar')
   })
 
+  // Binary files decoded as UTF-8 yield garbage lines; a NUL byte in the
+  // leading chunk (git's heuristic) marks them as binary and they're skipped.
+  it('grep skips binary files', async () => {
+    await writeFile(
+      join(root, 'img.bin'),
+      Buffer.from('\x89PNG\r\n\x00\x00needle\x00', 'binary'),
+    )
+    await writeFile(join(root, 'text.txt'), 'needle')
+    const out = await tool('grep').execute({ pattern: 'needle' }, ctx)
+    expect(out).toContain('text.txt')
+    expect(out).not.toContain('img.bin')
+  })
+
   it('grep and glob prune ignored directories (node_modules, .git)', async () => {
     await mkdir(join(root, 'node_modules'))
     await writeFile(join(root, 'node_modules', 'dep.ts'), 'needle')

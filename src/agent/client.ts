@@ -6,7 +6,6 @@ import type {
   Tool as ResponsesTool,
 } from 'openai/resources/responses/responses'
 import type { AppConfig } from '../config/schema.ts'
-import type { Logger } from '../util/log.ts'
 
 export type { ResponseInput, OpenAIResponse }
 
@@ -22,7 +21,7 @@ export interface Client {
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here
 // so the rest of the app can depend on the Client interface and stay
 // testable without network access.
-export function createClient(config: AppConfig, logger: Logger): Client {
+export function createClient(config: AppConfig): Client {
   const client = new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseURL,
@@ -31,7 +30,6 @@ export function createClient(config: AppConfig, logger: Logger): Client {
 
   return {
     stream(input, opts) {
-      logger.debug('stream request model=%s', config.model)
       const params: ResponseCreateParamsStreaming = {
         model: config.model,
         input,

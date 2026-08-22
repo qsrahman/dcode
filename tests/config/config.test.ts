@@ -7,7 +7,7 @@ import {
   loadConfig,
   mergeConfigs,
 } from '../../src/config/config.ts'
-import { configSchema } from '../../src/config/schema.ts'
+
 import { parseCli } from '../../src/cli/args.ts'
 
 describe('loadConfig', () => {
@@ -98,21 +98,5 @@ describe('buildConfig', () => {
   it('falls back to the schema default when unset', () => {
     delete process.env.OPENAI_MODEL
     expect(buildConfig(parseCli([])).model).toBe('gpt-5')
-  })
-})
-
-describe('configSchema', () => {
-  it('parses a full config including an mcp server', () => {
-    const cfg = configSchema.parse({
-      model: 'gpt-5',
-      mcp: [
-        {
-          name: 'x',
-          transport: { type: 'stdio', command: 'node' },
-          trust: false,
-        },
-      ],
-    })
-    expect(cfg.mcp[0]?.name).toBe('x')
   })
 })

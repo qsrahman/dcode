@@ -59,6 +59,8 @@ export async function runTurn(
     sink.write(delta)
   }
   const response = await stream.finalResponse()
+  // Drop the finished stream so a stale abort can't reach it later.
+  if (opts.streamRef) opts.streamRef.current = null
   if (response.output_text) sink.write('\n')
   return { text: response.output_text, response }
 }
