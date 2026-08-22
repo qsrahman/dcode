@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ToolDefinition } from '../agent/types.ts'
+import type { ToolDefinition } from '../../agent/types.ts'
 
 const BRAVE_ENDPOINT = 'https://api.search.brave.com/res/v1/web/search'
 

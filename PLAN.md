@@ -69,8 +69,14 @@ src/
   agent/types.ts      # ToolDefinition<P>, ToolContext, ToolCall, ToolResult
   tools/index.ts      # createLocalTools(): the single hub that registers all local tools into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
-  tools/local.ts      # all local tools (read_file, list_dir, grep, stat, glob, write_file, edit_file, run_shell) + shared fs helpers
-  tools/web.ts        # web_search (Brave Search API; key from BRAVE_API_KEY)
+  tools/local/        # local tool set, split by concern:
+                       #   paths.ts   (resolvePath, fsError — path confinement)
+                       #   traverse.ts (walkDirs, globToRegExp)
+                       #   fs.ts      (read_file, list_dir, stat, write_file, edit_file)
+                       #   search.ts  (grep, glob)
+                       #   shell.ts   (run_shell)
+                       #   index.ts   (localTools: the assembled array)
+  tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
   ui/render.ts        # renderToolResult(name, ok, ms) -> status line
   util/log.ts         # diagnostics -> stderr (never console.log)
@@ -493,8 +499,9 @@ gating/ordering tests.
 > now executes every call unconditionally (see §5). P4's mutating *tools* remain;
 > only the approval step is gone. The two tool-definition files
 > (`tools/local/fs.ts`, `tools/local/mutate.ts`) were also unified into a single
-> `tools/local.ts`, with `tools/index.ts` as the one hub that registers the
-> `localTools` array into the `ToolRegistry`.
+> `src/tools/local.ts`, then split again by concern (`paths.ts`, `traverse.ts`,
+> `fs.ts`, `search.ts`, `shell.ts`, `index.ts`), with `tools/index.ts` as the one
+> hub that registers the `localTools` array into the `ToolRegistry`.
 >
 > **Future (not yet built):** all tool calls now run sequentially in emission
 > order, so read-only calls no longer run in parallel (the old `mutates` split

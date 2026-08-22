@@ -63,11 +63,11 @@ per session; `toResponsesTools()` is memoized) registers `ToolDefinition<P>` obj
 generic with zod-typed params and a type-safe `execute(args: P, ctx)`;
 it is named `ToolDefinition` rather than `Tool` to avoid colliding with the
 SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — and
-converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local.ts`
+converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/`
 implements the full local tool set (`read_file`, `list_dir`, `grep`, `stat`,
 `glob`, `write_file`, `edit_file`, `run_shell`) over a shared `walkDirs`
 traversal, path-confined to the working directory and returning root-relative
-paths. `tools/web.ts` adds `web_search` (Brave Search API, key from
+paths. `tools/local/web.ts` adds `web_search` (Brave Search API, key from
 `BRAVE_API_KEY`). `createLocalTools()` is the single hub that registers all
 built-in tools (filesystem + web) into the `ToolRegistry` (no config argument)
 and is used by both `runOneShot` and the REPL.

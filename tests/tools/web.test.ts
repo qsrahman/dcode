@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { webTools } from '../../src/tools/web.ts'
+import { webTools } from '../../src/tools/local/web.ts'
 import type { ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'

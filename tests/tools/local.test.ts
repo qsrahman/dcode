@@ -10,7 +10,7 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { localTools } from '../../src/tools/local.ts'
+import { localTools } from '../../src/tools/local/index.ts'
 import { runTool } from '../../src/agent/run.ts'
 import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
