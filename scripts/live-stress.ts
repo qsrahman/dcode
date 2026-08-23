@@ -5,6 +5,7 @@ import type { ResponseInput } from '../src/agent/client.ts'
 import { buildConfig } from '../src/config/config.ts'
 import { parseCli } from '../src/cli/args.ts'
 import { createLocalTools } from '../src/tools/index.ts'
+import { TaskStore } from '../src/agent/tasks.ts'
 import { CapturingSink } from '../src/agent/run.ts'
 import { createLogger, errorMessage } from '../src/util/log.ts'
 import ansis from 'ansis'
@@ -113,7 +114,7 @@ async function main(): Promise<void> {
   const config = buildConfig(parseCli(process.argv.slice(2)))
   const logger = createLogger(config)
   const client = createClient(config)
-  const tools = createLocalTools()
+  const tools = createLocalTools(new TaskStore())
 
   console.log(
     `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +

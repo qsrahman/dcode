@@ -5,6 +5,7 @@ import { startRepl } from './cli/repl.ts'
 import { buildConfig } from './config/config.ts'
 import { configSchema } from './config/schema.ts'
 import { createClient } from './agent/client.ts'
+import { TaskStore } from './agent/tasks.ts'
 import { runOneShot } from './agent/loop.ts'
 import { createLocalTools } from './tools/index.ts'
 import type { StreamRef } from './agent/run.ts'
@@ -51,7 +52,8 @@ async function main(): Promise<void> {
       return
     }
     const client = createClient(config)
-    const tools = createLocalTools()
+    const tasks = new TaskStore()
+    const tools = createLocalTools(tasks)
     const ac = new AbortController()
     const streamRef: StreamRef = { current: null }
     const onSigint = () => {

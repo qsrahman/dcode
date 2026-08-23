@@ -5,6 +5,14 @@ All notable changes to **dcode** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-08-23
+
+### Added
+- In-session task list: `task_create`, `task_list`, and `task_update` tools let
+  the model plan and track work during a run. Tasks get sequential ids (T1, T2…)
+  with a status (`pending` / `in_progress` / `completed` / `blocked`) and optional
+  `blockedBy` dependencies. State is in-memory only and is cleared by `/reset`.
+
 ## [0.4.1] - 2026-08-22
 
 ### Changed

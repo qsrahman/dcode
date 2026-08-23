@@ -3,6 +3,7 @@ import ansis from 'ansis'
 import type { AppConfig } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
 import type { ResponseInput } from '../agent/client.ts'
+import { TaskStore } from '../agent/tasks.ts'
 import { buildSystemPrompt } from '../agent/system.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
@@ -19,12 +20,13 @@ const HINT = 'Ask anything, /help for commands...'
 const PROMPT = ansis.cyan('> ')
 
 export function createSession(config: AppConfig, logger: Logger): Session {
+  const tasks = new TaskStore()
   return {
     config,
     logger,
     client: createClient(config),
     history: [{ role: 'system', content: buildSystemPrompt(config) }],
-    tools: createLocalTools(),
+    tools: createLocalTools(tasks),
   }
 }
 

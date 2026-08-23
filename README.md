@@ -3,9 +3,9 @@
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
 
-> Status: **P4 complete** — one-shot, the interactive REPL, and the tool-using
-> agent loop (read-only and mutating tools) all work. See [PLAN.md](./PLAN.md)
-> for the full roadmap.
+> Status: **P8 complete** — one-shot, the interactive REPL, the tool-using
+> agent loop (read-only and mutating tools), and an in-session task list all
+> work. See [PLAN.md](./PLAN.md) for the full roadmap.
 
 ## Requirements
 
@@ -73,6 +73,9 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). |
 | `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`). |
 | `web_search` | Search the web via Brave (`BRAVE_API_KEY` required). |
+| `task_create` | Add a task to the in-session task list (returns an id like `T1`). |
+| `task_list` | List all tasks with id, status, and blockers. |
+| `task_update` | Update a task's status, title, notes, or blockers. |
 
 `web_search` needs a Brave Search API key in the `BRAVE_API_KEY` environment
 variable; without it the tool returns an error instead of crashing. The recursive tools (`grep`, `glob`) skip directories named in `ignore`
@@ -80,6 +83,9 @@ variable; without it the tool returns an error instead of crashing. The recursiv
 Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
 (default 32 KiB), and tool errors are returned to the model so it can
 self-correct. In-flight tools (including `run_shell`) are cancelled on Ctrl-C.
+The task tools (`task_create` / `task_list` / `task_update`) hold an in-session
+list the model uses to plan and track work; the list is in-memory only and is
+cleared by `/reset`.
 
 ## Configuration (`dcode.json`)
 
@@ -109,6 +115,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 | P5 | Declarative permissions + modes | **Cancelled** |
 | P6 | MCP integration | |
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
+| P8 | Task list (in-session: create/list/update) | **Done** |
 
 ## Development
 

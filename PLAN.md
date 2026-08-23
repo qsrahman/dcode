@@ -3,7 +3,7 @@
 Product Requirements Document for **dcode**, a CLI-based AI coding agent built on
 the OpenAI Responses SDK.
 
-Status: **P4 complete** (mutating local tools). The tool-permission
+Status: **P8 complete** (in-session task list). The tool-permission
 architecture (harness gate + P5 modes/rules) was **removed** on the `experiment`
 branch — every tool call now runs unconditionally. Phases advance one at a time;
 each lands as code + tests + docs + a focused commit.
@@ -67,16 +67,18 @@ src/
   agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
   agent/loop.ts       # runAgent: tool-calling loop; runOneShot wraps it for one-shot
   agent/types.ts      # ToolDefinition<P>, ToolContext, ToolCall, ToolResult
-  tools/index.ts      # createLocalTools(): the single hub that registers all local tools into the registry
+  agent/tasks.ts      # TaskStore: in-session task list (create/list/update)
+  tools/index.ts      # createLocalTools(tasks): hub that registers all local tools into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
   tools/local/        # local tool set, split by concern:
                        #   paths.ts   (resolvePath, fsError — path confinement)
-                       #   traverse.ts (walkDirs, globToRegExp)
+                       #   traverse.ts (walkDir, globToRegExp)
                        #   fs.ts      (read_file, list_dir, stat, write_file, edit_file)
                        #   search.ts  (grep, glob)
                        #   shell.ts   (run_shell)
                        #   index.ts   (localTools: the assembled array)
   tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
+  tools/local/task.ts # task_create, task_list, task_update (close over TaskStore)
   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
   ui/render.ts        # renderToolResult(name, ok, ms) -> status line
   util/log.ts         # diagnostics -> stderr (never console.log)
@@ -138,7 +140,8 @@ Slash commands (REPL), registered incrementally: `/help` `/model`
  | P4 | Mutating local tools (write_file/edit_file/run_shell) | **Done** — see §12 |
  | P5 | Declarative permissions + modes | **Cancelled** (removed on `experiment`) |
 | P6 | MCP integration | |
-| P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
+ | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
+ | P8 | Task list (in-session: create/list/update) | **Done** |
 
 ## 9. Testing strategy
 
@@ -616,3 +619,57 @@ needed.
 ### 13.9 Status
 **Cancelled** — the permission architecture was removed on the `experiment`
 branch (see §5); this design is no longer pursued.
+
+## 14. P8 Specification (in-session task list) — implemented
+
+Status: **Done**. Gives the model a lightweight, model-driveable task list so it
+can plan and track work during a run. Sub-agents / task-management orchestration
+were researched (opencode, Claude Code, Pi) and **deferred** — this phase ships
+only the task list, in-session, with no persistence, no config, and no new CLI
+surface.
+
+### 14.1 Scope
+- `task_create`, `task_list`, `task_update` tools, driven by the model via normal
+  tool calls. No UI changes.
+- A `TaskStore` (in `agent/tasks.ts`) holding tasks in memory for the session.
+- Out of scope: on-disk persistence, dependencies graph/enforcement, sub-agents
+  / `delegate` tool, background execution, worktree isolation, parallel fan-out.
+  These are recorded as deferred P8b+ decisions (see §14.5).
+
+### 14.2 Data model
+```ts
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'blocked'
+export interface Task {
+  id: string            // "T1", "T2" — sequential per session
+  title: string
+  status: TaskStatus
+  blockedBy: string[]   // task ids, for visibility only (no enforcement)
+  notes?: string
+}
+```
+Sequential `T{n}` ids keep references easy for the model. `blockedBy` is recorded
+for visibility in `task_list`; it is not enforced.
+
+### 14.3 Module changes
+- `src/agent/tasks.ts` (new): `TaskStore` with `create` / `get` / `list` /
+  `update`. No file I/O.
+- `src/tools/local/task.ts` (new): `taskCreateTool`, `taskListTool`,
+  `taskUpdateTool` — each a `ToolDefinition` that **closes over** the session's
+  `TaskStore`.
+- `src/tools/index.ts`: `createLocalTools(tasks: TaskStore)` now takes the store
+  and registers the three task tools alongside the locals + web tool.
+- `src/cli/repl.ts` and `src/index.ts`: create one `TaskStore` per session and
+  pass it into `createLocalTools`.
+
+### 14.4 Tests
+- `tests/agent/tasks.test.ts`: sequential ids, `list` order, `blockedBy` capture,
+  `update` transitions, missing-id safety.
+- `tests/tools/task.test.ts`: tool output strings, `task_list` formatting (status
+  + blockers), unknown-id error, and schema rejection of an invalid `status`.
+
+### 14.5 Deferred (decided during planning)
+Sub-agents were explicitly deferred. When they land, the following conventions
+were locked in so a future P8b is consistent: agent definitions as
+Markdown+frontmatter files (`.dcode/agents/` project + `~/.config/dcode/agents/`
+global), subagents inherit the parent model (no per-agent override in v1), and
+task state stays in-session.
