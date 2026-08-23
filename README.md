@@ -3,9 +3,9 @@
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
 
-> Status: **P8 complete** — one-shot, the interactive REPL, the tool-using
-> agent loop (read-only and mutating tools), and an in-session task list all
-> work. See [PLAN.md](./PLAN.md) for the full roadmap.
+> Status: **P9 complete** — one-shot, the interactive REPL, the tool-using
+> agent loop (read-only and mutating tools), an in-session task list, and a
+> scoped `git` tool all work. See [PLAN.md](./PLAN.md) for the full roadmap.
 
 ## Requirements
 
@@ -76,6 +76,7 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `task_create` | Add a task to the in-session task list (returns an id like `T1`). |
 | `task_list` | List all tasks with id, status, and blockers. |
 | `task_update` | Update a task's status, title, notes, or blockers. |
+| `git` | Scoped git operations: `status`, `diff`, `log`, `show`, `add`, `commit`, `branch` (in the working directory). |
 
 `web_search` needs a Brave Search API key in the `BRAVE_API_KEY` environment
 variable; without it the tool returns an error instead of crashing. The recursive tools (`grep`, `glob`) skip directories named in `ignore`
@@ -116,6 +117,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 | P6 | MCP integration | |
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 | P8 | Task list (in-session: create/list/update) | **Done** |
+| P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
 
 ## Development
 

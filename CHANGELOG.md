@@ -5,6 +5,15 @@ All notable changes to **dcode** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-08-23
+
+### Added
+- `git` tool: a scoped, shell-free interface for the common, safe git operations
+  (`status`, `diff`, `log`, `show`, `add`, `commit`, `branch`), confined to the
+  working directory. Remote and destructive commands (push, pull, reset,
+  checkout, clean, merge, rebase) are intentionally unsupported — `run_shell`
+  remains the escape hatch for those.
+
 ## [0.5.0] - 2026-08-23
 
 ### Added

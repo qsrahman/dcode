@@ -3,7 +3,7 @@
 Product Requirements Document for **dcode**, a CLI-based AI coding agent built on
 the OpenAI Responses SDK.
 
-Status: **P8 complete** (in-session task list). The tool-permission
+Status: **P9 complete** (scoped `git` tool). The tool-permission
 architecture (harness gate + P5 modes/rules) was **removed** on the `experiment`
 branch — every tool call now runs unconditionally. Phases advance one at a time;
 each lands as code + tests + docs + a focused commit.
@@ -79,6 +79,7 @@ src/
                        #   index.ts   (localTools: the assembled array)
   tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
   tools/local/task.ts # task_create, task_list, task_update (close over TaskStore)
+  tools/local/git.ts  # git: scoped status/diff/log/show/add/commit/branch
   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
   ui/render.ts        # renderToolResult(name, ok, ms) -> status line
   util/log.ts         # diagnostics -> stderr (never console.log)
@@ -142,6 +143,7 @@ Slash commands (REPL), registered incrementally: `/help` `/model`
 | P6 | MCP integration | |
  | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
  | P8 | Task list (in-session: create/list/update) | **Done** |
+ | P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
 
 ## 9. Testing strategy
 
@@ -673,3 +675,39 @@ were locked in so a future P8b is consistent: agent definitions as
 Markdown+frontmatter files (`.dcode/agents/` project + `~/.config/dcode/agents/`
 global), subagents inherit the parent model (no per-agent override in v1), and
 task state stays in-session.
+
+## 15. P9 Specification (scoped git tool) — implemented
+
+Status: **Done**. Adds a dedicated `git` tool so the model can run common, safe
+git operations without shell-escaping concerns or reaching for `run_shell`. Git
+was previously only available via `run_shell` (P4 design, §12.6).
+
+### 15.1 Scope
+- A `git` tool exposing a curated allowlist: `status`, `diff`, `log`, `show`,
+  `add`, `commit`, `branch`.
+- `execFile('git', …)` (no shell) so paths/refs can't be shell-injected; runs
+  with `cwd = root` and `-C <root>`, plus the same `timeout` / `signal` kill-on-
+  abort handling as `run_shell` (decision L), and `runTool`'s truncation
+  (decision F) / error-as-output (decision D).
+- Out of scope: remote/destructive commands (push, pull, fetch, reset, checkout,
+  clean, merge, rebase, rm, restore) — those stay in `run_shell`. Path and ref
+  inputs are confined (resolvePath rejects `../` and symlink escapes; refs may
+  not start with `-` or contain whitespace).
+
+### 15.2 Module changes
+- `src/tools/local/git.ts` (new): `gitTool()` — `parameters` is a zod object with
+  a `command` enum plus optional `paths` / `message` / `staged` / `oneline` /
+  `maxCount` / `ref`. `buildArgs` maps the validated request to git argv;
+  `checkPaths` confines each path via `resolvePath`, `checkRef` rejects unsafe
+  refs.
+- `src/tools/local/index.ts`: register `gitTool()` in `localTools`.
+
+### 15.3 Tests (`tests/tools/git.test.ts`)
+A real temp git repo (init + seed commit) asserts: clean `status`, `add` +
+`commit` recorded in `log`, `diff` shows edits, `show HEAD` prints the commit,
+`branch` lists; schema rejection of an out-of-allowlist command; path-escape
+rejection; and a clear error when run outside a git repository.
+
+### 15.4 Status
+**Done.** `git` joins the local tool set, confined to the working directory with
+a safe operation allowlist and no shell. Covered by `tests/tools/git.test.ts`.

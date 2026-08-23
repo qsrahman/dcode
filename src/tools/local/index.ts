@@ -8,6 +8,7 @@ import {
 } from './fs.ts'
 import { grepTool, globTool } from './search.ts'
 import { runShellTool } from './shell.ts'
+import { gitTool } from './git.ts'
 
 // The complete local tool set, assembled from the concern modules in this
 // directory. `tools/index.ts` (the hub) is the single place that registers
@@ -22,4 +23,5 @@ export const localTools: ToolDefinition[] = [
   writeFileTool(),
   editFileTool(),
   runShellTool(),
+  gitTool(),
 ]
