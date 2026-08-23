@@ -4,6 +4,7 @@ import type { AppConfig } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
 import type { ResponseInput } from '../agent/client.ts'
 import { TaskStore } from '../agent/tasks.ts'
+import { ContextManager } from '../agent/context/manager.ts'
 import { buildSystemPrompt } from '../agent/system.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
@@ -27,6 +28,7 @@ export function createSession(config: AppConfig, logger: Logger): Session {
     client: createClient(config),
     history: [{ role: 'system', content: buildSystemPrompt(config) }],
     tools: createLocalTools(tasks),
+    context: new ContextManager(config.context, logger),
   }
 }
 
@@ -74,6 +76,7 @@ export async function handleLine(
       signal: opts.signal,
       tools: session.tools,
       streamRef: opts.streamRef,
+      context: session.context,
     })
     sink.write('\n')
     trimHistory(session.history, session.config.maxHistoryItems)

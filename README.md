@@ -3,9 +3,10 @@
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
 
-> Status: **P9 complete** — one-shot, the interactive REPL, the tool-using
-> agent loop (read-only and mutating tools), an in-session task list, and a
-> scoped `git` tool all work. See [PLAN.md](./PLAN.md) for the full roadmap.
+> Status: **P10 complete** — one-shot, the interactive REPL, the tool-using
+> agent loop (read-only and mutating tools), an in-session task list, a scoped
+> `git` tool, and automatic context-window management all work. See
+> [PLAN.md](./PLAN.md) for the full roadmap.
 
 ## Requirements
 
@@ -50,11 +51,13 @@ dcode                                                # REPL
 
 ### REPL slash commands
 
-`/help` `/model` `/tools` `/clear` `/reset` `/version` `/exit`
+`/help` `/model` `/tools` `/clear` `/reset` `/compact` `/context` `/version` `/exit`
 
 (`/clear` clears the screen; `/reset` drops the conversation history. `/model`
 with no argument prints the current model; `/model <id>` switches it. `/tools`
-lists the tools the agent can call.)
+lists the tools the agent can call. `/compact` summarizes the oldest part of the
+conversation into a short summary to free context; `/context` shows the estimated
+token usage against the model's window.)
 
 ### Tools
 
@@ -88,6 +91,15 @@ The task tools (`task_create` / `task_list` / `task_update`) hold an in-session
 list the model uses to plan and track work; the list is in-memory only and is
 cleared by `/reset`.
 
+**Context-window management.** Long sessions are kept within `context.window`:
+before each request, dcode prunes old tool outputs (collapsing them to a short
+marker) and, if still over budget, summarizes the oldest history into a single
+`developer` message while keeping a recent tail verbatim. The token estimate is
+calibrated against the real `usage` the API returns, so no tokenizer dependency
+is needed. If a request still exceeds the window, dcode compacts and retries
+once. Set `context.window` to match your model (lower it for small local
+models); `/compact` triggers a summary on demand and `/context` reports usage.
+
 ## Configuration (`dcode.json`)
 
 JSON, loaded from `--config <path>` or a default location. Example:
@@ -98,7 +110,8 @@ JSON, loaded from `--config <path>` or a default location. Example:
   "maxToolIterations": 16,
   "maxHistoryItems": 100,
   "maxToolOutputBytes": 32768,
-  "ignore": [".git", "node_modules"]
+  "ignore": [".git", "node_modules"],
+  "context": { "window": 200000, "reserved": 20000, "keepTokens": 15000 }
 }
 ```
 
@@ -118,6 +131,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 | P8 | Task list (in-session: create/list/update) | **Done** |
 | P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
+| P10 | Context-window management (prune + compact + overflow retry) | **Done** |
 
 ## Development
 

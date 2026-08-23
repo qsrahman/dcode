@@ -2,13 +2,9 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
+import { CHILD_MAX_BUFFER } from './constants.ts'
 
 const execFileAsync = promisify(execFile)
-
-// run_shell buffers combined stdout/stderr up to this before the child is
-// killed. Comfortably above maxToolOutputBytes so normal large output is
-// truncated (decision F) rather than failing the whole command.
-const SHELL_MAX_BUFFER = 10 * 1024 * 1024
 
 function runShellTool(): ToolDefinition<{ command: string }> {
   return {
@@ -27,7 +23,7 @@ function runShellTool(): ToolDefinition<{ command: string }> {
           cwd: ctx.root,
           shell: true,
           timeout: ctx.config.toolTimeout,
-          maxBuffer: SHELL_MAX_BUFFER,
+          maxBuffer: CHILD_MAX_BUFFER,
           signal: ctx.signal,
         })
         return `${stdout}${stderr}`.trim() || '(no output)'

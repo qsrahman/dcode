@@ -3,7 +3,7 @@
 Product Requirements Document for **dcode**, a CLI-based AI coding agent built on
 the OpenAI Responses SDK.
 
-Status: **P9 complete** (scoped `git` tool). The tool-permission
+Status: **P10 complete** (context-window management). The tool-permission
 architecture (harness gate + P5 modes/rules) was **removed** on the `experiment`
 branch — every tool call now runs unconditionally. Phases advance one at a time;
 each lands as code + tests + docs + a focused commit.
@@ -66,6 +66,11 @@ src/
   agent/system.ts     # buildSystemPrompt(config)
   agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
   agent/loop.ts       # runAgent: tool-calling loop; runOneShot wraps it for one-shot
+  agent/context/      # context-window management (P10):
+                      #   tokens.ts  (cheap ~4c/tok estimate, calibrated by real usage)
+                      #   prune.ts   (collapse old tool outputs to a marker)
+                      #   compact.ts (summarize oldest history via a model call)
+                      #   manager.ts (ContextManager: prune→compact, overflow retry, breaker)
   agent/types.ts      # ToolDefinition<P>, ToolContext, ToolCall, ToolResult
   agent/tasks.ts      # TaskStore: in-session task list (create/list/update)
   tools/index.ts      # createLocalTools(tasks): hub that registers all local tools into the registry
@@ -142,8 +147,9 @@ Slash commands (REPL), registered incrementally: `/help` `/model`
  | P5 | Declarative permissions + modes | **Cancelled** (removed on `experiment`) |
 | P6 | MCP integration | |
  | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
- | P8 | Task list (in-session: create/list/update) | **Done** |
- | P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
+| P8 | Task list (in-session: create/list/update) | **Done** |
+| P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
+| P10 | Context-window management (prune + compact + overflow retry) | **Done** |
 
 ## 9. Testing strategy
 
@@ -711,3 +717,73 @@ rejection; and a clear error when run outside a git repository.
 ### 15.4 Status
 **Done.** `git` joins the local tool set, confined to the working directory with
 a safe operation allowlist and no shell. Covered by `tests/tools/git.test.ts`.
+
+## 16. P10 Specification (context-window management) — implemented
+
+Status: **Done**. Keeps each request within the model's context window without a
+tokenizer dependency, by (a) pruning old tool outputs cheaply and (b) summarizing
+the oldest history with a model call when pruning isn't enough. Inspired by
+opencode's prune→compact cascade and Claude Code's structured summary contract.
+
+### 16.1 Scope
+- `ContextManager` (session-scoped) owns all context management; the loop calls
+  `beforeTurn` before each request and `observe` after each response.
+- Token budget from real provider `usage` (calibrated heuristic, no new dep).
+- Cheap prune (`pruneHistory`) collapses old `function_call_output` payloads.
+- Model-call compaction (`compactHistory`) summarizes the oldest history into a
+  single `developer` message, retaining a recent tail verbatim.
+- Overflow recovery: on a context-window error, compact and retry the request
+  once; a circuit breaker stops thrashing after 3 consecutive failures.
+- REPL commands `/compact` (manual) and `/context` (usage report).
+
+### 16.2 Design
+- **Estimate.** `tokens.ts`: `estimateTokens ≈ chars/4` over each item's text.
+  `ContextManager.observe(usage, history)` sets `ratio = real_input_tokens /
+  heuristic(history)` from the provider's `usage.input_tokens`, so `predict`
+  tracks the model's real tokenizer. When `usage` is absent (tests/offline),
+  `ratio` stays 1.
+- **Prune.** `pruneHistory` replaces all but the most recent `protectTurns`
+  (default 2) tool outputs with `[output truncated] (N chars)`. Cheap, lossy,
+  no model call.
+- **Compact.** `compactHistory` keeps the most recent `keepTokens` (default
+  15000) tokens as a verbatim tail, **snapping the cut to a `user` message** so a
+  `function_call` is never separated from its `function_call_output` (orphaned
+  tool calls are rejected by the API). The rest is fed to a separate model call
+  (tools disabled, `maxOutputTokens: 4096`) with a structured-summary prompt
+  (Goal / Constraints / Progress / Key Decisions / Next Steps / Critical
+  Context). The summary replaces the old items as a `developer` message; the
+  model call's own tokens are discarded.
+- **Manager.** `beforeTurn`: if `predict >= usable` (`window - reserved`), prune,
+  then compact if still over. `usable()` and the breaker make it safe. A healthy
+  turn that fits resets the failure counter.
+- **Overflow.** `client.stream` gains `maxOutputTokens?`; `isContextOverflowError`
+  detects OpenAI's 413 / `context_length_exceeded`. `loop.ts` catches it,
+  calls `onOverflow` (compact + retry once), and lets it fail normally if the
+  breaker is tripped.
+
+### 16.3 Config (`schema.ts`)
+```ts
+context: z.object({
+  auto: z.boolean().default(true),
+  window: z.number().int().positive().default(200000),  // model's real context limit
+  reserved: z.number().int().nonnegative().default(20000), // headroom for output + compaction
+  keepTokens: z.number().int().positive().default(15000),  // recent tail kept verbatim
+  prune: z.boolean().default(true),
+}).default({})
+```
+`window` must match the model in use (e.g. set lower for small local models); the
+default assumes an OpenAI-scale window.
+
+### 16.4 Tests
+`tests/agent/context/{tokens,prune,compact,manager}.test.ts`: heuristic + history
+estimation; prune protects the newest outputs; compact summarizes oldest and
+keeps the tail; manager compacts when over budget, trips the breaker after
+repeated failures, and `onOverflow` recovers-then-gives-up; `isContextOverflowError`
+detects the right errors.
+
+### 16.5 Status
+**Done.** REPL and one-shot both run a `ContextManager`; history stays within the
+configured window, and a context-window overflow is recovered transparently.
+Covered by `tests/agent/context/*`. The in-session task list survives compaction
+(it lives outside `history`), so `/compact` never loses tracked work.
+

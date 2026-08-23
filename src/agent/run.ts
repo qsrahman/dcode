@@ -110,43 +110,37 @@ export async function runTool(
 // handled here, so no unhandled rejection). Process-spawning tools also receive
 // ctx.signal directly, so the abort actually kills the child, not just this
 // wrapper.
-function withDeadline<T>(
+async function withDeadline<T>(
   p: Promise<T>,
   ms: number,
   signal?: AbortSignal,
 ): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new Error('aborted'))
-      return
+  const timeoutSignal = AbortSignal.timeout(ms)
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutSignal])
+    : timeoutSignal
+
+  try {
+    return await p
+  } catch (err) {
+    if (combinedSignal.aborted) {
+      if (timeoutSignal.aborted) {
+        throw new Error(`tool timed out after ${ms}ms`)
+      }
+      throw new Error('aborted')
     }
-    let done = false
-    let timer: ReturnType<typeof setTimeout>
-    function finish(settle: () => void): void {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      signal?.removeEventListener('abort', onAbort)
-      settle()
-    }
-    function onAbort(): void {
-      finish(() => reject(new Error('aborted')))
-    }
-    timer = setTimeout(
-      () => finish(() => reject(new Error(`tool timed out after ${ms}ms`))),
-      ms,
-    )
-    signal?.addEventListener('abort', onAbort, { once: true })
-    p.then(
-      (v) => finish(() => resolve(v)),
-      (e) => finish(() => reject(e)),
-    )
-  })
+    throw err
+  }
 }
 
 function truncate(s: string, maxBytes: number): string {
   const bytes = new TextEncoder().encode(s)
   if (bytes.length <= maxBytes) return s
-  const cut = new TextDecoder().decode(bytes.subarray(0, maxBytes))
+  let end = maxBytes
+  // end is < bytes.length because we returned early if bytes.length <= maxBytes
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) {
+    end--
+  }
+  const cut = new TextDecoder().decode(bytes.subarray(0, end))
   return `${cut}\n… [output truncated to ${maxBytes} bytes]`
 }

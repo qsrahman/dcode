@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { ToolDefinition } from '../../agent/types.ts'
 
-const BRAVE_ENDPOINT = 'https://api.search.brave.com/res/v1/web/search'
+const BRAVE_ENDPOINT =
+  process.env.BRAVE_ENDPOINT ?? 'https://api.search.brave.com/res/v1/web/search'
 
 interface BraveResult {
   title: string

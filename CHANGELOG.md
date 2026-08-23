@@ -1,9 +1,43 @@
-# Changelog
+## [0.8.0] - 2026-08-23
 
-All notable changes to **dcode** are documented here.
+### Fixed
+- Schema validation now enforces `keepTokens < window - reserved` to prevent
+  infinite compaction loops when context-window config is misconfigured.
+- `truncate()` no longer splits multi-byte UTF-8 characters; it walks backward
+  to the nearest valid character boundary before cutting.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
+### Changed
+- Deduplicated `SHELL_MAX_BUFFER` / `GIT_MAX_BUFFER` (10 MiB) into a shared
+  `CHILD_MAX_BUFFER` constant in `tools/local/constants.ts`.
+- Brave Search API endpoint is now configurable via `BRAVE_ENDPOINT` env var.
+- Simplified `withDeadline` to use `AbortSignal.timeout()` + `AbortSignal.any()`
+  instead of manual `setTimeout`/`addEventListener` logic.
+- Command dispatch in `cli/commands.ts` refactored from a `switch` to a
+  `Record<string, CommandHandler>` map for easier extensibility.
+
+### Added
+- New `tools/local/constants.ts` module for shared child-process buffer ceiling.
+
+### Added
+- Context-window management: dcode now keeps each request within the model's
+  context window instead of relying on a naive item-count trim. Before every
+  request it prunes old tool outputs (collapsing them to a short marker) and, if
+  still over budget, summarizes the oldest history into a single `developer`
+  message while keeping a recent tail verbatim (`compactHistory`). A context-
+  window overflow (OpenAI 413 / `context_length_exceeded`) triggers a compact
+  and a single retry, guarded by a circuit breaker after 3 consecutive failures.
+- Token estimate is calibrated against the real `usage.input_tokens` the
+  Responses API returns, so no tokenizer dependency is added.
+- `context` config block: `window` (model limit, default 200000), `reserved`
+  (headroom for output + compaction, default 20000), `keepTokens` (recent tail
+  kept verbatim, default 15000), `auto` and `prune` toggles.
+- REPL commands `/compact` (manual summary) and `/context` (usage report).
+
+### Changed
+- `client.stream` gains a `maxOutputTokens?` option (used to cap compaction
+  output at 4096) and exposes `isContextOverflowError`.
+- The agent loop now drives a session-scoped `ContextManager` (`beforeTurn`
+  pre-request, `observe` post-response) for both REPL and one-shot runs.
 
 ## [0.6.0] - 2026-08-23
 

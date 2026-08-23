@@ -3,12 +3,9 @@ import { promisify } from 'node:util'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
+import { CHILD_MAX_BUFFER } from './constants.ts'
 
 const execFileAsync = promisify(execFile)
-
-// Matches run_shell's buffer ceiling: comfortably above maxToolOutputBytes so
-// normal large output is truncated (decision F) rather than killing the child.
-const GIT_MAX_BUFFER = 10 * 1024 * 1024
 
 // Only a curated, safe set of operations is exposed. Remote and destructive
 // commands (push, pull, fetch, reset, checkout, clean, merge, rebase, …) are
@@ -68,7 +65,7 @@ export function gitTool(): ToolDefinition<GitArgs> {
           {
             cwd: ctx.root,
             timeout: ctx.config.toolTimeout,
-            maxBuffer: GIT_MAX_BUFFER,
+            maxBuffer: CHILD_MAX_BUFFER,
             signal: ctx.signal,
           },
         )

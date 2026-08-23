@@ -1,4 +1,5 @@
-import type { Client, ResponseInput } from './client.ts'
+import type { Client, OpenAIResponse, ResponseInput } from './client.ts'
+import { isContextOverflowError } from './client.ts'
 import type { AppConfig } from '../config/schema.ts'
 import { resolveRoot } from '../config/config.ts'
 import { buildSystemPrompt } from './system.ts'
@@ -9,6 +10,7 @@ import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import { renderToolResult, renderToolOutput } from '../ui/render.ts'
 import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
+import { ContextManager } from './context/manager.ts'
 
 // Agent loop: run turns, execute any tool calls the model makes, feed the
 // results back, and repeat up to `maxToolIterations` (decision D). Every turn
@@ -29,6 +31,7 @@ export async function runAgent(
     signal?: AbortSignal
     tools?: ToolRegistry
     streamRef?: StreamRef
+    context?: ContextManager
   },
 ): Promise<string> {
   const sink = opts.sink ?? process.stdout
@@ -46,20 +49,58 @@ export async function runAgent(
   let prevHadTools = false
 
   for (let i = 0; i < config.maxToolIterations; i++) {
+    // Before each request, shrink the history if it's near the model's context
+    // limit (prune old tool outputs, else summarize the oldest history).
+    if (opts.context) {
+      const action = await opts.context.beforeTurn(client, config, history)
+      if (action !== 'none') {
+        opts.logger.debug(
+          'context: %s (now ~%d tokens)',
+          action,
+          opts.context.predict(history),
+        )
+      }
+    }
     // Every turn streams live to `sink`. A turn that follows a tool call gets a
     // leading blank line so its text is separated from the tool-output block.
     if (prevHadTools) sink.write('\n')
-    const { text, response } = await runTurn(client, config, history, {
-      sink,
-      logger: opts.logger,
-      tools: responses,
-      streamRef: opts.streamRef,
-    })
-    finalText = text
-    if (text.trim()) {
+    let response!: OpenAIResponse
+    try {
+      const r = await runTurn(client, config, history, {
+        sink,
+        logger: opts.logger,
+        tools: responses,
+        streamRef: opts.streamRef,
+      })
+      finalText = r.text
+      response = r.response
+    } catch (err) {
+      // The request exceeded the context window. Compact and retry once; if that
+      // still overflows (or the breaker is tripped) let it fail normally.
+      if (opts.context && isContextOverflowError(err)) {
+        const recovered = await opts.context.onOverflow(client, config, history)
+        if (recovered) {
+          const r = await runTurn(client, config, history, {
+            sink,
+            logger: opts.logger,
+            tools: responses,
+            streamRef: opts.streamRef,
+          })
+          finalText = r.text
+          response = r.response
+        } else {
+          throw err
+        }
+      } else {
+        throw err
+      }
+    }
+    // Recalibrate the token estimate against the provider's real usage.
+    opts.context?.observe(response.usage, history)
+    if (finalText.trim()) {
       history.push({
         role: 'assistant',
-        content: text,
+        content: finalText,
       })
     }
     const calls = (response.output ?? []).filter(
@@ -101,11 +142,12 @@ export async function runOneShot(
     streamRef?: StreamRef
   },
 ): Promise<string> {
+  const context = new ContextManager(config.context, opts.logger)
   const input: ResponseInput = [
     { role: 'system', content: buildSystemPrompt(config) },
     { role: 'user', content: prompt },
   ]
-  return runAgent(client, config, input, opts)
+  return runAgent(client, config, input, { ...opts, context })
 }
 
 // Execute one turn's tool calls in the order the model emitted them. Every call
