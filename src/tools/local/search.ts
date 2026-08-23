@@ -3,7 +3,7 @@ import { relative } from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
-import { walkDirs, globToRegExp } from './traverse.ts'
+import { walkDir, globToRegExp } from './traverse.ts'
 
 // Cap grep output so a broad pattern over a large tree can't flood the model's
 // context (runTool's byte-truncation is a blunt backstop, not a real limit).
@@ -33,7 +33,7 @@ function grepTool(): ToolDefinition<{ pattern: string; path?: string }> {
       const ignore = new Set(ctx.config.ignore)
       const matches: string[] = []
       let capped = false
-      outer: for await (const { full, entry } of walkDirs(dir, ignore)) {
+      outer: for await (const { full, entry } of walkDir(dir, ignore)) {
         if (!entry.isFile()) continue
         let content: string
         try {
@@ -82,7 +82,7 @@ function globTool(): ToolDefinition<{ pattern: string }> {
       const re = globToRegExp(args.pattern)
       const ignore = new Set(ctx.config.ignore)
       const matches: string[] = []
-      for await (const { rel } of walkDirs(ctx.root, ignore)) {
+      for await (const { rel } of walkDir(ctx.root, ignore)) {
         if (re.test(rel)) matches.push(rel)
       }
       matches.sort()

@@ -65,7 +65,7 @@ it is named `ToolDefinition` rather than `Tool` to avoid colliding with the
 SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — and
 converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/`
 implements the full local tool set (`read_file`, `list_dir`, `grep`, `stat`,
-`glob`, `write_file`, `edit_file`, `run_shell`) over a shared `walkDirs`
+`glob`, `write_file`, `edit_file`, `run_shell`) over a shared `walkDir`
 traversal, path-confined to the working directory and returning root-relative
 paths. `tools/local/web.ts` adds `web_search` (Brave Search API, key from
 `BRAVE_API_KEY`). `createLocalTools()` is the single hub that registers all

@@ -20,7 +20,7 @@ const HELP = ansis.dim(
   [
     'Commands:',
     '  /clear    clear the screen',
-    '  /exit     quit',
+    '  /exit     quit dcode',
     '  /help     show this help',
     '  /model    show/set model: /model <id>',
     '  /reset    clear the conversation',

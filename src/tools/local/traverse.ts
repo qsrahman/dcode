@@ -7,7 +7,7 @@ import { resolve, relative } from 'node:path'
 // root), silently continues past unreadable directories, and prunes ignored
 // directory names (e.g. .git, node_modules) — the traversal rules grep and glob
 // need.
-async function* walkDirs(
+async function* walkDir(
   root: string,
   ignore: ReadonlySet<string>,
 ): AsyncGenerator<{ full: string; rel: string; entry: Dirent }> {
@@ -58,4 +58,4 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(re + '$')
 }
 
-export { walkDirs, globToRegExp }
+export { walkDir, globToRegExp }
