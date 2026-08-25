@@ -35,6 +35,7 @@ export interface TurnOpts {
   sink?: RunSink
   logger: Logger
   tools?: ResponsesTool[]
+  instructions?: string
   streamRef?: StreamRef
 }
 
@@ -53,7 +54,10 @@ export async function runTurn(
   const { logger, tools } = opts
   const sink = opts.sink ?? process.stdout
   logger.debug('run turn model=%s', config.model)
-  const stream = client.stream(input, { tools })
+  const stream = client.stream(input, {
+    tools,
+    instructions: opts.instructions,
+  })
   if (opts.streamRef) opts.streamRef.current = stream
   for await (const delta of stream) {
     sink.write(delta)

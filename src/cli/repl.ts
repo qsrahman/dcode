@@ -5,7 +5,6 @@ import { createClient } from '../agent/client.ts'
 import type { ResponseInput } from '../agent/client.ts'
 import { TaskStore } from '../agent/tasks.ts'
 import { ContextManager } from '../agent/context/manager.ts'
-import { buildSystemPrompt } from '../agent/system.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
 import type { RunSink, StreamRef } from '../agent/run.ts'
@@ -26,24 +25,23 @@ export function createSession(config: AppConfig, logger: Logger): Session {
     config,
     logger,
     client: createClient(config),
-    history: [{ role: 'system', content: buildSystemPrompt(config) }],
+    history: [],
     tools: createLocalTools(tasks),
     context: new ContextManager(config.context, logger),
   }
 }
 
-// Keep history[0] (the system message) and roughly the last `max` items. The
-// cut point is advanced forward past any tool items so the retained region
-// always begins at a message boundary — otherwise trimming could keep a
-// function_call_output whose function_call was dropped (or a function_call
-// whose sibling output was dropped), which the Responses API rejects as an
-// orphaned tool call. Erring toward keeping fewer items is fine; correctness
-// beats hitting `max` exactly.
+// Keep roughly the last `max` items. The cut point is advanced forward past any
+// tool items so the retained region always begins at a message boundary —
+// otherwise trimming could keep a function_call_output whose function_call was
+// dropped (or a function_call whose sibling output was dropped), which the
+// Responses API rejects as an orphaned tool call. Erring toward keeping fewer
+// items is fine; correctness beats hitting `max` exactly.
 export function trimHistory(history: ResponseInput, max: number): void {
-  if (history.length - 1 <= max) return
+  if (history.length <= max) return
   let keepFrom = history.length - max
   while (keepFrom < history.length && isToolItem(history[keepFrom]!)) keepFrom++
-  history.splice(1, keepFrom - 1)
+  history.splice(0, keepFrom)
 }
 
 function isToolItem(item: ResponseInput[number]): boolean {

@@ -1,3 +1,23 @@
+## [0.9.0] - 2026-08-25
+
+### Changed
+- The system prompt is now sent via the Responses API `instructions` field
+  instead of being prepended as a `system` role item in the conversation
+  `history`. `history` is now purely the conversation, which simplifies trimming
+  and keeps the durable guidance separate from turn input.
+- `compactHistory` no longer assumes `history[0]` is the system message; it
+  summarizes the conversation body directly (the system prompt is carried by
+  `instructions`). The injected summary remains a single message at the head of
+  the compacted history.
+
+### Added
+- `stateful` config flag (default `false`). When `true`, responses are stored
+  server-side (`store: true`) so a later turn could chain via
+  `previous_response_id`. Off by default to avoid OpenAI's 30-day retention and
+  to keep local/compatible endpoints (which don't persist responses) working.
+  When `false` against OpenAI (no custom `baseURL`), `store: false` is sent
+  explicitly.
+
 ## [0.8.0] - 2026-08-23
 
 ### Fixed

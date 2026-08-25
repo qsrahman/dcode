@@ -34,39 +34,36 @@ describe('parseCommand', () => {
 })
 
 describe('trimHistory', () => {
-  it('keeps the system message plus the last max items', () => {
+  it('keeps the last max items', () => {
     const h: ResponseInput = [
-      { role: 'system', content: 's' },
       { role: 'user', content: '1' },
       { role: 'assistant', content: '1' },
       { role: 'user', content: '2' },
       { role: 'assistant', content: '2' },
     ]
     trimHistory(h, 2)
-    expect(h.length).toBe(3)
-    expect(h[0]).toEqual({ role: 'system', content: 's' })
+    expect(h.length).toBe(2)
+    expect(h[0]).toEqual({ role: 'user', content: '2' })
   })
   it('is a no-op when within the cap', () => {
     const h: ResponseInput = [
-      { role: 'system', content: 's' },
       { role: 'user', content: '1' },
+      { role: 'assistant', content: '1' },
     ]
     trimHistory(h, 10)
     expect(h.length).toBe(2)
   })
   it('never orphans a tool pair: cuts at a message boundary', () => {
     const h: ResponseInput = [
-      { role: 'system', content: 's' },
       { role: 'user', content: 'u1' },
       { type: 'function_call', call_id: 'a', name: 'x', arguments: '{}' },
       { type: 'function_call_output', call_id: 'a', output: 'ok' },
       { role: 'assistant', content: 'a1' },
     ] as unknown as ResponseInput
     trimHistory(h, 2)
-    expect(h[0]).toEqual({ role: 'system', content: 's' })
     // The naive cut would keep the orphaned output (call 'a' dropped); the fixed
     // version advances past both tool items to the next message.
-    for (const item of h.slice(1)) {
+    for (const item of h) {
       expect((item as { type?: string }).type).not.toBe('function_call_output')
       expect((item as { type?: string }).type).not.toBe('function_call')
     }

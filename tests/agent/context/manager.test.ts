@@ -33,7 +33,6 @@ function summaryClient(summary: string): {
 
 function bigHistory(): ResponseInput {
   return [
-    { role: 'system', content: 'sys' },
     { role: 'user', content: 'first request' },
     { role: 'assistant', content: 'first response' },
     { role: 'user', content: 'x'.repeat(1000) },
@@ -83,10 +82,11 @@ describe('ContextManager', () => {
     const history = bigHistory()
     const action = await m.beforeTurn(client, config, history)
     expect(action).toBe('compacted')
-    // System message + summary + tail (last user message)
-    expect(history[0]).toEqual({ role: 'system', content: 'sys' })
-    expect((history[1] as { role: string }).role).toBe('developer')
-    expect((history[1] as { content: string }).content).toBe('SUMMARY')
+    // Summary (first item) + tail (last user message). The system prompt is no
+    // longer part of history — it's carried via `instructions`.
+    expect((history[0] as { role: string }).role).toBe('developer')
+    expect((history[0] as { content: string }).content).toBe('SUMMARY')
+    expect((history[1] as { content: string }).content).toBe('x'.repeat(1000))
   })
 
   it('trips the circuit breaker after repeated failed compactions', async () => {

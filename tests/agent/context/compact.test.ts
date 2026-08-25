@@ -35,7 +35,6 @@ describe('compactHistory', () => {
       },
     }) as AppConfig
     const history: ResponseInput = [
-      { role: 'system', content: 'sys' },
       { role: 'user', content: 'first request' },
       { role: 'assistant', content: 'first answer' },
       { role: 'user', content: 'second request' },
@@ -46,12 +45,13 @@ describe('compactHistory', () => {
       history,
       createLogger(config),
     )
-    expect(out).toHaveLength(3)
-    expect(out[0]).toEqual({ role: 'system', content: 'sys' })
-    expect((out[1] as { role: string }).role).toBe('developer')
-    expect((out[1] as { content: string }).content).toBe('SUMMARY')
+    // summary message + recent tail (the system prompt lives in `instructions`,
+    // not in history)
+    expect(out).toHaveLength(2)
+    expect((out[0] as { role: string }).role).toBe('developer')
+    expect((out[0] as { content: string }).content).toBe('SUMMARY')
     // most recent user message retained verbatim
-    expect((out[2] as { content: string }).content).toBe('second request')
+    expect((out[1] as { content: string }).content).toBe('second request')
   })
 
   it('returns the history unchanged when there is nothing to summarize', async () => {
@@ -64,7 +64,7 @@ describe('compactHistory', () => {
         prune: true,
       },
     }) as AppConfig
-    const history: ResponseInput = [{ role: 'system', content: 'sys' }]
+    const history: ResponseInput = [{ role: 'user', content: 'only' }]
     const out = await compactHistory(
       summaryClient('SUMMARY'),
       config,

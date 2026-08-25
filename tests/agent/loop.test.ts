@@ -223,6 +223,34 @@ describe('runAgent', () => {
     expect(outputs.map((o) => o.call_id)).toEqual(['c1', 'c2'])
   })
 
+  it('passes the system prompt via instructions, not as a history item', async () => {
+    const calls: { input: ResponseInput; opts: { instructions?: string } }[] =
+      []
+    const client: Client = {
+      stream(input, opts) {
+        calls.push({ input, opts: opts ?? {} })
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield 'ok'
+          },
+          finalResponse: async () =>
+            ({ output: [], output_text: 'ok' }) as unknown as OpenAIResponse,
+          abort: () => {},
+        }
+      },
+    }
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await runAgent(client, cfg(), history, { logger: createLogger(cfg()) })
+    expect(calls.length).toBeGreaterThan(0)
+    expect(typeof calls[0]!.opts.instructions).toBe('string')
+    expect(calls[0]!.opts.instructions).toContain('Working directory')
+    // The system prompt is carried via `instructions`, never injected as a
+    // `system` role item in the conversation history.
+    expect(
+      history.some((h) => (h as { role?: string }).role === 'system'),
+    ).toBe(false)
+  })
+
   it('on abort, throws but leaves history balanced (every call has an output)', async () => {
     const client = fakeClientWithCalls([
       [

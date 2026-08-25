@@ -1,9 +1,18 @@
+import OpenAI from 'openai'
 import type { Client, ResponseInput } from '../client.ts'
 import type { AppConfig } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
+import { errorMessage } from '../../util/log.ts'
 import { estimateItem } from './tokens.ts'
 
 const SUMMARY_CAP = 4096
+
+// Roles tried for the compaction summary, in order. `developer` is preferred
+// (OpenAI-scale models), but some OpenAI-compatible / local endpoints reject
+// it, so we fall back to `system`, then `user`. The same role is used for the
+// injected summary message, since it's the same provider.
+type SummaryRole = 'developer' | 'system' | 'user'
+const SUMMARY_ROLES: SummaryRole[] = ['developer', 'system', 'user']
 
 const COMPACTION_INSTRUCTION = `You are condensing an earlier part of a coding session so it fits the model's context window. The conversation continues after this summary, so preserve everything needed to resume the work correctly.
 
@@ -17,20 +26,21 @@ Produce a structured summary with exactly these sections:
 
 Be concise but retain concrete details (paths, command snippets, error text). Do not invent progress. Output only the summary — no preamble.`
 
-// Keep the most recent `keepTokens` tokens of the (system-less) body, snapping
-// the cut point backward to a `user` message so a tool-call group is never
-// split: a `function_call` and its `function_call_output` must stay together,
-// otherwise the Responses API rejects the request as an orphaned tool call.
+// Keep the most recent history up to `keepTokens` tokens, always retaining at
+// least the final item (a single item can't be split). The cut point is then
+// snapped backward to a `user` message so a tool-call group is never split: a
+// `function_call` and its `function_call_output` must stay together, otherwise
+// the Responses API rejects the request as an orphaned tool call.
 function takeTail(
   body: ResponseInput,
   keepTokens: number,
 ): { tail: ResponseInput; summarized: number } {
   if (body.length === 0) return { tail: [], summarized: 0 }
-  let kept = 0
-  let start = body.length
-  for (let i = body.length - 1; i >= 0; i--) {
+  let start = body.length - 1
+  let kept = estimateItem(body[start]!)
+  for (let i = body.length - 2; i >= 0; i--) {
     const tokens = estimateItem(body[i]!)
-    if (kept + tokens > keepTokens && start < body.length) break
+    if (kept + tokens > keepTokens) break
     kept += tokens
     start = i
   }
@@ -73,35 +83,56 @@ function serializeHistory(items: ResponseInput): string {
   return blocks.join('\n\n')
 }
 
-// Summarize the oldest part of the conversation into a single developer message,
-// retaining a recent tail verbatim. Returns the new history (system message +
-// summary + tail). The summary is produced by a separate model call (tools
-// disabled, capped output) and then discarded from the live request — only its
-// text survives.
+// Generate the summary via a separate model call, trying roles in fallback
+// order. Only client (4xx) errors are retried on the next role — a server or
+// network error is rethrown rather than masked by a role swap.
+async function summarize(
+  client: Client,
+  instruction: string,
+  logger: Logger,
+): Promise<{ text: string; role: SummaryRole }> {
+  let lastErr: unknown
+  for (const role of SUMMARY_ROLES) {
+    try {
+      const input: ResponseInput = [{ role, content: instruction }]
+      const stream = client.stream(input, { maxOutputTokens: SUMMARY_CAP })
+      let summary = ''
+      for await (const delta of stream) summary += delta
+      await stream.finalResponse()
+      return { text: summary.trim() || '(no summary)', role }
+    } catch (err) {
+      lastErr = err
+      logger.debug(
+        'compaction with role "%s" failed: %s',
+        role,
+        errorMessage(err),
+      )
+      const status = err instanceof OpenAI.APIError ? err.status : undefined
+      if (typeof status !== 'number' || status < 400 || status >= 500) throw err
+    }
+  }
+  throw lastErr
+}
+
+// Summarize the oldest part of the conversation into a single message, retaining
+// a recent tail verbatim. Returns the new history (summary + tail). The summary
+// is produced by a separate model call (tools disabled, capped output) and then
+// discarded from the live request — only its text survives. The durable system
+// prompt is carried separately via the Responses API `instructions` field, so it
+// is not part of `history` and is not re-injected here.
 export async function compactHistory(
   client: Client,
   config: AppConfig,
   history: ResponseInput,
   logger: Logger,
 ): Promise<ResponseInput> {
-  const system = history[0]!
-  const body = history.slice(1)
   const keepTokens = config.context.keepTokens
-  const { tail, summarized } = takeTail(body, keepTokens)
-  const toSummarize = body.slice(0, summarized)
+  const { tail, summarized } = takeTail(history, keepTokens)
+  const toSummarize = history.slice(0, summarized)
   if (toSummarize.length === 0) return history
 
-  const summaryInput: ResponseInput = [
-    {
-      role: 'user',
-      content: `${COMPACTION_INSTRUCTION}\n\n${serializeHistory(toSummarize)}`,
-    },
-  ]
-  const stream = client.stream(summaryInput, { maxOutputTokens: SUMMARY_CAP })
-  let summary = ''
-  for await (const delta of stream) summary += delta
-  await stream.finalResponse()
-  const text = summary.trim() || '(no summary)'
+  const instruction = `${COMPACTION_INSTRUCTION}\n\n${serializeHistory(toSummarize)}`
+  const { text, role } = await summarize(client, instruction, logger)
   logger.debug('context compacted %d items into summary', toSummarize.length)
-  return [system, { role: 'developer', content: text }, ...tail]
+  return [{ role, content: text }, ...tail]
 }

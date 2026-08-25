@@ -110,6 +110,7 @@ JSON, loaded from `--config <path>` or a default location. Example:
   "maxToolIterations": 16,
   "maxHistoryItems": 100,
   "maxToolOutputBytes": 32768,
+  "stateful": false,
   "ignore": [".git", "node_modules"],
   "context": { "window": 200000, "reserved": 20000, "keepTokens": 15000 }
 }

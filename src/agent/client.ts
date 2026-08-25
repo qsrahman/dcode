@@ -17,7 +17,11 @@ export interface ModelStream extends AsyncIterable<string> {
 export interface Client {
   stream(
     input: ResponseInput,
-    opts?: { tools?: ResponsesTool[]; maxOutputTokens?: number },
+    opts?: {
+      tools?: ResponsesTool[]
+      maxOutputTokens?: number
+      instructions?: string
+    },
   ): ModelStream
 }
 
@@ -59,6 +63,12 @@ export function createClient(config: AppConfig): Client {
         stream: true,
       }
       if (opts?.tools) params.tools = opts.tools
+      if (opts?.instructions) params.instructions = opts.instructions
+      // Default to no server-side storage: avoids OpenAI's 30-day retention and
+      // keeps local/compatible endpoints (which don't persist responses) happy.
+      // Only send statefulness when explicitly enabled.
+      if (config.stateful) params.store = true
+      else if (!config.baseURL) params.store = false
       const s = client.responses.stream(params)
       return {
         async *[Symbol.asyncIterator]() {

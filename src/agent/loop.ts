@@ -45,6 +45,9 @@ export async function runAgent(
   const responses = registry.list().length
     ? registry.toResponsesTools()
     : undefined
+  // Durable system guidance lives in the Responses API `instructions` field,
+  // not in the conversation `history`, so it isn't trimmed or replayed as a turn.
+  const instructions = buildSystemPrompt(config)
   let finalText = ''
   let prevHadTools = false
 
@@ -70,6 +73,7 @@ export async function runAgent(
         sink,
         logger: opts.logger,
         tools: responses,
+        instructions,
         streamRef: opts.streamRef,
       })
       finalText = r.text
@@ -84,6 +88,7 @@ export async function runAgent(
             sink,
             logger: opts.logger,
             tools: responses,
+            instructions,
             streamRef: opts.streamRef,
           })
           finalText = r.text
@@ -143,10 +148,7 @@ export async function runOneShot(
   },
 ): Promise<string> {
   const context = new ContextManager(config.context, opts.logger)
-  const input: ResponseInput = [
-    { role: 'system', content: buildSystemPrompt(config) },
-    { role: 'user', content: prompt },
-  ]
+  const input: ResponseInput = [{ role: 'user', content: prompt }]
   return runAgent(client, config, input, { ...opts, context })
 }
 
