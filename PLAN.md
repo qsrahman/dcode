@@ -132,8 +132,9 @@ dcode [prompt]      one-shot when a prompt is given, REPL otherwise
   --model <id>       --config <path>    --verbose   --no-color   --version   --help
 ```
 
-Slash commands (REPL), registered incrementally: `/help` `/model`
-`/clear` `/reset` `/tools` `/version` `/exit`.
+Slash commands (REPL): `/help` `/model` `/tools` `/clear` `/reset`
+`/compact` `/context` `/tasks` `/config` `/undo` `/verbose` `/version` `/exit`.
+See §17 for deferred candidates.
 
 ## 8. Phase plan
 
@@ -786,4 +787,20 @@ detects the right errors.
 configured window, and a context-window overflow is recovered transparently.
 Covered by `tests/agent/context/*`. The in-session task list survives compaction
 (it lives outside `history`), so `/compact` never loses tracked work.
+
+## 17. REPL command backlog (not yet built)
+
+Candidate slash commands deferred from the v0.10.0 command pass:
+
+- **`/save [path]`** — write the current conversation transcript (`history`) to a
+  file for sharing or resuming. Format: Markdown (human-readable turns) or JSON
+  (verbatim `ResponseInput` for reload). Default path under `root` when none is
+  given; never overwrite without confirmation.
+- **`/limit <n>`** — set `maxToolIterations` at runtime (or `/keep <tokens>` for
+  `context.keepTokens`). Avoids restarting to tune runaway-loop caps or tail size.
+
+Lower priority, also considered: `/mode` (read-only vs. mutate toggle; see
+cancelled P5), `/cost` (cumulative token-cost estimate building on `/context`),
+`/branch` (snapshot `history` to fork and revert).
+
 
