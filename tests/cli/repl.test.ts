@@ -101,7 +101,7 @@ describe('handleLine commands', () => {
     s.history.push({ role: 'user', content: 'x' })
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/reset', { sink })).toBe('ok')
-    expect(s.history.length).toBe(1)
+    expect(s.history.length).toBe(0)
     expect(out.join('')).toBe('session reset\n')
   })
   it('unknown command is reported', async () => {
@@ -121,6 +121,64 @@ describe('handleLine commands', () => {
     const s = makeSession()
     const { sink } = makeSink()
     expect(await handleLine(s, '/exit', { sink })).toBe('exit')
+  })
+})
+
+describe('handleLine new commands', () => {
+  it('/tasks lists in-session tasks', async () => {
+    const s = makeSession()
+    s.tasks.create('write tests')
+    s.tasks.create('update docs', ['T1'])
+    const { sink, out } = makeSink()
+    expect(await handleLine(s, '/tasks', { sink })).toBe('ok')
+    const text = out.join('')
+    expect(text).toContain('T1 [pending] write tests')
+    expect(text).toContain('(blocked by T1)')
+  })
+  it('/tasks reports when empty', async () => {
+    const s = makeSession()
+    const { sink, out } = makeSink()
+    await handleLine(s, '/tasks', { sink })
+    expect(out.join('')).toBe('no tasks\n')
+  })
+  it('/config prints effective configuration', async () => {
+    const s = makeSession()
+    const { sink, out } = makeSink()
+    await handleLine(s, '/config', { sink })
+    const text = out.join('')
+    expect(text).toContain(`model:        ${s.config.model}`)
+    expect(text).toContain('context:')
+  })
+  it('/undo removes the last exchange', async () => {
+    const s = makeSession()
+    s.history.push({ role: 'user', content: 'first' })
+    s.history.push({ role: 'assistant', content: 'a1' })
+    s.history.push({ role: 'user', content: 'second' })
+    s.history.push({ role: 'assistant', content: 'a2' })
+    const { sink } = makeSink()
+    expect(await handleLine(s, '/undo', { sink })).toBe('ok')
+    expect(s.history.map((h) => (h as { content?: string }).content)).toEqual([
+      'first',
+      'a1',
+    ])
+  })
+  it('/undo is a no-op on empty history', async () => {
+    const s = makeSession()
+    const { sink, out } = makeSink()
+    await handleLine(s, '/undo', { sink })
+    expect(out.join('')).toBe('nothing to undo\n')
+    expect(s.history.length).toBe(0)
+  })
+  it('/verbose toggles and accepts on/off', async () => {
+    const s = makeSession()
+    s.config.verbose = false
+    const { sink, out } = makeSink()
+    await handleLine(s, '/verbose', { sink })
+    expect(s.config.verbose).toBe(true)
+    expect(out.join('')).toContain('verbose: on')
+    await handleLine(s, '/verbose off', { sink })
+    expect(s.config.verbose).toBe(false)
+    expect(out.join('')).toContain('verbose: off')
   })
 })
 

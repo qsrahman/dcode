@@ -28,6 +28,7 @@ export function createSession(config: AppConfig, logger: Logger): Session {
     history: [],
     tools: createLocalTools(tasks),
     context: new ContextManager(config.context, logger),
+    tasks,
   }
 }
 

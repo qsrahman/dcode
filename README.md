@@ -51,13 +51,17 @@ dcode                                                # REPL
 
 ### REPL slash commands
 
-`/help` `/model` `/tools` `/clear` `/reset` `/compact` `/context` `/version` `/exit`
+`/help` `/model` `/tools` `/clear` `/reset` `/compact` `/context` `/tasks`
+`/config` `/undo` `/verbose` `/version` `/exit`
 
 (`/clear` clears the screen; `/reset` drops the conversation history. `/model`
 with no argument prints the current model; `/model <id>` switches it. `/tools`
 lists the tools the agent can call. `/compact` summarizes the oldest part of the
 conversation into a short summary to free context; `/context` shows the estimated
-token usage against the model's window.)
+token usage against the model's window. `/tasks` lists the in-session task list;
+`/config` prints the effective configuration; `/undo` removes the last user
+exchange (prompt + response); `/verbose` toggles verbose mode, optionally
+`/verbose on|off`.)
 
 ### Tools
 

@@ -1,3 +1,19 @@
+## [0.10.0] - 2026-08-25
+
+### Added
+- REPL slash commands for visibility and recovery:
+  - `/tasks` lists the in-session task list (backed by `TaskStore`).
+  - `/config` prints the effective configuration (model, baseURL, limits,
+    context-window settings).
+  - `/undo` removes the last user exchange (prompt + response) so a bad turn can
+    be discarded without `/reset`ting the whole conversation.
+  - `/verbose` toggles verbose mode at runtime (`/verbose on|off`).
+
+### Fixed
+- `/reset` now clears the conversation entirely. It previously kept `history[0]`,
+  which after the `instructions` refactor no longer held the system prompt, so it
+  would retain a stale item instead of resetting.
+
 ## [0.9.0] - 2026-08-25
 
 ### Changed
