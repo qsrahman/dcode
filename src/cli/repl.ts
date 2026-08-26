@@ -1,4 +1,4 @@
-import * as readline from 'node:readline'
+import { createInterface } from 'node:readline/promises'
 import ansis from 'ansis'
 import type { AppConfig } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
@@ -94,11 +94,13 @@ export async function startRepl(
   logger: Logger,
 ): Promise<void> {
   const session = createSession(config, logger)
-  const rl = readline.createInterface({
+  const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: PROMPT,
+    terminal: true,
   })
+  rl.setPrompt(PROMPT)
+
   let busy = false
   let ac: AbortController | undefined
   const streamRef: StreamRef = { current: null }
@@ -106,34 +108,25 @@ export async function startRepl(
   // dropping them made users believe input they'd typed had been sent.
   const pending: string[] = []
 
-  // Piped/non-TTY stdin can hit EOF (auto-closing `rl`) while a turn is still
-  // in flight; rl.prompt() after that throws ERR_USE_AFTER_CLOSE. `rl.closed`
-  // exists at runtime but isn't in @types/node, so catch instead of probing it.
-  const showPrompt = () => {
-    try {
-      rl.prompt()
-    } catch (err) {
-      if (
-        !(err instanceof Error) ||
-        (err as NodeJS.ErrnoException).code !== 'ERR_USE_AFTER_CLOSE'
-      )
-        throw err
-    }
-  }
   rl.on('SIGINT', () => {
     if (busy) {
       ac?.abort()
       streamRef.current?.abort()
       process.stdout.write('\n(aborted)\n')
     } else {
-      showPrompt()
+      rl.prompt()
     }
   })
-  rl.on('line', async (line: string) => {
+
+  process.stdout.write(`${HINT}\n`)
+  rl.prompt()
+
+  for await (const line of rl) {
     if (busy) {
       pending.push(line)
-      return
+      continue
     }
+
     busy = true
     try {
       let current: string | undefined = line
@@ -153,11 +146,6 @@ export async function startRepl(
     } finally {
       busy = false
     }
-    showPrompt()
-  })
-  process.stdout.write(`${HINT}\n`)
-  return new Promise<void>((resolve) => {
-    rl.on('close', () => resolve())
-    showPrompt()
-  })
+    rl.prompt()
+  }
 }

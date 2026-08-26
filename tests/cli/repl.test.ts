@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as readline from 'node:readline'
+import * as readline from 'node:readline/promises'
 import type { AppConfig } from '../../src/config/schema.ts'
 import {
   createSession,
@@ -196,22 +196,42 @@ describe('handleLine prompt turn', () => {
 // Lines are delivered via rl.emit(), never auto-fired from prompt(), so tests
 // can type "ahead" while a turn is busy. Instances are reachable through
 // __instances (exported from the mocked module to dodge hoisting/TDZ issues).
-vi.mock('node:readline', () => {
+vi.mock('node:readline/promises', () => {
   const instances: unknown[] = []
   class FakeInterface {
     private listeners: Record<string, ((...a: unknown[]) => void)[]> = {}
+    private queue: string[] = []
+    private waiters: Array<() => void> = []
     closed = false
+    setPrompt() {}
     on(event: string, cb: (...a: unknown[]) => void) {
       ;(this.listeners[event] ??= []).push(cb)
       return this
     }
     emit(line: string) {
+      if (line === 'SIGINT') {
+        this.listeners['SIGINT']?.forEach((cb) => cb())
+        return
+      }
+      this.queue.push(line)
+      this.waiters.shift()?.()
       this.listeners['line']?.forEach((cb) => cb(line))
+    }
+    async *[Symbol.asyncIterator]() {
+      while (true) {
+        if (this.closed && this.queue.length === 0) break
+        if (this.queue.length > 0) {
+          yield this.queue.shift()!
+          continue
+        }
+        await new Promise<void>((resolve) => this.waiters.push(resolve))
+      }
     }
     prompt() {}
     close() {
       this.closed = true
       this.listeners['close']?.forEach((cb) => cb())
+      this.waiters.shift()?.()
     }
   }
   return {

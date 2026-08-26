@@ -12,8 +12,6 @@ import type { StreamRef } from './agent/run.ts'
 import { createLogger, errorMessage } from './util/log.ts'
 import { getVersion } from './version.ts'
 
-const VERSION = getVersion()
-
 function printHelp(): void {
   console.log(`dcode — AI coding agent (OpenAI Responses SDK)
 
@@ -38,7 +36,7 @@ async function main(): Promise<void> {
   try {
     const args = parseCli(process.argv.slice(2))
     if (args.version) {
-      console.log(`dcode v${VERSION}`)
+      console.log(`dcode v${getVersion()}`)
       return
     }
     if (args.help) {
