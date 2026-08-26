@@ -1,3 +1,10 @@
+## [Unreleased]
+
+### Changed
+- `run_shell` and `git` now share a `runExec` helper (`tools/local/exec.ts`)
+  for the `execFile` timeout/signal/buffer options and success/error output
+  formatting, instead of duplicating that logic in both tools.
+
 ## [0.10.0] - 2026-08-25
 
 ### Added

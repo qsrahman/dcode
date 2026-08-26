@@ -22,8 +22,8 @@ export interface RunSink {
 }
 
 // A RunSink that accumulates everything written instead of forwarding it —
-// used to buffer output for later inspection or reordering (e.g. delaying a
-// turn's text until it's known whether the turn was the final answer).
+// used by scripts/live-stress.ts to capture a turn's rendered output for
+// UI-spacing assertions without printing it live.
 export class CapturingSink implements RunSink {
   text = ''
   write(s: string): void {

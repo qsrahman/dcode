@@ -1,11 +1,7 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
-import { CHILD_MAX_BUFFER } from './constants.ts'
-
-const execFileAsync = promisify(execFile)
+import { runExec } from './exec.ts'
 
 // Only a curated, safe set of operations is exposed. Remote and destructive
 // commands (push, pull, fetch, reset, checkout, clean, merge, rebase, …) are
@@ -55,30 +51,9 @@ export function gitTool(): ToolDefinition<GitArgs> {
     parameters: gitSchema,
     async execute(args: GitArgs, ctx: ToolContext) {
       const gitArgs = await buildArgs(args, ctx)
-      try {
-        // execFile (no shell) runs the binary directly, so paths/refs can't be
-        // shell-injected. timeout + signal kill the child directly (decision L);
-        // the runTool deadline/abort race only rejects the promise.
-        const { stdout, stderr } = await execFileAsync(
-          'git',
-          ['-C', ctx.root, ...gitArgs],
-          {
-            cwd: ctx.root,
-            timeout: ctx.config.toolTimeout,
-            maxBuffer: CHILD_MAX_BUFFER,
-            signal: ctx.signal,
-          },
-        )
-        return `${stdout}${stderr}`.trim() || '(no output)'
-      } catch (err) {
-        const e = err as NodeJS.ErrnoException & {
-          stdout?: string
-          stderr?: string
-          code?: number | string
-        }
-        const out = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim()
-        throw new Error(`exit ${e.code ?? '?'}: ${out || '(no output)'}`)
-      }
+      // execFile (no shell) runs the binary directly, so paths/refs can't be
+      // shell-injected.
+      return runExec('git', ['-C', ctx.root, ...gitArgs], ctx)
     },
   }
 }
