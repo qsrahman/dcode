@@ -1,6 +1,5 @@
 import { createClient } from '../src/agent/client.ts'
 import { runAgent } from '../src/agent/loop.ts'
-import { buildSystemPrompt } from '../src/agent/system.ts'
 import type { ResponseInput } from '../src/agent/client.ts'
 import { buildConfig } from '../src/config/config.ts'
 import { parseCli } from '../src/cli/args.ts'
@@ -89,10 +88,7 @@ async function runScenario(
   tools: ReturnType<typeof createLocalTools>,
   scenario: Scenario,
 ): Promise<void> {
-  const history: ResponseInput = [
-    { role: 'system', content: buildSystemPrompt(config) },
-    { role: 'user', content: scenario.prompt },
-  ]
+  const history: ResponseInput = [{ role: 'user', content: scenario.prompt }]
   const sink = new CapturingSink()
   const t0 = Date.now()
   const text = await runAgent(client, config, history, { logger, sink, tools })
