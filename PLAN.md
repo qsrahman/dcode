@@ -735,7 +735,7 @@ opencode's prune→compact cascade and Claude Code's structured summary contract
 - Token budget from real provider `usage` (calibrated heuristic, no new dep).
 - Cheap prune (`pruneHistory`) collapses old `function_call_output` payloads.
 - Model-call compaction (`compactHistory`) summarizes the oldest history into a
-  single `developer` message, retaining a recent tail verbatim.
+  single `user` message, retaining a recent tail verbatim.
 - Overflow recovery: on a context-window error, compact and retry the request
   once; a circuit breaker stops thrashing after 3 consecutive failures.
 - REPL commands `/compact` (manual) and `/context` (usage report).
@@ -755,8 +755,11 @@ opencode's prune→compact cascade and Claude Code's structured summary contract
   tool calls are rejected by the API). The rest is fed to a separate model call
   (tools disabled, `maxOutputTokens: 4096`) with a structured-summary prompt
   (Goal / Constraints / Progress / Key Decisions / Next Steps / Critical
-  Context). The summary replaces the old items as a `developer` message; the
-  model call's own tokens are discarded.
+  Context). The summary replaces the old items as a `user` message; the
+  model call's own tokens are discarded. `user` (not `developer`/`system`) is
+  used for the summarization input and the injected summary because several
+  OpenAI-compatible / local endpoints reject those roles as input messages and
+  return a non-conformant `output` shape the SDK can't parse.
 - **Manager.** `beforeTurn`: if `predict >= usable` (`window - reserved`), prune,
   then compact if still over. `usable()` and the breaker make it safe. A healthy
   turn that fits resets the failure counter.

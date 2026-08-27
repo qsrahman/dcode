@@ -1,3 +1,18 @@
+## [0.12.1] - 2026-08-27
+
+### Fixed
+- Context compaction no longer wipes the conversation history. `ContextManager.compact`
+  replaced the history in place via `length = 0` + `push(...next)`; when compaction was a
+  no-op (nothing to summarize) `compactHistory` returned the live `history` array by
+  reference, so clearing it left `next` empty and the next request went out with no
+  messages — which some endpoints answered with a non-conformant `output` that crashed the
+  SDK (`rsp.output is not iterable`). `compact` now uses `splice` to replace in place.
+- Compaction summarization is sent as a `user` input message (and the summary is injected
+  as `user`), not `developer`/`system`. Several OpenAI-compatible / local endpoints reject
+  those roles as input and return a non-conformant `output` shape the SDK can't parse, so
+  the previous `developer` → `system` → `user` fallback (which only triggered on HTTP 4xx)
+  never engaged and crashed. The summary message role in compacted history is now `user`.
+
 ## [0.12.0] - 2026-08-27
 
 ### Changed

@@ -71,7 +71,7 @@ describe('compactHistory', () => {
     // summary message + recent tail (the system prompt lives in `instructions`,
     // not in history)
     expect(out).toHaveLength(2)
-    expect((out[0] as { role: string }).role).toBe('developer')
+    expect((out[0] as { role: string }).role).toBe('user')
     expect((out[0] as { content: string }).content).toBe('SUMMARY')
     // most recent user message retained verbatim
     expect((out[1] as { content: string }).content).toBe('second request')

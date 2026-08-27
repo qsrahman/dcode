@@ -96,7 +96,7 @@ describe('ContextManager', () => {
     expect(action).toBe('compacted')
     // Summary (first item) + tail (last user message). The system prompt is no
     // longer part of history — it's carried via `instructions`.
-    expect((history[0] as { role: string }).role).toBe('developer')
+    expect((history[0] as { role: string }).role).toBe('user')
     expect((history[0] as { content: string }).content).toBe('SUMMARY')
     expect((history[1] as { content: string }).content).toBe('x'.repeat(1000))
   })

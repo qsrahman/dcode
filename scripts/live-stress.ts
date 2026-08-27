@@ -5,6 +5,7 @@ import { buildConfig } from '../src/config/config.ts'
 import { parseCli } from '../src/cli/args.ts'
 import { createLocalTools } from '../src/tools/index.ts'
 import { TaskStore } from '../src/agent/tasks.ts'
+import { ContextManager } from '../src/agent/context/manager.ts'
 import { CapturingSink } from '../src/agent/run.ts'
 import { createLogger, errorMessage } from '../src/util/log.ts'
 import ansis from 'ansis'
@@ -12,9 +13,10 @@ import ansis from 'ansis'
 // Live end-to-end stress test. Talks to the real model (configured via .env)
 // and drives the real agent loop + tools over THIS repository. Not part of the
 // unit suite: run it explicitly with `node --env-file-if-exists=.env
-// scripts/live-stress.ts`. Exercises tool iteration, truncation, auto-approved
-// writes, web search, and concurrent runs, and verifies the UI/UX spacing of
-// the rendered output (exactly one well-formed line per tool call).
+// scripts/live-stress.ts`. Exercises tool iteration, truncation, context
+// compaction (proactive + todo-aware), auto-approved writes, web search, and
+// concurrent runs, and verifies the UI/UX spacing of the rendered output
+// (exactly one well-formed line per tool call).
 
 type Item = { type?: string; [k: string]: unknown }
 
@@ -86,12 +88,21 @@ async function runScenario(
   config: ReturnType<typeof buildConfig>,
   logger: ReturnType<typeof createLogger>,
   tools: ReturnType<typeof createLocalTools>,
+  tasks: TaskStore,
   scenario: Scenario,
 ): Promise<void> {
   const history: ResponseInput = [{ role: 'user', content: scenario.prompt }]
   const sink = new CapturingSink()
+  // Exercise the full context pipeline (observe + beforeTurn) so compaction is
+  // covered too; per-run so each history calibrates its own token estimate.
+  const context = new ContextManager(config.context, logger, tasks)
   const t0 = Date.now()
-  const text = await runAgent(client, config, history, { logger, sink, tools })
+  const text = await runAgent(client, config, history, {
+    logger,
+    sink,
+    tools,
+    context,
+  })
   const dt = Date.now() - t0
   const calls = count(history, 'function_call')
   const outputs = count(history, 'function_call_output')
@@ -110,7 +121,8 @@ async function main(): Promise<void> {
   const config = buildConfig(parseCli(process.argv.slice(2)))
   const logger = createLogger(config)
   const client = createClient(config)
-  const tools = createLocalTools(new TaskStore())
+  const tasks = new TaskStore()
+  const tools = createLocalTools(tasks)
 
   console.log(
     `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +
@@ -122,7 +134,7 @@ async function main(): Promise<void> {
   const start = Date.now()
   for (const s of scenarios) {
     try {
-      await runScenario(client, config, logger, tools, s)
+      await runScenario(client, config, logger, tools, tasks, s)
     } catch (err) {
       failed++
       console.log(`[FAIL] ${s.name}: ${errorMessage(err)}`)
@@ -139,7 +151,7 @@ async function main(): Promise<void> {
   const results = await Promise.all(
     burst.map(async (s) => {
       try {
-        await runScenario(client, config, logger, tools, s)
+        await runScenario(client, config, logger, tools, tasks, s)
         return true
       } catch (err) {
         console.log(`[FAIL] ${s.name}: ${errorMessage(err)}`)

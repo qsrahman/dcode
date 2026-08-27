@@ -1,4 +1,3 @@
-import OpenAI from 'openai'
 import type { Client, ResponseInput } from '../client.ts'
 import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
@@ -8,12 +7,12 @@ import { estimateItem } from './tokens.ts'
 
 const SUMMARY_CAP = 4096
 
-// Roles tried for the compaction summary, in order. `developer` is preferred
-// (OpenAI-scale models), but some OpenAI-compatible / local endpoints reject
-// it, so we fall back to `system`, then `user`. The same role is used for the
-// injected summary message, since it's the same provider.
-type SummaryRole = 'developer' | 'system' | 'user'
-const SUMMARY_ROLES: SummaryRole[] = ['developer', 'system', 'user']
+// The summarization request is sent as a `user` input message (not `developer`
+// /`system`): several OpenAI-compatible / local endpoints don't accept those
+// roles as input and return a non-conformant `output` shape the SDK can't
+// parse. `user` is universally supported, and the same role is used for the
+// injected summary message.
+const SUMMARY_ROLE = 'user' as const
 
 const COMPACTION_INSTRUCTION = `You are condensing an earlier part of a coding session so it fits the model's context window. The conversation continues after this summary, so preserve everything needed to resume the work correctly.
 
@@ -84,35 +83,26 @@ function serializeHistory(items: ResponseInput): string {
   return blocks.join('\n\n')
 }
 
-// Generate the summary via a separate model call, trying roles in fallback
-// order. Only client (4xx) errors are retried on the next role — a server or
-// network error is rethrown rather than masked by a role swap.
+// Generate the summary via a separate model call (no tools, capped output).
 async function summarize(
   client: Client,
   instruction: string,
   logger: Logger,
-): Promise<{ text: string; role: SummaryRole }> {
-  let lastErr: unknown
-  for (const role of SUMMARY_ROLES) {
-    try {
-      const input: ResponseInput = [{ role, content: instruction }]
-      const stream = client.stream(input, { maxOutputTokens: SUMMARY_CAP })
-      let summary = ''
-      for await (const delta of stream) summary += delta
-      await stream.finalResponse()
-      return { text: summary.trim() || '(no summary)', role }
-    } catch (err) {
-      lastErr = err
-      logger.debug(
-        'compaction with role "%s" failed: %s',
-        role,
-        errorMessage(err),
-      )
-      const status = err instanceof OpenAI.APIError ? err.status : undefined
-      if (typeof status !== 'number' || status < 400 || status >= 500) throw err
-    }
+): Promise<string> {
+  const input: ResponseInput = [{ role: SUMMARY_ROLE, content: instruction }]
+  const stream = client.stream(input, { maxOutputTokens: SUMMARY_CAP })
+  let summary = ''
+  for await (const delta of stream) summary += delta
+  // Some OpenAI-compatible / local endpoints stream valid summary text but
+  // return a non-conformant `output` shape that finalResponse() can't parse.
+  // The summary is the streamed deltas, so keep them instead of crashing.
+  try {
+    await stream.finalResponse()
+  } catch (err) {
+    if (!summary.trim()) throw err
+    logger.debug('compaction finalize skipped (%s)', errorMessage(err))
   }
-  throw lastErr
+  return summary.trim() || '(no summary)'
 }
 
 // Render the authoritative task list into the compaction instruction so the
@@ -150,7 +140,7 @@ export async function compactHistory(
 
   let instruction = `${COMPACTION_INSTRUCTION}\n\n${serializeHistory(toSummarize)}`
   if (tasks && tasks.length > 0) instruction += formatTasks(tasks)
-  const { text, role } = await summarize(client, instruction, logger)
+  const text = await summarize(client, instruction, logger)
   logger.debug('context compacted %d items into summary', toSummarize.length)
-  return [{ role, content: text }, ...tail]
+  return [{ role: SUMMARY_ROLE, content: text }, ...tail]
 }

@@ -95,7 +95,7 @@ the list is in-memory only and is cleared by `/reset` (and listed with `/todo`).
 **Context-window management.** Long sessions are kept within `context.window`:
 before each request, dcode prunes old tool outputs (collapsing them to a short
 marker) and, once the estimate crosses `context.compactAt` of the usable budget
-(default 0.85), summarizes the oldest history into a single `developer` message
+(default 0.85), summarizes the oldest history into a single `user` message
 while keeping a recent tail verbatim — *proactively*, before a context-length
 error forces a retry. The summary is produced by a separate model call whose
 instruction also includes the session's authoritative task list (from the `todo`

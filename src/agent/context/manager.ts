@@ -70,8 +70,9 @@ export class ContextManager {
       this.logger,
       this.tasks?.list(),
     )
-    history.length = 0
-    history.push(...next)
+    // Replace in place via splice (not `length = 0` + `push`) so a no-op
+    // compaction that returns `history` itself can't alias and wipe it.
+    history.splice(0, history.length, ...next)
     this.failures++
   }
 
