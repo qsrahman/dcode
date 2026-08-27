@@ -33,7 +33,8 @@ const HELP = ansis.dim(
     '  /help     show this help',
     '  /model    show/set model: /model <id>',
     '  /reset    clear the conversation',
-    '  /tasks    list in-session tasks',
+    '  /tasks    list in-session tasks (alias of /todo)',
+    '  /todo     list in-session tasks',
     '  /config   print effective configuration',
     '  /undo     remove the last exchange (user turn + response)',
     '  /verbose  toggle verbose mode (on|off|)',
@@ -47,6 +48,25 @@ type CommandHandler = (
   args: string,
   sink: RunSink,
 ) => Promise<HandleResult> | HandleResult
+
+function listTasks(
+  session: Session,
+  _args: string,
+  sink: RunSink,
+): HandleResult {
+  const list = session.tasks.list()
+  if (list.length === 0) {
+    sink.write('no tasks\n')
+    return 'ok'
+  }
+  for (const t of list) {
+    const blocked = t.blockedBy.length
+      ? ` (blocked by ${t.blockedBy.join(', ')})`
+      : ''
+    sink.write(`${t.id} [${t.status}] ${t.title}${blocked}\n`)
+  }
+  return 'ok'
+}
 
 const commands: Record<string, CommandHandler> = {
   help: (_session, _args, sink) => {
@@ -103,20 +123,8 @@ const commands: Record<string, CommandHandler> = {
     )
     return 'ok'
   },
-  tasks: (session, _args, sink) => {
-    const list = session.tasks.list()
-    if (list.length === 0) {
-      sink.write('no tasks\n')
-      return 'ok'
-    }
-    for (const t of list) {
-      const blocked = t.blockedBy.length
-        ? ` (blocked by ${t.blockedBy.join(', ')})`
-        : ''
-      sink.write(`${t.id} [${t.status}] ${t.title}${blocked}\n`)
-    }
-    return 'ok'
-  },
+  tasks: listTasks,
+  todo: listTasks,
   config: (session, _args, sink) => {
     const c = session.config
     const lines = [

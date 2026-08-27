@@ -83,7 +83,7 @@ src/
                        #   shell.ts   (run_shell)
                        #   index.ts   (localTools: the assembled array)
   tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
-  tools/local/task.ts # task_create, task_list, task_update (close over TaskStore)
+  tools/local/task.ts # todo (single tool over TaskStore: add/list/update/done)
   tools/local/git.ts  # git: scoped status/diff/log/show/add/commit/branch
   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
   ui/render.ts        # renderToolResult(name, ok, ms) -> status line
@@ -638,8 +638,9 @@ only the task list, in-session, with no persistence, no config, and no new CLI
 surface.
 
 ### 14.1 Scope
-- `task_create`, `task_list`, `task_update` tools, driven by the model via normal
-  tool calls. No UI changes.
+- A single `todo` tool (action: add / list / update / done), driven by the model
+  via normal tool calls. Replaces the earlier `task_create` / `task_list` /
+  `task_update` trio. No extra UI beyond the `/todo` REPL command (alias `/tasks`).
 - A `TaskStore` (in `agent/tasks.ts`) holding tasks in memory for the session.
 - Out of scope: on-disk persistence, dependencies graph/enforcement, sub-agents
   / `delegate` tool, background execution, worktree isolation, parallel fan-out.
@@ -657,24 +658,25 @@ export interface Task {
 }
 ```
 Sequential `T{n}` ids keep references easy for the model. `blockedBy` is recorded
-for visibility in `task_list`; it is not enforced.
+for visibility in `todo` list; it is not enforced.
 
 ### 14.3 Module changes
 - `src/agent/tasks.ts` (new): `TaskStore` with `create` / `get` / `list` /
   `update`. No file I/O.
-- `src/tools/local/task.ts` (new): `taskCreateTool`, `taskListTool`,
-  `taskUpdateTool` — each a `ToolDefinition` that **closes over** the session's
-  `TaskStore`.
-- `src/tools/index.ts`: `createLocalTools(tasks: TaskStore)` now takes the store
-  and registers the three task tools alongside the locals + web tool.
+- `src/tools/local/task.ts` (new): `todoTool(store)` — one `ToolDefinition` with an
+  `action` discriminator that **closes over** the session's `TaskStore`.
+- `src/tools/index.ts`: `createLocalTools(tasks: TaskStore)` registers the single
+  `todo` tool alongside the locals + web tool.
 - `src/cli/repl.ts` and `src/index.ts`: create one `TaskStore` per session and
-  pass it into `createLocalTools`.
+  pass it into `createLocalTools`. `src/cli/commands.ts` exposes it as `/todo`
+  (alias `/tasks`).
 
 ### 14.4 Tests
 - `tests/agent/tasks.test.ts`: sequential ids, `list` order, `blockedBy` capture,
   `update` transitions, missing-id safety.
-- `tests/tools/task.test.ts`: tool output strings, `task_list` formatting (status
-  + blockers), unknown-id error, and schema rejection of an invalid `status`.
+- `tests/tools/task.test.ts`: each `todo` action (add/list/update/done), id/title
+  requirement errors, unknown-id error, and schema rejection of an invalid
+  `status`.
 
 ### 14.5 Deferred (decided during planning)
 Sub-agents were explicitly deferred. When they land, the following conventions

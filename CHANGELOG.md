@@ -1,9 +1,15 @@
-## [Unreleased]
+## [0.11.0] - 2026-08-27
 
 ### Changed
 - `run_shell` and `git` now share a `runExec` helper (`tools/local/exec.ts`)
   for the `execFile` timeout/signal/buffer options and success/error output
   formatting, instead of duplicating that logic in both tools.
+- The three task tools (`task_create` / `task_list` / `task_update`) are
+  consolidated into a single `todo` tool (actions: add / list / update / done)
+  that wraps the `TaskStore`. The system prompt and the REPL (`/todo`, alias
+  `/tasks`) now reference `todo`; `TaskStore` behavior is unchanged.
+- System prompt: reference the real `todo` tool by name and add a no-secrets
+  rule (never echo API keys, tokens, or passwords in responses).
 
 ## [0.10.0] - 2026-08-25
 

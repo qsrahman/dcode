@@ -123,6 +123,7 @@ export async function startRepl(config: Config, logger: Logger): Promise<void> {
   })
 
   process.stdout.write(`${HINT}\n`)
+  rl.prompt()
 
   for await (const line of rl) {
     ac = new AbortController()

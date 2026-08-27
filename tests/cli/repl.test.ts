@@ -141,6 +141,13 @@ describe('handleLine new commands', () => {
     await handleLine(s, '/tasks', { sink })
     expect(out.join('')).toBe('no tasks\n')
   })
+  it('/todo lists in-session tasks (alias of /tasks)', async () => {
+    const s = makeSession()
+    s.tasks.create('write tests')
+    const { sink, out } = makeSink()
+    expect(await handleLine(s, '/todo', { sink })).toBe('ok')
+    expect(out.join('')).toContain('T1 [pending] write tests')
+  })
   it('/config prints effective configuration', async () => {
     const s = makeSession()
     const { sink, out } = makeSink()
