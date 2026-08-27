@@ -11,6 +11,26 @@ import { createLocalTools } from './tools/index.ts'
 import type { StreamRef } from './agent/run.ts'
 import { createLogger, errorMessage } from './util/log.ts'
 import { getVersion } from './version.ts'
+import { fileURLToPath } from 'node:url'
+import { realpathSync } from 'node:fs'
+import { validateApiKey } from './cli/auth.ts'
+
+// True when this module is the process entry point. Resolving symlinks matters:
+// a global `pnpm add -g` install is reached through symlinks, so the raw
+// argv[1] path and import.meta.url differ in their symlink components and a
+// naive string compare would wrongly conclude we're imported (not run), leaving
+// main() uncalled and the binary silently exiting 0.
+function isMainModule(): boolean {
+  const invoked = process.argv[1]
+  if (!invoked) return false
+  try {
+    return (
+      realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url))
+    )
+  } catch {
+    return false
+  }
+}
 
 function printHelp(): void {
   console.log(`dcode — AI coding agent
@@ -28,7 +48,7 @@ Flags:
   --help           Print this help`)
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   // A defaults logger is created up front so the catch block can report
   // arg/config parse failures. The real, config-driven logger isn't built
   // until buildConfig succeeds, and that call can itself throw.
@@ -45,6 +65,27 @@ async function main(): Promise<void> {
     }
     const config = buildConfig(args)
     logger = createLogger(config)
+    if (!config.apiKey) {
+      process.stderr.write(
+        'OPENAI_API_KEY is not set — dcode needs an OpenAI-compatible API key to run.\n\n' +
+          'Add it to your shell profile so it persists across sessions:\n' +
+          "  echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc && source ~/.zshrc\n" +
+          '  # or for bash: ~/.bashrc\n\n' +
+          'You can also put OPENAI_API_KEY=sk-... in a .env file in this\n' +
+          'directory, or set "apiKey" in your dcode.json config. Then restart dcode.\n',
+      )
+      process.exit(1)
+    }
+    if (!(await validateApiKey(config))) {
+      const base = config.baseURL ?? 'https://api.openai.com/v1'
+      process.stderr.write(
+        `OPENAI_API_KEY is invalid (authentication failed) — dcode could not ` +
+          `authenticate with the configured endpoint (${base}).\n\n` +
+          'Check the value in your shell profile (.zshrc/.bashrc), .env file, or\n' +
+          'dcode.json config, then restart dcode.\n',
+      )
+      process.exit(1)
+    }
     if (!args.prompt) {
       await startRepl(config, logger)
       return
@@ -79,4 +120,6 @@ async function main(): Promise<void> {
   }
 }
 
-main()
+if (isMainModule()) {
+  void main()
+}

@@ -29,9 +29,10 @@ build step (Node 26 runs TypeScript directly).
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENAI_API_KEY` | API key (required). Falls back to the SDK default if unset. |
+| `OPENAI_API_KEY` | API key (required). If unset, dcode prints setup guidance and exits. |
 | `OPENAI_BASE_URL` | Override the API base URL (OpenAI-compatible endpoints). |
 | `OPENAI_MODEL` | Default model id when not set in config or `--model`. |
+| `DCODE_CONFIG_HOME` | Directory holding the global `dcode.json` (default `~/.config/dcode`). |
 
 ## Install (from source)
 
@@ -129,6 +130,13 @@ JSON, loaded from `--config <path>` or a default location. Example:
   "context": { "window": 200000, "reserved": 20000, "keepTokens": 15000, "compactAt": 0.85 }
 }
 ```
+
+Config resolution precedence is: `--config <path>` (or a `dcode.json` / `.dcode.json`
+in the working directory) > `DCODE_CONFIG_HOME`/`~/.config/dcode/dcode.json` (global)
+> schema defaults. The local file wins over the global one when both exist; an
+explicit `--config` path is used alone (the global config is not consulted). The
+global config is convenient for the globally installed `dcode`, so a fixed
+`model`/`baseURL` applies no matter which directory you run it from.
 
 See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { join, resolve } from 'node:path'
 import type { ParsedArgs } from '../cli/args.ts'
 import { configSchema, type Config } from './schema.ts'
 
@@ -9,17 +10,34 @@ export function resolveRoot(config: Pick<Config, 'root'>): string {
   return config.root ?? process.cwd()
 }
 
+// Location of the per-user global config. Defaults to
+// ~/.config/dcode/dcode.json (XDG-style) but can be relocated via
+// DCODE_CONFIG_HOME (used for testing and for users who prefer another spot).
+export function globalConfigPath(): string {
+  const base = process.env.DCODE_CONFIG_HOME
+    ? resolve(process.env.DCODE_CONFIG_HOME)
+    : resolve(homedir(), '.config', 'dcode')
+  return join(base, 'dcode.json')
+}
+
 // Config is resolved with the precedence CLI > env > file > schema defaults.
-// A missing default config (dcode.json / .dcode.json) is fine and falls back to
-// schema defaults, but an explicit --config path that doesn't exist is an error:
+// A local config (dcode.json / .dcode.json in the working directory) wins over
+// the global config; an explicit --config path that doesn't exist is an error:
 // the user named a file they expect to load, so silence would hide a typo.
 export function loadConfig(path?: string): Partial<Config> {
   if (path !== undefined) return readConfigFile(resolve(process.cwd(), path))
+  let local: Partial<Config> | undefined
   for (const name of DEFAULT_CONFIG_FILES) {
     const abs = resolve(process.cwd(), name)
-    if (existsSync(abs)) return readConfigFile(abs)
+    if (existsSync(abs)) {
+      local = readConfigFile(abs)
+      break
+    }
   }
-  return {}
+  const gpath = globalConfigPath()
+  const global = existsSync(gpath) ? readConfigFile(gpath) : undefined
+  if (local && global) return { ...global, ...local }
+  return local ?? global ?? {}
 }
 
 function readConfigFile(abs: string): Partial<Config> {

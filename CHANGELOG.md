@@ -1,3 +1,25 @@
+## [0.13.0] - 2026-08-27
+
+### Added
+- Missing-key guidance: when `OPENAI_API_KEY` is unset, dcode prints setup
+  instructions (shell profile / `.env` / `dcode.json`) and exits 1 instead of
+  starting and failing later.
+- Pre-flight API-key validation: before starting, dcode probes
+  `{baseURL}/models` with the key and, on `401`/`403`, prints an
+  "OPENAI_API_KEY is invalid (authentication failed)" message and exits 1 so a
+  bad key fails fast with a clear cause rather than hanging on the first query.
+- Global config fallback: when no local `dcode.json`/`.dcode.json` is found,
+  config falls back to `~/.config/dcode/dcode.json` (overridable via
+  `DCODE_CONFIG_HOME`), convenient for the globally installed `dcode`. Local
+  config wins over global; an explicit `--config` path is used alone.
+
+### Fixed
+- The globally installed `dcode` (`pnpm add -g`) silently exited 0 and never
+  started: the entry-point guard compared `import.meta.url` to `argv[1]` without
+  resolving symlinks, and pnpm reaches the global install through symlinks, so
+  the comparison failed and `main()` was never called. The guard now resolves
+  symlinks via `realpathSync`.
+
 ## [0.12.1] - 2026-08-27
 
 ### Fixed
