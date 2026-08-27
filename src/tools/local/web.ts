@@ -1,5 +1,14 @@
 import { z } from 'zod'
+import { NodeHtmlMarkdown } from 'node-html-markdown'
 import type { ToolDefinition } from '../../agent/types.ts'
+
+const htmlMarkdown = new NodeHtmlMarkdown()
+
+// Convert an HTML document to Markdown (headings, links, code blocks). Kept as a
+// separate, exported helper so it can be unit-tested without a network fetch.
+export function htmlToMarkdown(html: string): string {
+  return htmlMarkdown.translate(html).trim()
+}
 
 const BRAVE_ENDPOINT =
   process.env.BRAVE_ENDPOINT ?? 'https://api.search.brave.com/res/v1/web/search'
@@ -64,4 +73,66 @@ function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
   }
 }
 
-export const webTools: ToolDefinition[] = [webSearchTool()]
+// Fetch a URL and return its content as text. HTML is converted to Markdown,
+// JSON is pretty-printed, other text is passed through, and binary payloads
+// are described rather than dumped. No API key is needed — dcode fetches
+// directly from the machine's network. Errors (bad scheme, non-2xx, network
+// failure) are thrown and the runner returns them to the model as ok:false.
+export function webFetchTool(): ToolDefinition<{ url: string }> {
+  return {
+    name: 'web_fetch',
+    description:
+      "Fetch a URL and return its content as text. HTML pages are converted to Markdown; JSON is pretty-printed; other text is returned as-is. Use to read a specific page, doc, or API response when you already know the URL. Use web_search to discover URLs you don't know yet.",
+    parameters: z.object({
+      url: z.string().describe('Absolute http(s) URL to fetch'),
+    }),
+    async execute(args, ctx) {
+      let target: URL
+      try {
+        target = new URL(args.url)
+      } catch {
+        throw new Error(`invalid URL: ${args.url}`)
+      }
+      if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+        throw new Error(
+          `unsupported scheme (${target.protocol}); only http(s) is allowed`,
+        )
+      }
+      let res: Response
+      try {
+        res = await fetch(target, {
+          headers: { 'User-Agent': 'dcode' },
+          signal: ctx.signal,
+        })
+      } catch (err) {
+        throw new Error(
+          `web fetch request failed: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+      if (!res.ok) {
+        throw new Error(`web fetch failed: HTTP ${res.status}`)
+      }
+      const contentType = (
+        res.headers.get('content-type') ?? 'text/plain'
+      ).toLowerCase()
+      if (contentType.startsWith('text/html')) {
+        return htmlToMarkdown(await res.text())
+      }
+      if (contentType.includes('json')) {
+        const text = await res.text()
+        try {
+          return JSON.stringify(JSON.parse(text), null, 2)
+        } catch {
+          return text
+        }
+      }
+      if (contentType.startsWith('text/')) {
+        return res.text()
+      }
+      const len = res.headers.get('content-length')
+      return `(binary ${contentType}${len ? `, ${len} bytes` : ''}; not shown)`
+    },
+  }
+}
+
+export const webTools: ToolDefinition[] = [webSearchTool(), webFetchTool()]

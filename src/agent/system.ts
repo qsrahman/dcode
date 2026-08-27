@@ -29,7 +29,7 @@ You have tools to inspect and modify the working directory; their names, descrip
 - Do not run git history-changing commands (commit, push, branch, merge, reset, tag, --force) or other irreversible VCS operations unless the user explicitly asks; prefer showing a diff or staging for review first.
 
 ## Style
-- Use web_search for recent or time-sensitive information. Use the current date when recency matters.
+- Use web_search to find information and web_fetch to read a specific URL; both help with recent or time-sensitive information. Use the current date when recency matters.
 - Be concise and direct.`
 
 export function buildSystemPrompt(config: Config): string {

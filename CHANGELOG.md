@@ -1,3 +1,8 @@
+## [0.13.2] - 2026-08-27
+
+### Added
+- `web_fetch` tool: fetch a URL and return its content as text. HTML is converted to Markdown (via `node-html-markdown`), JSON is pretty-printed, other text is passed through, and binary payloads are described rather than dumped. No API key required (unlike `web_search`). Only `http`/`https` schemes are allowed; `ctx.signal` is forwarded so in-flight fetches cancel on Ctrl-C; failures become `ok:false` outcomes the model can self-correct from.
+
 ## [0.13.1] - 2026-08-27
 
 ### Changed

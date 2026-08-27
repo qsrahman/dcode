@@ -90,6 +90,7 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). |
 | `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`). |
 | `web_search` | Search the web via Brave (`BRAVE_API_KEY` required). |
+| `web_fetch` | Fetch a URL and return its content (HTML → Markdown, JSON pretty-printed); no API key required. |
 | `todo` | Manage the in-session task list (add / list / update / done) to plan and track multi-step work. |
 | `git` | Scoped git operations: `status`, `diff`, `log`, `show`, `add`, `commit`, `branch` (in the working directory). |
 
