@@ -1,3 +1,19 @@
+## [0.13.9] - 2026-08-27
+
+### Changed
+- Config cleanup:
+  - Documented the explicit resolution precedence `CLI > env (process) > local
+    ./dcode.json > global ~/.config/dcode/dcode.json > schema defaults` in code
+    comments and AGENTS.md/README.md/CLAUDE.md, and added an integration test
+    locking the full chain.
+  - Dropped automatic `.env` file loading: removed `--env-file-if-exists=.env`
+    from the `src/index.ts` shebang and the `dev`/`start`/`stress` scripts. Config
+    files (local + global via `/key`) now cover project-local and global needs;
+    `process.env` is still read for shell-exported vars. The missing-key /
+    invalid-key guidance no longer references `.env`.
+  - `tests/index.test.ts` now isolates `DCODE_CONFIG_HOME` so a real global config
+    doesn't break the "no key configured" case.
+
 ## [0.13.8] - 2026-08-27
 
 ### Added

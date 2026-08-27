@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node --env-file-if-exists=.env
+#!/usr/bin/env -S node
 
 import { parseCli } from './cli/args.ts'
 import { startRepl } from './cli/repl.ts'
@@ -71,7 +71,7 @@ export async function main(): Promise<void> {
           'Provide it (highest precedence first): environment, global config, or local:\n' +
           "  shell profile:  echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc\n" +
           '  global config:  run  /key set openai sk-...  in the REPL (persists anywhere)\n' +
-          '  local dcode.json: set "apiKey", or put OPENAI_API_KEY=sk-... in a .env here\n' +
+          '  local config: set "apiKey" in ./dcode.json (project) or /key (global)\n' +
           'Then restart dcode.\n',
       )
       process.exit(1)
@@ -81,8 +81,8 @@ export async function main(): Promise<void> {
       process.stderr.write(
         `OPENAI_API_KEY is invalid (authentication failed) — dcode could not ` +
           `authenticate with the configured endpoint (${base}).\n\n` +
-          'Check the value in your shell profile (.zshrc/.bashrc), .env file, or\n' +
-          'dcode.json config, then restart dcode.\n',
+          'Check the value in your shell profile (.zshrc/.bashrc) or dcode.json config, then\n' +
+          'restart dcode.\n',
       )
       process.exit(1)
     }

@@ -1,6 +1,6 @@
 {
   "name": "dcode",
-  "version": "0.13.8",
+  "version": "0.13.9",
   "description": "A CLI-based AI coding agent built on the OpenAI Responses SDK.",
   "type": "module",
   "bin": {
@@ -18,9 +18,9 @@
   "author": "Qazi Sami ur Rahman <qsrahmans@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "dev": "node --watch --env-file-if-exists=.env src/index.ts",
-    "start": "node --env-file-if-exists=.env src/index.ts",
-    "stress": "node --env-file-if-exists=.env scripts/live-stress.ts",
+    "dev": "node --watch src/index.ts",
+    "start": "node src/index.ts",
+    "stress": "node scripts/live-stress.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",

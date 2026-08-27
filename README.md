@@ -24,8 +24,8 @@ build step (Node 26 runs TypeScript directly).
 
 ## Environment variables
 
-`dcode` reads these from the environment (loaded automatically via Node 26's
-`--env-file=.env` in `dev`/`start`, or your shell):
+`dcode` reads these from the process environment (export them in your shell, or
+persist them in `dcode.json` via `/key` for a global install):
 
 | Variable | Purpose |
 |----------|---------|
@@ -137,16 +137,17 @@ JSON, loaded from `--config <path>` or a default location. Example:
 }
 ```
 
-Config resolution precedence is: `--config <path>` (or a `dcode.json` / `.dcode.json`
-in the working directory) > `DCODE_CONFIG_HOME`/`~/.config/dcode/dcode.json` (global)
-> schema defaults. The local file wins over the global one when both exist; an
-explicit `--config` path is used alone (the global config is not consulted). The
-global config is convenient for the globally installed `dcode`, so a fixed
-`model`/`baseURL` applies no matter which directory you run it from.
+Config resolution precedence is: CLI flags > env (`OPENAI_*`) > local
+`dcode.json` / `.dcode.json` (working directory) > global
+`DCODE_CONFIG_HOME`/`~/.config/dcode/dcode.json` > schema defaults. The local
+file wins over the global one when both exist; an explicit `--config <path>`
+replaces both files (the global config is not consulted) and a missing path is
+an error. The global config is convenient for the globally installed `dcode`, so
+a fixed `model`/`baseURL` applies no matter which directory you run it from.
 
 API keys (`OPENAI_API_KEY`, `BRAVE_API_KEY`) are read from the environment
-(first), then from the global or local config (`apiKey` / `brave` fields), then
-the schema default. For a global install, store them once without editing JSON
+(first), then the local config (`apiKey` / `brave` fields), then the global
+config, then the schema default. For a global install, store them once without editing JSON
 or exporting them per shell: start `dcode` and run `/key set openai <key>`
 (and `/key set brave <key>` for web search). `/key` writes the key to
 `~/.config/dcode/dcode.json` with `0600` permissions and never prints it back;
@@ -175,7 +176,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 - Standard tasks: `pnpm dev`, `pnpm test`, `pnpm typecheck`, `pnpm format`.
 - `pnpm stress` runs a **live** end-to-end stress test (`scripts/live-stress.ts`):
   it drives the real agent loop and tools against the configured model
-  (Ollama via `.env`) with heavy sequential scenarios plus a concurrency burst.
+  (Ollama via env or `dcode.json`) with heavy sequential scenarios plus a concurrency burst.
   It requires a reachable model endpoint and is intentionally outside the unit
   suite so `pnpm test` stays offline.
 

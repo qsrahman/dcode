@@ -989,5 +989,21 @@ directories without editing JSON or exporting env vars per shell.
   global config when env is unset.
 - `tests/tools/web.test.ts`: `web_search` uses `ctx.config.brave` when env unset.
 
+## 24. Dropped `.env` auto-loading — implemented
+
+Status: **Done.** `dcode` no longer auto-loads a `.env` file. Config resolution is
+now exclusively `CLI > env (process) > local ./dcode.json > global
+~/.config/dcode/dcode.json > schema defaults`.
+
+Rationale: `dcode.json` (local + global via `/key`) fully subsumes project-local
+and global secret/config needs; the `.env` loader lived in the `src/index.ts`
+shebang and was cwd-relative (so a global install got no global `.env`) and did
+not apply to Windows bin installs. `process.env` is still read (shell-exported
+vars) — distinct from `.env` file loading.
+
+Changes: removed `--env-file-if-exists=.env` from the `src/index.ts` shebang and
+the `dev`/`start`/`stress` scripts; updated the missing-key / invalid-key
+guidance in `src/index.ts` and the config docs in `README.md`/`AGENTS.md`.
+
 
 

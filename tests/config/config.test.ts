@@ -185,4 +185,27 @@ describe('buildConfig', () => {
     expect(cfg.apiKey).toBe('sk-global')
     expect(cfg.brave).toBe('br-global')
   })
+
+  it('resolves the full precedence chain defaults < global < local < env < cli', () => {
+    for (const k of ['OPENAI_MODEL', 'OPENAI_API_KEY']) delete process.env[k]
+    writeFileSync(
+      globalConfigPath(),
+      JSON.stringify({ model: 'global-model', apiKey: 'global-key' }),
+    )
+    writeFileSync(
+      join(dir, 'dcode.json'),
+      JSON.stringify({ model: 'local-model' }),
+    )
+    // local overrides global when env/cli are absent
+    expect(buildConfig(parseCli([])).model).toBe('local-model')
+    // env overrides the local file
+    process.env.OPENAI_MODEL = 'env-model'
+    process.env.OPENAI_API_KEY = 'env-key'
+    expect(buildConfig(parseCli([])).model).toBe('env-model')
+    expect(buildConfig(parseCli([])).apiKey).toBe('env-key')
+    // CLI overrides env
+    expect(buildConfig(parseCli(['--model', 'cli-model'])).model).toBe(
+      'cli-model',
+    )
+  })
 })

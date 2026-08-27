@@ -20,10 +20,11 @@ export function globalConfigPath(): string {
   return join(base, 'dcode.json')
 }
 
-// Config is resolved with the precedence CLI > env > file > schema defaults.
-// A local config (dcode.json / .dcode.json in the working directory) wins over
-// the global config; an explicit --config path that doesn't exist is an error:
-// the user named a file they expect to load, so silence would hide a typo.
+// Config precedence (highest wins): CLI flags > env (OPENAI_*) > local
+// (./dcode.json) > global (~/.config/dcode/dcode.json) > schema defaults. The
+// local file wins over the global one (merged in loadConfig). An explicit
+// --config path that doesn't exist is an error: the user named a file they
+// expect to load, so silence would hide a typo.
 export function loadConfig(path?: string): Partial<Config> {
   if (path !== undefined) return readConfigFile(resolve(process.cwd(), path))
   let local: Partial<Config> | undefined

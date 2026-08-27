@@ -1,15 +1,26 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { main } from '../src/index.ts'
 
 describe('main: API key handling', () => {
   let writeSpy: ReturnType<typeof vi.spyOn>
   let exitSpy: ReturnType<typeof vi.spyOn>
+  let tmpHome: string
 
   function mockExit(): void {
     exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
       throw new Error('EXIT')
     }) as (code?: string | number | null) => never)
   }
+
+  // Isolate the global config so a real ~/.config/dcode/dcode.json (e.g. one
+  // written via /key) doesn't satisfy the "no key configured" scenario.
+  beforeEach(() => {
+    tmpHome = mkdtempSync(join(tmpdir(), 'dcode-itest-'))
+    vi.stubEnv('DCODE_CONFIG_HOME', tmpHome)
+  })
 
   afterEach(() => {
     writeSpy.mockRestore()
