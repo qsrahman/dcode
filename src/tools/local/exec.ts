@@ -5,6 +5,19 @@ import { CHILD_MAX_BUFFER } from './constants.ts'
 
 const execFileAsync = promisify(execFile)
 
+// Don't let child processes inherit secret-looking environment variables
+// (API keys, tokens): `run_shell` could otherwise `printenv` them straight
+// into tool output and the model context. Keep ordinary runtime vars (PATH,
+// HOME, LANG, …) so commands still work.
+const SECRET_RE = /KEY|SECRET|TOKEN|PASSWORD|PASS|CREDENTIAL|PRIVATE/i
+function safeEnv(): NodeJS.ProcessEnv {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined && !SECRET_RE.test(k)) env[k] = v
+  }
+  return env
+}
+
 // Shared execFile wrapper for run_shell/git: applies the tool timeout/signal/
 // buffer ceiling and formats success and failure the same way, surfacing
 // stdout+stderr either way instead of losing them to err.message on failure.
@@ -24,6 +37,7 @@ export async function runExec(
       timeout: ctx.config.toolTimeout,
       maxBuffer: CHILD_MAX_BUFFER,
       signal: ctx.signal,
+      env: safeEnv(),
     })
     return `${stdout}${stderr}`.trim() || '(no output)'
   } catch (err) {
@@ -34,8 +48,25 @@ export async function runExec(
       stdout?: string
       stderr?: string
       code?: number | string
+      signal?: string | null
+      killed?: boolean
+    }
+    // Output above the buffer ceiling is discarded by Node, so a plain
+    // maxBuffer error with no captured output would be cryptic — say what happened.
+    if (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+      throw new Error(
+        `command output exceeded ${CHILD_MAX_BUFFER} bytes; narrow the command (e.g. pipe through head or grep)`,
+      )
     }
     const out = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim()
-    throw new Error(`exit ${e.code ?? '?'}: ${out || '(no output)'}`)
+    // A non-zero exit carries a numeric code; a timeout (execFile kills the
+    // child, code null + killed) or an abort (ABORT_ERR from ctx.signal)
+    // shouldn't read as "exit <code>".
+    let label: string
+    if (typeof e.code === 'number') label = `exit ${e.code}`
+    else if (e.code === 'ABORT_ERR') label = 'aborted'
+    else if (e.killed || e.signal) label = 'timed out'
+    else label = `${e.code ?? 'unknown'}`
+    throw new Error(`${label}: ${out || '(no output)'}`)
   }
 }

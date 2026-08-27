@@ -1,37 +1,87 @@
-import { open, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import {
+  open,
+  readFile,
+  writeFile,
+  readdir,
+  stat,
+  lstat,
+  readlink,
+  mkdir,
+} from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type { Stats } from 'node:fs'
 import { z } from 'zod'
 import type { ToolDefinition } from '../../agent/types.ts'
 import { resolvePath, fsError } from './paths.ts'
 
-function readFileTool(): ToolDefinition<{ path: string }> {
+// Cap directory listings so a huge directory can't flood the model's context
+// (runTool's byte-truncation is a blunt backstop, not a real limit).
+const LIST_MAX = 1000
+// Only count lines for files up to this size; reading a multi-GB file just to
+// count newlines would defeat the bounded-read discipline elsewhere.
+const LINE_COUNT_MAX = 1_000_000
+
+function readFileTool(): ToolDefinition<{
+  path: string
+  offset?: number
+  limit?: number
+  line_numbers?: boolean
+}> {
   return {
     name: 'read_file',
-    description: 'Read a UTF-8 text file under the working directory.',
+    description:
+      'Read a UTF-8 text file under the working directory. Supports paging (offset/limit in lines) and optional 1-based line numbers.',
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe('0-based line to start from'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .optional()
+        .describe('Maximum number of lines to return'),
+      line_numbers: z
+        .boolean()
+        .optional()
+        .describe('Prefix each line with its 1-based number (default true)'),
     }),
     async execute(args, ctx) {
       const file = await resolvePath(ctx.root, args.path)
       // Read at most the configured output cap so a huge or symlinked-to-huge
       // file can't blow up memory before the runner truncates the result.
-      const limit = ctx.config.maxToolOutputBytes
+      const limitBytes = ctx.config.maxToolOutputBytes
       const handle = await open(file, 'r').catch((err) => {
         throw new Error(fsError(err, args.path))
       })
       try {
         const { size } = await stat(file)
-        const buf = Buffer.alloc(Math.min(size, limit))
+        const buf = Buffer.alloc(Math.min(size, limitBytes))
         const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
         // A NUL byte means binary: dumping it as text is useless and risks the
         // model acting on mojibake, so describe it instead (as web_fetch does).
         if (buf.subarray(0, bytesRead).includes(0)) {
           return `(binary ${args.path}, ${size} bytes; not shown)`
         }
-        let text = buf.toString('utf8', 0, bytesRead)
-        if (size > limit)
-          text += `\n…(${size} bytes total; truncated at ${limit})`
-        return text
+        const text = buf.toString('utf8', 0, bytesRead)
+        const truncated = size > limitBytes
+        const lines = text.split('\n')
+        const offset = args.offset ?? 0
+        const window = args.limit
+          ? lines.slice(offset, offset + args.limit)
+          : lines.slice(offset)
+        if (window.length === 0 && !truncated) return '(no lines in range)'
+        const numbered = args.line_numbers ?? true
+        const body = window
+          .map((ln, i) => (numbered ? `${offset + i + 1}\t${ln}` : ln))
+          .join('\n')
+        return truncated
+          ? `${body}\n…(${size} bytes total; truncated at ${limitBytes})`
+          : body
       } catch (err) {
         throw new Error(fsError(err, args.path))
       } finally {
@@ -56,9 +106,23 @@ function listDirTool(): ToolDefinition<{ path?: string }> {
       const dir = await resolvePath(ctx.root, target)
       try {
         const entries = await readdir(dir, { withFileTypes: true })
-        return entries
-          .map((e) => `${e.isDirectory() ? 'd' : 'f'} ${e.name}`)
+        // Directories first, then alphabetical — predictable for the model.
+        entries.sort(
+          (a, b) =>
+            Number(b.isDirectory()) - Number(a.isDirectory()) ||
+            a.name.localeCompare(b.name),
+        )
+        const capped = entries.length > LIST_MAX
+        const shown = capped ? entries.slice(0, LIST_MAX) : entries
+        const body = shown
+          .map(
+            (e) =>
+              `${e.isSymbolicLink() ? 'l' : e.isDirectory() ? 'd' : 'f'} ${e.name}`,
+          )
           .join('\n')
+        return capped
+          ? `${body}\n… (showing first ${LIST_MAX} of ${entries.length}; narrow the path)`
+          : body
       } catch (err) {
         throw new Error(fsError(err, target))
       }
@@ -70,7 +134,7 @@ function statTool(): ToolDefinition<{ path?: string }> {
   return {
     name: 'stat',
     description:
-      'Report type, size, and modification time of a file or directory under the working directory.',
+      'Report type, size, modification time, and (for small text files) line count of a path under the working directory. Symlinks report their target.',
     parameters: z.object({
       path: z
         .string()
@@ -86,38 +150,90 @@ function statTool(): ToolDefinition<{ path?: string }> {
       } catch (err) {
         throw new Error(fsError(err, target))
       }
-      const kind = info.isDirectory()
-        ? 'directory'
-        : info.isFile()
-          ? 'file'
-          : 'other'
-      return [
-        `type: ${kind}`,
+      const parts = [
+        `type: ${info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other'}`,
         `size: ${info.size} bytes`,
         `modified: ${info.mtime.toISOString()}`,
-      ].join('\n')
+      ]
+      // Report the symlink target (lstat doesn't follow the link).
+      let lst: Awaited<ReturnType<typeof lstat>> | undefined
+      try {
+        lst = await lstat(full)
+      } catch {
+        // not a symlink
+      }
+      if (lst?.isSymbolicLink()) {
+        let linkTarget = '?'
+        try {
+          linkTarget = await readlink(full)
+        } catch {
+          // leave '?'
+        }
+        parts.push(`target: ${linkTarget}`)
+      }
+      if (info.isFile() && info.size <= LINE_COUNT_MAX) {
+        try {
+          const content = await readFile(full, 'utf8')
+          parts.push(`lines: ${content.split('\n').length}`)
+        } catch {
+          // ignore read errors; size/type are still reported
+        }
+      }
+      return parts.join('\n')
     },
   }
 }
 
-function writeFileTool(): ToolDefinition<{ path: string; content: string }> {
+function writeFileTool(): ToolDefinition<{
+  path: string
+  content: string
+  overwrite?: boolean
+  append?: boolean
+}> {
   return {
     name: 'write_file',
     description:
-      'Create or overwrite a UTF-8 text file under the working directory.',
+      'Create or modify a UTF-8 text file under the working directory. Parent directories are created. Set append to add to the end; overwrite (default true) to replace an existing file, or false to refuse to clobber.',
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
-      content: z.string().describe('Full file contents to write'),
+      content: z.string().describe('Full file contents to write (or append)'),
+      overwrite: z
+        .boolean()
+        .optional()
+        .describe(
+          'Replace an existing file (default true); false refuses to clobber',
+        ),
+      append: z
+        .boolean()
+        .optional()
+        .describe('Append to the file instead of replacing it'),
     }),
     async execute(args, ctx) {
       const file = await resolvePath(ctx.root, args.path)
+      await mkdir(dirname(file), { recursive: true }).catch((err) => {
+        throw new Error(fsError(err, args.path))
+      })
+      const existed = await stat(file)
+        .then(() => true)
+        .catch(() => false)
+      if (existed && !args.append && !(args.overwrite ?? true)) {
+        throw new Error(
+          `file already exists: ${args.path} (pass overwrite: true to replace)`,
+        )
+      }
       try {
-        await writeFile(file, args.content, 'utf8')
+        await writeFile(file, args.content, {
+          encoding: 'utf8',
+          flag: args.append ? 'a' : 'w',
+        })
       } catch (err) {
         throw new Error(fsError(err, args.path))
       }
-      // Byte length, not JS string length: they differ for non-ASCII content.
-      return `wrote ${Buffer.byteLength(args.content)} bytes to ${args.path}`
+      const bytes = Buffer.byteLength(args.content)
+      if (args.append) return `appended ${bytes} bytes to ${args.path}`
+      return existed
+        ? `wrote ${bytes} bytes to ${args.path} (overwrote existing)`
+        : `wrote ${bytes} bytes to ${args.path}`
     },
   }
 }

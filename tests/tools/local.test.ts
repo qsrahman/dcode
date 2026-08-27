@@ -59,10 +59,28 @@ describe('read-only tools', () => {
   it('read_file returns file contents and rejects escapes', async () => {
     await writeFile(join(root, 'a.txt'), 'hello')
     const out = await tool('read_file').execute({ path: 'a.txt' }, ctx)
-    expect(out).toBe('hello')
+    expect(out).toBe('1\thello')
     await expect(
       tool('read_file').execute({ path: '../evil' }, ctx),
     ).rejects.toThrow(/escapes/)
+  })
+
+  it('read_file supports offset/limit paging', async () => {
+    await writeFile(join(root, 'n.txt'), 'a\nb\nc\nd\ne')
+    const out = await tool('read_file').execute(
+      { path: 'n.txt', offset: 1, limit: 2 },
+      ctx,
+    )
+    expect(out).toBe('2\tb\n3\tc')
+  })
+
+  it('read_file can disable line numbers', async () => {
+    await writeFile(join(root, 'n.txt'), 'a\nb')
+    const out = await tool('read_file').execute(
+      { path: 'n.txt', line_numbers: false },
+      ctx,
+    )
+    expect(out).toBe('a\nb')
   })
 
   it('list_dir lists entries', async () => {
@@ -71,6 +89,18 @@ describe('read-only tools', () => {
     const out = await tool('list_dir').execute({}, ctx)
     expect(out).toContain('a.txt')
     expect(out).toContain('sub')
+  })
+
+  it('list_dir marks symlinks with l and sorts directories first', async () => {
+    await writeFile(join(root, 'a.txt'), 'x')
+    await mkdir(join(root, 'sub'))
+    await symlink(join(root, 'a.txt'), join(root, 'link'))
+    const out = await tool('list_dir').execute({}, ctx)
+    expect(out).toContain('l link')
+    expect(out).toContain('d sub')
+    expect(out).toContain('f a.txt')
+    // 'sub' (directory) should appear before 'a.txt' (file).
+    expect(out.indexOf('sub')).toBeLessThan(out.indexOf('a.txt'))
   })
 
   it('grep finds matching lines', async () => {
@@ -132,6 +162,20 @@ describe('read-only tools', () => {
     )
   })
 
+  it('stat reports line count for small text files', async () => {
+    await writeFile(join(root, 'a.txt'), 'one\ntwo\nthree')
+    const out = await tool('stat').execute({ path: 'a.txt' }, ctx)
+    expect(out).toContain('lines: 3')
+  })
+
+  it('stat reports a symlink target', async () => {
+    await writeFile(join(root, 'a.txt'), 'hello')
+    await symlink(join(root, 'a.txt'), join(root, 'link'))
+    const out = await tool('stat').execute({ path: 'link' }, ctx)
+    expect(out).toContain('type: file')
+    expect(out).toMatch(/target:/)
+  })
+
   it('glob matches recursively with **', async () => {
     await writeFile(join(root, 'a.ts'), 'x')
     await mkdir(join(root, 'sub'))
@@ -153,6 +197,30 @@ describe('read-only tools', () => {
   it('glob returns (no matches) when nothing matches', async () => {
     const out = await tool('glob').execute({ pattern: '**/*.zzz' }, ctx)
     expect(out).toBe('(no matches)')
+  })
+
+  it('glob caps results and reports a footer', async () => {
+    for (let i = 0; i < 50; i++) {
+      await writeFile(join(root, `f${i}.txt`), 'x')
+    }
+    const out = await tool('glob').execute(
+      { pattern: '**/*.txt', limit: 10 },
+      ctx,
+    )
+    expect(out).toMatch(/showing first 10 of 50/)
+  })
+
+  it('glob accepts multiple patterns', async () => {
+    await writeFile(join(root, 'a.ts'), 'x')
+    await writeFile(join(root, 'b.js'), 'x')
+    await writeFile(join(root, 'c.md'), 'x')
+    const out = await tool('glob').execute(
+      { pattern: ['**/*.ts', '**/*.js'] },
+      ctx,
+    )
+    expect(out).toContain('a.ts')
+    expect(out).toContain('b.js')
+    expect(out).not.toContain('c.md')
   })
 
   it('read_file reports a missing file clearly', async () => {
@@ -184,7 +252,7 @@ describe('read-only tools', () => {
     await writeFile(join(root, 'big.txt'), big)
     const out = await tool('read_file').execute({ path: 'big.txt' }, ctx)
     expect(out).toMatch(/truncated at/)
-    expect(out.length).toBeLessThanOrEqual(ctx.config.maxToolOutputBytes + 64)
+    expect(out.length).toBeLessThanOrEqual(ctx.config.maxToolOutputBytes + 200)
     expect(out).not.toContain(big)
   })
 
@@ -199,6 +267,26 @@ describe('read-only tools', () => {
     await expect(tool('grep').execute({ pattern: '(' }, ctx)).rejects.toThrow(
       /invalid regular expression/,
     )
+  })
+
+  it('grep supports case-insensitive search', async () => {
+    await writeFile(join(root, 'a.txt'), 'Foo BAR')
+    const out = await tool('grep').execute(
+      { pattern: 'foo', ignore_case: true },
+      ctx,
+    )
+    expect(out).toContain('a.txt:1: Foo BAR')
+  })
+
+  it('grep shows context lines around matches', async () => {
+    await writeFile(join(root, 'a.txt'), 'x\nMATCH\ny')
+    const out = await tool('grep').execute(
+      { pattern: 'MATCH', context: 1 },
+      ctx,
+    )
+    expect(out).toContain('a.txt:1: x')
+    expect(out).toContain('a.txt:2: MATCH')
+    expect(out).toContain('a.txt:3: y')
   })
 })
 
@@ -271,6 +359,45 @@ describe('mutating tools', () => {
     ).rejects.toThrow(/is a directory/)
   })
 
+  it('write_file refuses to overwrite without overwrite: true', async () => {
+    await writeFile(join(root, 'a.txt'), 'old')
+    await expect(
+      tool('write_file').execute(
+        { path: 'a.txt', content: 'new', overwrite: false },
+        ctx,
+      ),
+    ).rejects.toThrow(/already exists/)
+  })
+
+  it('write_file overwrites when overwrite: true', async () => {
+    await writeFile(join(root, 'a.txt'), 'old')
+    const out = await tool('write_file').execute(
+      { path: 'a.txt', content: 'new', overwrite: true },
+      ctx,
+    )
+    expect(out).toContain('overwrote existing')
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('new')
+  })
+
+  it('write_file appends with append: true', async () => {
+    await writeFile(join(root, 'a.txt'), 'old')
+    const out = await tool('write_file').execute(
+      { path: 'a.txt', content: 'new', append: true },
+      ctx,
+    )
+    expect(out).toContain('appended')
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('oldnew')
+  })
+
+  it('write_file creates parent directories', async () => {
+    const out = await tool('write_file').execute(
+      { path: 'sub/deep/f.txt', content: 'x' },
+      ctx,
+    )
+    expect(out).toContain('wrote')
+    expect(await readFile(join(root, 'sub/deep/f.txt'), 'utf8')).toBe('x')
+  })
+
   // String.replace would interpret `$&`-style patterns in new_string; the edit
   // must be literal (e.g. shell/Makefile content containing `$@` or `$&`).
   it('edit_file substitutes new_string literally, never as a $ pattern', async () => {
@@ -285,6 +412,32 @@ describe('mutating tools', () => {
   it('run_shell captures combined output', async () => {
     const out = await tool('run_shell').execute({ command: 'echo hi' }, ctx)
     expect(out).toContain('hi')
+  })
+
+  it('run_shell does not leak secret environment variables', async () => {
+    process.env.DCODE_TEST_SECRET = 'tops3cret'
+    try {
+      const out = await tool('run_shell').execute(
+        { command: 'echo "$DCODE_TEST_SECRET"' },
+        ctx,
+      )
+      expect(out).not.toContain('tops3cret')
+    } finally {
+      delete process.env.DCODE_TEST_SECRET
+    }
+  })
+
+  it('run_shell reports a clear error when output exceeds the buffer', async () => {
+    await expect(
+      tool('run_shell').execute({ command: 'head -c 11000000 /dev/zero' }, ctx),
+    ).rejects.toThrow(/exceeded/)
+  })
+
+  it('run_shell labels timeouts by code rather than exit', async () => {
+    const fast = { ...ctx, config: cfg({ toolTimeout: 150 }) }
+    await expect(
+      tool('run_shell').execute({ command: 'sleep 0.7' }, fast),
+    ).rejects.toThrow(/timed out|aborted|ABORT_ERR|ETIMEDOUT/)
   })
 
   it('run_shell preserves stdout and stderr when the command fails', async () => {
@@ -385,7 +538,7 @@ describe('symlink confinement', () => {
     await writeFile(join(root, 'real.txt'), 'inside')
     await symlink(join(root, 'real.txt'), join(root, 'alias.txt'))
     expect(await tool('read_file').execute({ path: 'alias.txt' }, ctx)).toBe(
-      'inside',
+      '1\tinside',
     )
   })
 })
@@ -408,6 +561,6 @@ describe('runTool', () => {
     }
     const res = await runTool(call, tool('read_file'), ctx)
     expect(res.ok).toBe(true)
-    expect(res.output).toBe('hi')
+    expect(res.output).toBe('1\thi')
   })
 })

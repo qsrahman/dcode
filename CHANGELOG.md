@@ -1,3 +1,22 @@
+## [0.13.4] - 2026-08-27
+
+### Added
+- Filesystem tools are more robust and useful (`src/tools/local/fs.ts`, `src/tools/local/search.ts`):
+  - `read_file`: `offset`/`limit` line paging and optional 1-based `line_numbers` (default on); still caps reads at `maxToolOutputBytes`.
+  - `write_file`: creates parent directories, supports `append`, and takes `overwrite` (default `true`; `false` refuses to clobber).
+  - `list_dir`: sorted (directories first), marks symlinks with `l`, and caps entries with a footer.
+  - `grep`: `ignore_case` and `context` (±N lines) options.
+  - `glob`: caps results (with footer) plus a `limit` and multiple patterns (`pattern: string[]`).
+  - `stat`: reports line count for small text files and a symlink `target`.
+
+### Changed
+- Hardened shell/git execution (`src/tools/local/exec.ts`, `git.ts`, `shell.ts`):
+  - Children no longer inherit secret env vars (`OPENAI_API_KEY`, `BRAVE_API_KEY`, …); `PATH`/`HOME`/`LANG` are kept.
+  - Clear errors for over-sized output (`command output exceeded …`) and timeouts/aborts (`timed out`/`aborted`) instead of cryptic codes.
+  - `git add` now requires one or more `paths` (no more silent `git add -A`) and uses a `--` separator.
+  - Dropped redundant `execute` param type annotations (generic already types them).
+- System prompt accuracy: file-reads line notes the size cap + paging; `write_file` line notes `append`/`overwrite`.
+
 ## [0.13.3] - 2026-08-27
 
 ### Changed

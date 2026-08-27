@@ -34,7 +34,7 @@ describe('git tool', () => {
 
   it('add and commit record a new file', async () => {
     await writeFile(join(root, 'b.txt'), 'world')
-    await gitTool().execute({ command: 'add' }, ctx)
+    await gitTool().execute({ command: 'add', paths: ['b.txt'] }, ctx)
     const out = await gitTool().execute(
       { command: 'commit', message: 'add b' },
       ctx,
@@ -42,6 +42,12 @@ describe('git tool', () => {
     expect(out).toMatch(/add b/)
     const log = await gitTool().execute({ command: 'log', oneline: true }, ctx)
     expect(log).toContain('add b')
+  })
+
+  it('rejects add without paths', async () => {
+    await expect(gitTool().execute({ command: 'add' }, ctx)).rejects.toThrow(
+      /requires one or more paths/,
+    )
   })
 
   it('diff shows a modification', async () => {

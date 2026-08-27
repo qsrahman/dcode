@@ -49,7 +49,7 @@ export function gitTool(): ToolDefinition<GitArgs> {
     description:
       'Run a scoped set of git operations in the working directory: status, diff, log, show, add, commit, branch. Destructive or remote operations (push, pull, reset, checkout, clean, merge, rebase) are intentionally unsupported — use run_shell for those.',
     parameters: gitSchema,
-    async execute(args: GitArgs, ctx: ToolContext) {
+    async execute(args, ctx) {
       const gitArgs = await buildArgs(args, ctx)
       // execFile (no shell) runs the binary directly, so paths/refs can't be
       // shell-injected.
@@ -77,9 +77,8 @@ async function buildArgs(args: GitArgs, ctx: ToolContext): Promise<string[]> {
   }
   if (cmd === 'show') return args.ref ? ['show', checkRef(args.ref)] : ['show']
   if (cmd === 'add') {
-    if (args.paths?.length)
-      return ['add', ...(await checkPaths(args.paths, ctx))]
-    return ['add', '-A']
+    if (!args.paths?.length) throw new Error('add requires one or more paths')
+    return ['add', '--', ...(await checkPaths(args.paths, ctx))]
   }
   if (!args.message) throw new Error('commit requires a message')
   return ['commit', '-m', args.message]
