@@ -11,7 +11,7 @@ import { grepTool, globTool } from './local/search.ts'
 import { runShellTool } from './local/shell.ts'
 import { gitTool } from './local/git.ts'
 import { webTools } from './local/web.ts'
-import { todoTool } from './local/task.ts'
+import { todoTool } from './local/todo.ts'
 
 // Central registry builder: the single place that assembles all built-in tools
 // (local filesystem + web search + todo list) into the ToolRegistry. The todo

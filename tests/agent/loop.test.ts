@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import ansis from 'ansis'
 import { z } from 'zod'
 import type {
   Client,
   OpenAIResponse,
   ResponseInput,
 } from '../../src/agent/client.ts'
-import { runAgent } from '../../src/agent/loop.ts'
+import {
+  runAgent,
+  renderToolResult,
+  renderToolOutput,
+} from '../../src/agent/loop.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { ToolRegistry } from '../../src/tools/registry.ts'
 import { createLogger } from '../../src/util/log.ts'
@@ -288,5 +293,22 @@ describe('runAgent', () => {
     expect(calls).toHaveLength(2)
     expect(outputs).toHaveLength(2)
     expect((outputs[0] as { output: string }).output).toBe('aborted')
+  })
+})
+
+describe('tool result rendering', () => {
+  it('shows a check for success and a cross for failure', () => {
+    expect(ansis.strip(renderToolResult('read_file', true, 0))).toBe(
+      '› read_file: ✓ done (0.0s)',
+    )
+    expect(ansis.strip(renderToolResult('grep', false, 1200))).toBe(
+      '› grep: ✗ failed (1.2s)',
+    )
+  })
+
+  it('fences the raw output between rules naming the tool', () => {
+    const stripped = ansis.strip(renderToolOutput('grep', 'a\nb'))
+    expect(stripped).toContain('── grep output ─')
+    expect(stripped).toContain('\na\nb\n')
   })
 })

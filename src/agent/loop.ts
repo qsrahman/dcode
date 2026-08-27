@@ -8,7 +8,7 @@ import type { RunSink, StreamRef } from './run.ts'
 import { runTurn, runTool } from './run.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
-import { renderToolResult, renderToolOutput } from '../ui/render.ts'
+import ansis from 'ansis'
 import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
 import { ContextManager } from './context/manager.ts'
 
@@ -181,4 +181,24 @@ async function runCalls(
     results.push({ id: c.call_id, outcome })
   }
   return results
+}
+
+export function renderToolResult(
+  name: string,
+  ok: boolean,
+  ms: number,
+): string {
+  const status = ok ? ansis.green('✓') : ansis.red('✗')
+  const secs = (ms / 1000).toFixed(1)
+  return `› ${name}: ${status} ${ok ? 'done' : 'failed'} (${secs}s)`
+}
+
+const RULE = '─'.repeat(40)
+
+// Verbose mode echoes a tool's raw output between turns; dim fences mark it
+// as diagnostics so it doesn't read as more streamed model text.
+export function renderToolOutput(name: string, output: string): string {
+  return [ansis.dim(`── ${name} output ${RULE}`), output, ansis.dim(RULE)].join(
+    '\n',
+  )
 }

@@ -83,11 +83,11 @@ src/
                         #   shell.ts   (run_shell)
    tools/index.ts      # createLocalTools: assembles local + web + todo into a ToolRegistry
    tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
-  tools/local/task.ts # todo (single tool over TaskStore: add/list/update/done)
+  tools/local/todo.ts # todo (single tool over TaskStore: add/list/update/done)
   tools/local/git.ts  # git: scoped status/diff/log/show/add/commit/branch
-  tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
-  ui/render.ts        # renderToolResult(name, ok, ms) -> status line
-  util/log.ts         # diagnostics -> stderr (never console.log)
+   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
+   agent/loop.ts       # orchestration; renders tool status lines inline
+   util/log.ts         # diagnostics -> stderr (never console.log)
 ```
 
 ### Agent loop
@@ -221,9 +221,9 @@ P2 set: `/help`, `/model [<id>]`, `/clear`, `/reset`, `/version`, `/exit`.
 
 ### 10.5 Output / color
 Streamed model text → `process.stdout` (reserved channel). REPL prompt colored via
-`ansis`. Rendering stays minimal in P2 (no `ui/render.ts` TUI); that module earns its
-place at P3 for tool-status lines. A tiny `ui/prompt.ts` for the prompt string is
-optional.
+`ansis`. Rendering stays minimal; tool-status lines are rendered inline in
+`agent/loop.ts` (no separate `ui` module). A tiny `ui/prompt.ts` for the prompt
+string is optional.
 
 ### 10.6 Multi-line input
 Deferred to a later phase (single-line in P2).
@@ -294,7 +294,7 @@ what's written below — see §11.12.
   (zod → JSON Schema). Returns `OpenAI.Responses.Tool[]` for the client.
 - **`tools/local/fs.ts` (new).** `read_file`, `list_dir`, `grep`, `stat`, `glob`; path-confined
   to `config.root`.
-- **`ui/render.ts` (new).** `renderToolResult(name, ok, ms)` → status lines.
+- **`agent/loop.ts`.** Renders tool status lines inline via `renderToolResult(name, ok, ms)`.
 - **`cli/repl.ts`.** Add `/tools` dispatch (lists registered tools).
 - **`agent/client.ts`.** `stream` gains `tools?` and returns `ModelStream` (below).
 
@@ -357,10 +357,11 @@ Use **`strict: false`** on the generated schemas.
 All results truncated to `config.maxToolOutputBytes` with a note (decision F).
 Tool output is untrusted data (decision H).
 
-### 11.8 Output (`ui/render.ts`)
+### 11.8 Output (`agent/loop.ts`)
 `renderToolResult(name, ok, ms)` → `› read_file: src/index.ts ✓ done (0.0s)`
 (color via `ansis`, same auto-TTY behavior as today). Printed between turns,
-before the next streamed model text — matching the REPL layout.
+before the next streamed model text — matching the REPL layout. The helper
+lives inline in `agent/loop.ts` (its only consumer).
 
 ### 11.9 Slash commands
 `/tools` — list registered tools (`name` + `description`); deferred from P2 to P3.
@@ -377,8 +378,9 @@ before the next streamed model text — matching the REPL layout.
 
 ### 11.11 Files touched
 - New: `src/agent/loop.ts`, `src/agent/types.ts`, `src/tools/registry.ts`,
-  `src/tools/local/fs.ts`, `src/ui/render.ts`, `tests/agent/loop.test.ts`,
-  `tests/tools/*`.
+  `src/tools/local/fs.ts`, `tests/agent/loop.test.ts`, `tests/tools/*`.
+  (Tool-status rendering lives inline in `agent/loop.ts`, not a separate
+  `ui/render.ts`.)
 - Modify: `src/agent/run.ts` (`runTurn` return + `runTool`), `src/agent/client.ts`
   (`stream` → `ModelStream` + `tools`), `src/cli/repl.ts` (`/tools`),
   `src/index.ts` (wire `runAgent` when tools are registered).
@@ -427,7 +429,7 @@ extraction, JSON-Schema `tools` param. No new SDK surface.
   (always-for-session) state; one-shot uses a gate that denies mutating.
 - `src/cli/repl.ts` + `src/cli/commands.ts`: build/thread the gate; `/tools`
   annotates mutating tools.
-- `src/ui/render.ts`: reuse `renderToolResult` (no change needed).
+- `src/agent/loop.ts`: reuse `renderToolResult` (no change needed).
 
 ### 12.4 Tool interface & gate
 ```ts
@@ -466,7 +468,7 @@ back as `function_call_output` so the model self-corrects.
   stdout/stderr, apply `toolTimeout`, truncate to `maxToolOutputBytes`. Full
   arbitrary shell, gated.
 
-### 12.7 Output (`ui/render.ts`)
+### 12.7 Output (`agent/loop.ts`)
 Reuses `renderToolResult` (`› write_file: ✓ done (0.0s)`); color via `ansis`,
 same auto-TTY behavior as P3. No change.
 
@@ -663,7 +665,7 @@ for visibility in `todo` list; it is not enforced.
 ### 14.3 Module changes
 - `src/agent/tasks.ts` (new): `TaskStore` with `create` / `get` / `list` /
   `update`. No file I/O.
-- `src/tools/local/task.ts` (new): `todoTool(store)` — one `ToolDefinition` with an
+- `src/tools/local/todo.ts` (new): `todoTool(store)` — one `ToolDefinition` with an
   `action` discriminator that **closes over** the session's `TaskStore`.
 - `src/tools/index.ts`: `createLocalTools(tasks: TaskStore)` registers the single
   `todo` tool alongside the locals + web tool.
