@@ -7,6 +7,9 @@ import {
   lstat,
   readlink,
   mkdir,
+  rename,
+  copyFile,
+  rm,
 } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Stats } from 'node:fs'
@@ -306,4 +309,128 @@ function countOccurrences(haystack: string, needle: string): number {
   return count
 }
 
-export { readFileTool, listDirTool, statTool, writeFileTool, editFileTool }
+function moveFileTool(): ToolDefinition<{
+  source: string
+  destination: string
+}> {
+  return {
+    name: 'move_file',
+    description:
+      'Move or rename a file or directory under the working directory. The destination parent directory is created if needed. Both paths must stay within the working directory.',
+    parameters: z.object({
+      source: z.string().describe('Existing path to move (relative to root)'),
+      destination: z
+        .string()
+        .describe('New path for the moved item (relative to root)'),
+    }),
+    async execute(args, ctx) {
+      const src = await resolvePath(ctx.root, args.source)
+      const dst = await resolvePath(ctx.root, args.destination)
+      // rename(2) won't create the destination's parent, so mirror what the
+      // shell `mv` does and mkdir -p it first.
+      await mkdir(dirname(dst), { recursive: true }).catch((err) => {
+        throw new Error(fsError(err, args.destination))
+      })
+      try {
+        await rename(src, dst)
+      } catch (err) {
+        throw new Error(fsError(err, args.destination))
+      }
+      return `moved ${args.source} -> ${args.destination}`
+    },
+  }
+}
+
+function copyFileTool(): ToolDefinition<{
+  source: string
+  destination: string
+}> {
+  return {
+    name: 'copy_file',
+    description:
+      'Copy a file under the working directory to a new location. The destination parent directory is created if needed. Both paths must stay within the working directory.',
+    parameters: z.object({
+      source: z.string().describe('Existing file to copy (relative to root)'),
+      destination: z.string().describe('Destination path (relative to root)'),
+    }),
+    async execute(args, ctx) {
+      const src = await resolvePath(ctx.root, args.source)
+      const dst = await resolvePath(ctx.root, args.destination)
+      await mkdir(dirname(dst), { recursive: true }).catch((err) => {
+        throw new Error(fsError(err, args.destination))
+      })
+      try {
+        await copyFile(src, dst)
+      } catch (err) {
+        throw new Error(fsError(err, args.destination))
+      }
+      return `copied ${args.source} -> ${args.destination}`
+    },
+  }
+}
+
+function deleteFileTool(): ToolDefinition<{
+  path: string
+  recursive?: boolean
+}> {
+  return {
+    name: 'delete_file',
+    description:
+      'Delete a file or directory under the working directory. Directories require recursive: true. Refuses to delete the working directory root itself.',
+    parameters: z.object({
+      path: z.string().describe('Path to delete (relative to root)'),
+      recursive: z
+        .boolean()
+        .optional()
+        .describe(
+          'Delete directories recursively (required for non-empty dirs)',
+        ),
+    }),
+    async execute(args, ctx) {
+      const target = await resolvePath(ctx.root, args.path)
+      // Deleting the whole working directory would wipe the user's project;
+      // resolvePath allows it (it's inside root) so we must guard explicitly.
+      if (target === ctx.root) {
+        throw new Error('refusing to delete the working directory root')
+      }
+      try {
+        await rm(target, { recursive: args.recursive ?? false, force: false })
+      } catch (err) {
+        throw new Error(fsError(err, args.path))
+      }
+      return `deleted ${args.path}`
+    },
+  }
+}
+
+function makeDirTool(): ToolDefinition<{ path: string }> {
+  return {
+    name: 'make_dir',
+    description:
+      'Create a directory under the working directory, including any missing parents.',
+    parameters: z.object({
+      path: z.string().describe('Directory to create (relative to root)'),
+    }),
+    async execute(args, ctx) {
+      const dir = await resolvePath(ctx.root, args.path)
+      try {
+        await mkdir(dir, { recursive: true })
+      } catch (err) {
+        throw new Error(fsError(err, args.path))
+      }
+      return `created directory ${args.path}`
+    },
+  }
+}
+
+export {
+  readFileTool,
+  listDirTool,
+  statTool,
+  writeFileTool,
+  editFileTool,
+  moveFileTool,
+  copyFileTool,
+  deleteFileTool,
+  makeDirTool,
+}

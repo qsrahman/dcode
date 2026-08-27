@@ -6,10 +6,19 @@ import {
   statTool,
   writeFileTool,
   editFileTool,
+  moveFileTool,
+  copyFileTool,
+  deleteFileTool,
+  makeDirTool,
 } from './local/fs.ts'
 import { grepTool, globTool } from './local/search.ts'
 import { runShellTool } from './local/shell.ts'
 import { gitTool } from './local/git.ts'
+import {
+  runProcessTool,
+  readProcessTool,
+  killProcessTool,
+} from './local/process.ts'
 import { webTools } from './local/web.ts'
 import { todoTool } from './local/todo.ts'
 
@@ -25,7 +34,14 @@ export function createLocalTools(tasks: TaskStore): ToolRegistry {
     globTool(),
     writeFileTool(),
     editFileTool(),
+    moveFileTool(),
+    copyFileTool(),
+    deleteFileTool(),
+    makeDirTool(),
     runShellTool(),
+    runProcessTool(),
+    readProcessTool(),
+    killProcessTool(),
     gitTool(),
     ...webTools,
     todoTool(tasks),

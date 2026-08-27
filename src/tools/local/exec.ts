@@ -10,7 +10,7 @@ const execFileAsync = promisify(execFile)
 // into tool output and the model context. Keep ordinary runtime vars (PATH,
 // HOME, LANG, …) so commands still work.
 const SECRET_RE = /KEY|SECRET|TOKEN|PASSWORD|PASS|CREDENTIAL|PRIVATE/i
-function safeEnv(): NodeJS.ProcessEnv {
+export function safeEnv(): NodeJS.ProcessEnv {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && !SECRET_RE.test(k)) env[k] = v

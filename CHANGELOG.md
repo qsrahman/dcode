@@ -1,3 +1,22 @@
+## [0.13.5] - 2026-08-27
+
+### Added
+- File-lifecycle tools (`src/tools/local/fs.ts`): `make_dir`, `move_file`
+  (rename, creates the destination parent), `copy_file`, and `delete_file`
+  (refuses to delete the working-directory root; `recursive` for directories).
+  All `resolvePath`-confined with structured `fsError` messages.
+- Background-process tools (`src/tools/local/process.ts`, new):
+  `run_process` spawns a long-running command and returns a handle + pid;
+  `read_process` tails its buffered output and reports running/exited;
+  `kill_process` stops it (SIGTERM default). Children run detached in their own
+  process group (group-killed), scrub secrets via `safeEnv`, confine `cwd` to
+  the root, cap buffered output at 64 KB, and are killed on session abort and
+  at process exit.
+- System prompt accuracy: immediate-effect/no-revert list now covers the new
+  file tools; added `run_process`/`kill_process` guidance and a note to prefer
+  dedicated filesystem tools over `run_shell`.
+- PLAN.md: tool roadmap (Tiers 1–4) and a P11 specification for these tools.
+
 ## [0.13.4] - 2026-08-27
 
 ### Added

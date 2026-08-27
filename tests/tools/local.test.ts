@@ -16,10 +16,20 @@ import {
   statTool,
   writeFileTool,
   editFileTool,
+  moveFileTool,
+  copyFileTool,
+  deleteFileTool,
+  makeDirTool,
 } from '../../src/tools/local/fs.ts'
 import { grepTool, globTool } from '../../src/tools/local/search.ts'
 import { runShellTool } from '../../src/tools/local/shell.ts'
 import { gitTool } from '../../src/tools/local/git.ts'
+import {
+  runProcessTool,
+  readProcessTool,
+  killProcessTool,
+  processManager,
+} from '../../src/tools/local/process.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { runTool } from '../../src/agent/run.ts'
 import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
@@ -34,6 +44,7 @@ beforeEach(async () => {
   ctx = { root, config: cfg(), logger: createLogger(cfg()) }
 })
 afterEach(async () => {
+  processManager.killAll()
   await rm(root, { recursive: true, force: true })
 })
 
@@ -45,7 +56,14 @@ const localTools: ToolDefinition[] = [
   globTool(),
   writeFileTool(),
   editFileTool(),
+  moveFileTool(),
+  copyFileTool(),
+  deleteFileTool(),
+  makeDirTool(),
   runShellTool(),
+  runProcessTool(),
+  readProcessTool(),
+  killProcessTool(),
   gitTool(),
 ]
 
@@ -562,5 +580,118 @@ describe('runTool', () => {
     const res = await runTool(call, tool('read_file'), ctx)
     expect(res.ok).toBe(true)
     expect(res.output).toBe('1\thi')
+  })
+})
+
+describe('file lifecycle tools', () => {
+  it('make_dir creates nested directories', async () => {
+    const out = await tool('make_dir').execute({ path: 'a/b/c' }, ctx)
+    expect(out).toContain('created directory')
+    await expect(access(join(root, 'a/b/c'))).resolves.toBeUndefined()
+  })
+
+  it('make_dir rejects escapes', async () => {
+    await expect(
+      tool('make_dir').execute({ path: '../outside' }, ctx),
+    ).rejects.toThrow(/escapes/)
+  })
+
+  it('move_file moves a file and creates the destination parent', async () => {
+    await writeFile(join(root, 'src.txt'), 'data')
+    const out = await tool('move_file').execute(
+      { source: 'src.txt', destination: 'nested/dst.txt' },
+      ctx,
+    )
+    expect(out).toContain('moved')
+    expect(await readFile(join(root, 'nested/dst.txt'), 'utf8')).toBe('data')
+    await expect(readFile(join(root, 'src.txt'))).rejects.toThrow()
+  })
+
+  it('move_file moves a directory', async () => {
+    await mkdir(join(root, 'd'), { recursive: true })
+    await writeFile(join(root, 'd/x.txt'), 'x')
+    await tool('move_file').execute({ source: 'd', destination: 'e' }, ctx)
+    expect(await readFile(join(root, 'e/x.txt'), 'utf8')).toBe('x')
+  })
+
+  it('copy_file copies content and creates the destination parent', async () => {
+    await writeFile(join(root, 'a.txt'), 'hi')
+    const out = await tool('copy_file').execute(
+      { source: 'a.txt', destination: 'sub/b.txt' },
+      ctx,
+    )
+    expect(out).toContain('copied')
+    expect(await readFile(join(root, 'sub/b.txt'), 'utf8')).toBe('hi')
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('hi')
+  })
+
+  it('copy_file rejects escapes', async () => {
+    await writeFile(join(root, 'a.txt'), 'hi')
+    await expect(
+      tool('copy_file').execute(
+        { source: 'a.txt', destination: '../out.txt' },
+        ctx,
+      ),
+    ).rejects.toThrow(/escapes/)
+  })
+
+  it('delete_file removes a file', async () => {
+    await writeFile(join(root, 'a.txt'), 'x')
+    const out = await tool('delete_file').execute({ path: 'a.txt' }, ctx)
+    expect(out).toContain('deleted')
+    await expect(readFile(join(root, 'a.txt'))).rejects.toThrow()
+  })
+
+  it('delete_file removes a directory recursively', async () => {
+    await mkdir(join(root, 'd'), { recursive: true })
+    await writeFile(join(root, 'd/a.txt'), 'x')
+    await tool('delete_file').execute({ path: 'd', recursive: true }, ctx)
+    await expect(access(join(root, 'd'))).rejects.toThrow()
+  })
+
+  it('delete_file refuses to delete the working directory root', async () => {
+    await expect(
+      tool('delete_file').execute({ path: '.' }, ctx),
+    ).rejects.toThrow(/refusing to delete/)
+  })
+})
+
+describe('background process tools', () => {
+  it('run_process starts and read_process shows output + exit status', async () => {
+    const out = await tool('run_process').execute(
+      { command: 'node -e "console.log(\'hello\')"' },
+      ctx,
+    )
+    const handle = out.match(/started (proc-\d+)/)?.[1]
+    expect(handle).toBeTruthy()
+    await new Promise((r) => setTimeout(r, 300))
+    const res = await tool('read_process').execute({ handle: handle! }, ctx)
+    expect(res).toContain('hello')
+    expect(res).toContain('exited')
+  })
+
+  it('kill_process stops a long-running command', async () => {
+    const out = await tool('run_process').execute(
+      { command: 'node -e "setInterval(()=>{}, 1000)"' },
+      ctx,
+    )
+    const handle = out.match(/started (proc-\d+)/)?.[1]!
+    await new Promise((r) => setTimeout(r, 100))
+    const killOut = await tool('kill_process').execute({ handle }, ctx)
+    expect(killOut).toContain('sent SIGTERM')
+    await new Promise((r) => setTimeout(r, 200))
+    expect(processManager.get(handle)?.exited).toBe(true)
+  })
+
+  it('read_process rejects an unknown handle', async () => {
+    await expect(
+      tool('read_process').execute({ handle: 'proc-999' }, ctx),
+    ).rejects.toThrow(/unknown process handle/)
+  })
+
+  it('kill_process rejects an unknown handle', async () => {
+    await expect(
+      tool('kill_process').execute({ handle: 'proc-999' }, ctx),
+    ).rejects.toThrow(/unknown process handle/)
   })
 })

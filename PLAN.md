@@ -78,8 +78,10 @@ src/
    tools/local/        # local tool set, split by concern:
                         #   paths.ts   (resolvePath, fsError — path confinement)
                         #   traverse.ts (walkDir, globToRegExp)
-                        #   fs.ts      (read_file, list_dir, stat, write_file, edit_file)
-                        #   search.ts  (grep, glob)
+   #   fs.ts      (read_file, list_dir, stat, write_file, edit_file,
+   #               move_file, copy_file, delete_file, make_dir)
+   #   process.ts (run_process, read_process, kill_process — background)
+   #   search.ts  (grep, glob)
                         #   shell.ts   (run_shell)
    tools/index.ts      # createLocalTools: assembles local + web + todo into a ToolRegistry
    tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
@@ -151,6 +153,7 @@ See §17 for deferred candidates.
 | P8 | Task list (in-session: create/list/update) | **Done** |
 | P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
 | P10 | Context-window management (prune + compact + overflow retry) | **Done** |
+| P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** (see §19) |
 
 ## 9. Testing strategy
 
@@ -810,5 +813,68 @@ Candidate slash commands deferred from the v0.10.0 command pass:
 Lower priority, also considered: `/mode` (read-only vs. mutate toggle; see
 cancelled P5), `/cost` (cumulative token-cost estimate building on `/context`),
 `/branch` (snapshot `history` to fork and revert).
+
+## 18. Tool roadmap (recommendations)
+
+Beyond the current set (inspect: `read_file`/`list_dir`/`stat`/`grep`/`glob`;
+mutate: `write_file`/`edit_file`/`run_shell`/`git_*`; web: `web_fetch`/
+`web_search`; `todo`), the following tools would raise dcode's usefulness.
+Ranked by value/effort:
+
+- **Tier 1 — file lifecycle (safety).** `move_file`/`rename`, `copy_file`,
+  `delete_file` (with a guard against deleting the working-directory root),
+  `make_dir`. These replace risky `run_shell` `mv`/`cp`/`rm` while keeping
+  `resolvePath` confinement + structured errors.
+- **Tier 2 — process control (biggest capability jump).** `run_process` (spawn a
+  background command — a dev server, test watcher, or any long-running job —
+  and return a handle), `read_process` (tail its output), `kill_process` (stop
+  it). Today `run_shell` only runs foreground-to-completion.
+- **Tier 3 — richer introspection.** `find_symbol` / `find_references`
+  (LSP-lite via tree-sitter or ripgrep); `read_image` (multimodal) for UI work;
+  `watch` (fs-event notifications) for tight TDD loops.
+- **Tier 4 — optional/niche.** `apply_patch` (atomic multi-file edits from a
+  unified diff); `http_request` (call the user's own API for testing;
+  security-scrutinized); `memory` (persist facts across sessions).
+
+P11 (this round) ships Tier 1 + `run_process`/`read_process`/`kill_process`.
+
+## 19. P11 Specification (file lifecycle + background process tools) — implemented
+
+Status: **Done**. Adds safe file-lifecycle operations (so refactors and
+cleanups don't need raw `run_shell` `rm`/`mv`/`cp`) and background-process
+control (for dev servers, watchers, and any long-running command).
+
+### 19.1 Scope
+- File ops: `move_file`, `copy_file`, `delete_file`, `make_dir`, all
+  `resolvePath`-confined to the working directory.
+- Background control: `run_process` (spawn, return a handle + pid),
+  `read_process` (tail output + exit status), `kill_process` (stop the process
+  group with a chosen signal).
+- `delete_file` refuses to delete the working-directory root itself; directory
+  deletion requires `recursive: true`.
+
+### 19.2 Module changes
+- `src/tools/local/fs.ts`: add `move_file` (rename, creating the destination
+  parent dir), `copy_file` (copyFile), `delete_file` (rm, root-self-delete
+  guard), `make_dir` (mkdir -p). All errors routed through `fsError`.
+- `src/tools/local/process.ts` (new): `ProcessManager` (module singleton)
+  spawns via `child_process.spawn` with `detached: true`, scrubs secrets via
+  `safeEnv`, confines `cwd` to the root, caps buffered output
+  (`PROC_MAX_OUTPUT`), and kills the process *group* (`process.kill(-pid)`) on
+  `kill_process` and on the session `ctx.signal` abort. `run_process`,
+  `read_process`, `kill_process` tools. `killAll()` runs on process exit.
+- `src/tools/index.ts`: register the four fs tools and the three process tools.
+
+### 19.3 Tests (`tests/tools/local.test.ts`)
+- File ops: make_dir (nested); move_file (file + dir, creates dest parent);
+  copy_file (content + dest parent); delete_file (file; recursive dir; root
+  self-delete refused); path-escape rejection.
+- Process: run_process starts and returns a handle; read_process tails output
+  and reports running/exited; kill_process stops a long-running command (assert
+  it exits); unknown-handle errors; leaked processes killed in `afterEach`.
+
+### 19.4 Status
+**Done.** File-lifecycle and background-process tools join the local set,
+confined to the working directory. Covered by `tests/tools/local.test.ts`.
 
 
