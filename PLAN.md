@@ -75,14 +75,14 @@ src/
   agent/tasks.ts      # TaskStore: in-session task list (create/list/update)
   tools/index.ts      # createLocalTools(tasks): hub that registers all local tools into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
-  tools/local/        # local tool set, split by concern:
-                       #   paths.ts   (resolvePath, fsError — path confinement)
-                       #   traverse.ts (walkDir, globToRegExp)
-                       #   fs.ts      (read_file, list_dir, stat, write_file, edit_file)
-                       #   search.ts  (grep, glob)
-                       #   shell.ts   (run_shell)
-                       #   index.ts   (localTools: the assembled array)
-  tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
+   tools/local/        # local tool set, split by concern:
+                        #   paths.ts   (resolvePath, fsError — path confinement)
+                        #   traverse.ts (walkDir, globToRegExp)
+                        #   fs.ts      (read_file, list_dir, stat, write_file, edit_file)
+                        #   search.ts  (grep, glob)
+                        #   shell.ts   (run_shell)
+   tools/index.ts      # createLocalTools: assembles local + web + todo into a ToolRegistry
+   tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
   tools/local/task.ts # todo (single tool over TaskStore: add/list/update/done)
   tools/local/git.ts  # git: scoped status/diff/log/show/add/commit/branch
   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
@@ -709,7 +709,8 @@ was previously only available via `run_shell` (P4 design, §12.6).
   `maxCount` / `ref`. `buildArgs` maps the validated request to git argv;
   `checkPaths` confines each path via `resolvePath`, `checkRef` rejects unsafe
   refs.
-- `src/tools/local/index.ts`: register `gitTool()` in `localTools`.
+- `src/tools/index.ts`: `createLocalTools` registers `gitTool()` (and the rest of
+  the local set) in the `ToolRegistry` alongside `webTools` and `todoTool`.
 
 ### 15.3 Tests (`tests/tools/git.test.ts`)
 A real temp git repo (init + seed commit) asserts: clean `status`, `add` +

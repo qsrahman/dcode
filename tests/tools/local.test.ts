@@ -10,7 +10,17 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { localTools } from '../../src/tools/local/index.ts'
+import {
+  readFileTool,
+  listDirTool,
+  statTool,
+  writeFileTool,
+  editFileTool,
+} from '../../src/tools/local/fs.ts'
+import { grepTool, globTool } from '../../src/tools/local/search.ts'
+import { runShellTool } from '../../src/tools/local/shell.ts'
+import { gitTool } from '../../src/tools/local/git.ts'
+import type { ToolDefinition } from '../../src/agent/types.ts'
 import { runTool } from '../../src/agent/run.ts'
 import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
@@ -26,6 +36,18 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
+
+const localTools: ToolDefinition[] = [
+  readFileTool(),
+  listDirTool(),
+  grepTool(),
+  statTool(),
+  globTool(),
+  writeFileTool(),
+  editFileTool(),
+  runShellTool(),
+  gitTool(),
+]
 
 function tool(name: string) {
   const t = localTools.find((x) => x.name === name)
