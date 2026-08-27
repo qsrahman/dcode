@@ -1,3 +1,15 @@
+## [0.13.1] - 2026-08-27
+
+### Changed
+- Hardened the agent system prompt (`src/agent/system.ts`): fixed the inaccurate
+  "there is no undo" claim (the `/undo` command only drops the last conversation
+  exchange, it does not restore changed files); added git/VCS discipline (no
+  commit/push/branch/force unless explicitly asked); added a destructive-shell
+  guardrail; required reading a file before editing it; broadened the
+  untrusted-data rule to cover command injection; and added plan-before-large
+  changes, stop-on-repeated-failure, and no-fabrication rules. The prompt is now
+  organized into Tool use / Planning / Security / Style sections.
+
 ## [0.13.0] - 2026-08-27
 
 ### Added
