@@ -13,7 +13,7 @@ import { createLogger, errorMessage } from './util/log.ts'
 import { getVersion } from './version.ts'
 
 function printHelp(): void {
-  console.log(`dcode — AI coding agent (OpenAI Responses SDK)
+  console.log(`dcode — AI coding agent
 
 Usage:
   dcode [prompt]     one-shot when a prompt is given, REPL otherwise
