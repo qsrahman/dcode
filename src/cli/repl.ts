@@ -62,13 +62,17 @@ export async function handleLine(
 ): Promise<HandleResult> {
   const { sink = process.stdout } = opts
   const trimmed = line.trim()
+
   if (trimmed === '') return 'ok'
+
   const cmd = parseCommand(trimmed)
   if (cmd) return dispatch(session, cmd, sink)
 
   session.history.push({ role: 'user', content: trimmed })
+
   try {
     sink.write('\n')
+
     await runAgent(session.client, session.config, session.history, {
       sink,
       logger: session.logger,
@@ -77,6 +81,7 @@ export async function handleLine(
       streamRef: opts.streamRef,
       context: session.context,
     })
+
     sink.write('\n')
     trimHistory(session.history, session.config.maxHistoryItems)
   } catch (err) {
@@ -89,11 +94,9 @@ export async function handleLine(
   return 'ok'
 }
 
-export async function startRepl(
-  config: Config,
-  logger: Logger,
-): Promise<void> {
+export async function startRepl(config: Config, logger: Logger): Promise<void> {
   const session = createSession(config, logger)
+
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -101,16 +104,17 @@ export async function startRepl(
   })
   rl.setPrompt(PROMPT)
 
-  let busy = false
+  // `ac` is set only while a turn is in flight, so it doubles as the "busy"
+  // flag: SIGINT aborts the current turn when present, otherwise just re-prompts.
+  // The async-iterator loop already serializes turns (it awaits handleLine
+  // before pulling the next line), so lines typed mid-turn are buffered by
+  // readline and replayed in order — no manual pending queue needed.
   let ac: AbortController | undefined
   const streamRef: StreamRef = { current: null }
-  // Lines typed while a turn runs are buffered and drained after it finishes;
-  // dropping them made users believe input they'd typed had been sent.
-  const pending: string[] = []
 
   rl.on('SIGINT', () => {
-    if (busy) {
-      ac?.abort()
+    if (ac) {
+      ac.abort()
       streamRef.current?.abort()
       process.stdout.write('\n(aborted)\n')
     } else {
@@ -119,32 +123,20 @@ export async function startRepl(
   })
 
   process.stdout.write(`${HINT}\n`)
-  rl.prompt()
 
   for await (const line of rl) {
-    if (busy) {
-      pending.push(line)
-      continue
-    }
+    ac = new AbortController()
 
-    busy = true
-    try {
-      let current: string | undefined = line
-      while (current !== undefined) {
-        ac = new AbortController()
-        const result = await handleLine(session, current, {
-          sink: process.stdout,
-          signal: ac.signal,
-          streamRef,
-        })
-        if (result === 'exit') {
-          rl.close()
-          return
-        }
-        current = pending.shift()
-      }
-    } finally {
-      busy = false
+    const result = await handleLine(session, line, {
+      sink: process.stdout,
+      signal: ac.signal,
+      streamRef,
+    })
+
+    ac = undefined
+    if (result === 'exit') {
+      rl.close()
+      return
     }
     rl.prompt()
   }

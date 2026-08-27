@@ -48,6 +48,16 @@ export async function runAgent(
   // Durable system guidance lives in the Responses API `instructions` field,
   // not in the conversation `history`, so it isn't trimmed or replayed as a turn.
   const instructions = buildSystemPrompt(config)
+  // One streaming turn; hoisted so the context-overflow retry reuses it instead
+  // of duplicating the call.
+  const runOnce = () =>
+    runTurn(client, config, history, {
+      sink,
+      logger: opts.logger,
+      tools: responses,
+      instructions,
+      streamRef: opts.streamRef,
+    })
   let finalText = ''
   let prevHadTools = false
 
@@ -67,35 +77,18 @@ export async function runAgent(
     // Every turn streams live to `sink`. A turn that follows a tool call gets a
     // leading blank line so its text is separated from the tool-output block.
     if (prevHadTools) sink.write('\n')
-    let response!: OpenAIResponse
+    let response: OpenAIResponse
     try {
-      const r = await runTurn(client, config, history, {
-        sink,
-        logger: opts.logger,
-        tools: responses,
-        instructions,
-        streamRef: opts.streamRef,
-      })
-      finalText = r.text
-      response = r.response
+      ;({ text: finalText, response } = await runOnce())
     } catch (err) {
       // The request exceeded the context window. Compact and retry once; if that
       // still overflows (or the breaker is tripped) let it fail normally.
-      if (opts.context && isContextOverflowError(err)) {
-        const recovered = await opts.context.onOverflow(client, config, history)
-        if (recovered) {
-          const r = await runTurn(client, config, history, {
-            sink,
-            logger: opts.logger,
-            tools: responses,
-            instructions,
-            streamRef: opts.streamRef,
-          })
-          finalText = r.text
-          response = r.response
-        } else {
-          throw err
-        }
+      if (
+        opts.context &&
+        isContextOverflowError(err) &&
+        (await opts.context.onOverflow(client, config, history))
+      ) {
+        ;({ text: finalText, response } = await runOnce())
       } else {
         throw err
       }
