@@ -85,9 +85,7 @@ export async function handleLine(
     sink.write('\n')
     trimHistory(session.history, session.config.maxHistoryItems)
   } catch (err) {
-    if (opts.signal?.aborted) {
-      session.logger.warn('aborted')
-    } else {
+    if (!opts.signal?.aborted) {
       session.logger.error(errorMessage(err))
     }
   }
@@ -116,7 +114,7 @@ export async function startRepl(config: Config, logger: Logger): Promise<void> {
     if (ac) {
       ac.abort()
       streamRef.current?.abort()
-      process.stdout.write('\n(aborted)\n')
+      session.logger.warn('aborted')
     } else {
       rl.prompt()
     }
