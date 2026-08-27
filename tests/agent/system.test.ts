@@ -18,6 +18,11 @@ describe('buildSystemPrompt', () => {
     )
   })
 
+  it('includes the current date so recency guidance is actionable', () => {
+    const prompt = buildSystemPrompt(configSchema.parse({}))
+    expect(prompt).toMatch(/Current date: \d{4}-\d{2}-\d{2}/)
+  })
+
   it('embeds the base instructions', () => {
     const config = configSchema.parse({})
     expect(buildSystemPrompt(config)).toContain(BASE_SYSTEM_PROMPT)
