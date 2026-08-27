@@ -23,6 +23,28 @@ function summaryClient(summary: string): Client {
   }
 }
 
+// Like summaryClient but records the instruction sent to the model, so tests can
+// assert on what was included (e.g. the task list).
+function capturingClient(summary: string): {
+  client: Client
+  lastInput: () => ResponseInput
+} {
+  let last: ResponseInput = []
+  const client: Client = {
+    stream(input: ResponseInput) {
+      last = input
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield summary
+        },
+        finalResponse: async () => ({}) as unknown as OpenAIResponse,
+        abort: () => {},
+      }
+    },
+  }
+  return { client, lastInput: () => last }
+}
+
 describe('compactHistory', () => {
   it('summarizes the oldest history and keeps a recent tail', async () => {
     const config = cfg({
@@ -32,6 +54,7 @@ describe('compactHistory', () => {
         reserved: 20000,
         keepTokens: 1,
         prune: true,
+        compactAt: 0.85,
       },
     }) as Config
     const history: ResponseInput = [
@@ -62,6 +85,7 @@ describe('compactHistory', () => {
         reserved: 20000,
         keepTokens: 1,
         prune: true,
+        compactAt: 0.85,
       },
     }) as Config
     const history: ResponseInput = [{ role: 'user', content: 'only' }]
@@ -72,5 +96,67 @@ describe('compactHistory', () => {
       createLogger(config),
     )
     expect(out).toBe(history)
+  })
+
+  it('appends the authoritative task list to the summary instruction', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 200000,
+        reserved: 20000,
+        keepTokens: 1,
+        prune: true,
+        compactAt: 0.85,
+      },
+    }) as Config
+    const history: ResponseInput = [
+      { role: 'user', content: 'first request' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'second request' },
+    ]
+    const { client, lastInput } = capturingClient('SUMMARY')
+    const out = await compactHistory(
+      client,
+      config,
+      history,
+      createLogger(config),
+      [
+        {
+          id: 'T1',
+          title: 'write tests',
+          status: 'pending',
+          blockedBy: ['T2'],
+        },
+        { id: 'T2', title: 'scaffold', status: 'completed', blockedBy: [] },
+      ],
+    )
+    const instruction = (lastInput()[0] as { content: string }).content
+    expect(instruction).toContain('Authoritative task list')
+    expect(instruction).toContain('[pending] T1 write tests (blocked by T2)')
+    expect(instruction).toContain('[completed] T2 scaffold')
+    // still summarizes the head and keeps the tail verbatim
+    expect(out).toHaveLength(2)
+  })
+
+  it('omits the task section when no tasks are supplied', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 200000,
+        reserved: 20000,
+        keepTokens: 1,
+        prune: true,
+        compactAt: 0.85,
+      },
+    }) as Config
+    const history: ResponseInput = [
+      { role: 'user', content: 'first request' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'second request' },
+    ]
+    const { client, lastInput } = capturingClient('SUMMARY')
+    await compactHistory(client, config, history, createLogger(config))
+    const instruction = (lastInput()[0] as { content: string }).content
+    expect(instruction).not.toContain('Authoritative task list')
   })
 })

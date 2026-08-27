@@ -24,7 +24,9 @@ export const configSchema = z.object({
   // pruning old tool outputs (cheap, no model call) and, when still over,
   // summarizing the oldest history into a single developer message (compact).
   // `window` must match the model's real context limit; `reserved` is headroom
-  // kept free for the model's output + the compaction call.
+  // kept free for the model's output + the compaction call. `compactAt` is the
+  // fraction of that budget at which compaction kicks in *proactively* (before a
+  // context-length error), so the model stays comfortably under the limit.
   context: z
     .object({
       auto: z.boolean().default(true),
@@ -32,6 +34,7 @@ export const configSchema = z.object({
       reserved: z.number().int().nonnegative().default(20000),
       keepTokens: z.number().int().positive().default(15000),
       prune: z.boolean().default(true),
+      compactAt: z.number().min(0).max(1).default(0.85),
     })
     .refine(
       (ctx) => ctx.keepTokens < ctx.window - ctx.reserved,
@@ -43,6 +46,7 @@ export const configSchema = z.object({
       reserved: 20000,
       keepTokens: 15000,
       prune: true,
+      compactAt: 0.85,
     }),
 })
 export type Config = z.infer<typeof configSchema>

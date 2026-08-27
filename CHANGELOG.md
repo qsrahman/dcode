@@ -1,3 +1,16 @@
+## [0.12.0] - 2026-08-27
+
+### Changed
+- Context compaction is now **proactive**: `ContextManager` triggers prune + LLM
+  summary once the estimate crosses `context.compactAt` (default 0.85) of the
+  usable budget, instead of only at the hard window limit, so long sessions stay
+  under the context window without hitting a context-length error and retrying.
+- Compaction is now **todo-aware**: the session's authoritative `todo` task list
+  (`TaskStore`) is appended to the summarization instruction, so the summary
+  cannot drift from or contradict the tracked tasks. Optional — one-shot runs
+  without a task list summarize as before.
+- Added `context.compactAt` config (0..1, default 0.85).
+
 ## [0.11.0] - 2026-08-27
 
 ### Changed

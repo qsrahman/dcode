@@ -9,16 +9,20 @@ import { isContextOverflowError } from '../../../src/agent/client.ts'
 import type { Config } from '../../../src/config/schema.ts'
 import { createLogger } from '../../../src/util/log.ts'
 import { ContextManager } from '../../../src/agent/context/manager.ts'
+import { TaskStore } from '../../../src/agent/tasks.ts'
 import { cfg } from '../../helpers.ts'
 
 function summaryClient(summary: string): {
   client: Client
   calls: () => number
+  lastInput: () => ResponseInput
 } {
   let n = 0
+  let last: ResponseInput = []
   const client: Client = {
-    stream() {
+    stream(input: ResponseInput) {
       n++
+      last = input
       return {
         async *[Symbol.asyncIterator]() {
           yield summary
@@ -28,7 +32,7 @@ function summaryClient(summary: string): {
       }
     },
   }
-  return { client, calls: () => n }
+  return { client, calls: () => n, lastInput: () => last }
 }
 
 function bigHistory(): ResponseInput {
@@ -57,7 +61,14 @@ describe('isContextOverflowError', () => {
 describe('ContextManager', () => {
   it('reports usable budget and calibrates against real usage', () => {
     const m = new ContextManager(
-      { auto: true, window: 100, reserved: 20, keepTokens: 50, prune: true },
+      {
+        auto: true,
+        window: 100,
+        reserved: 20,
+        keepTokens: 50,
+        prune: true,
+        compactAt: 0.85,
+      },
       createLogger(cfg()),
     )
     expect(m.usable()).toBe(80)
@@ -75,6 +86,7 @@ describe('ContextManager', () => {
         reserved: 0,
         keepTokens: 49,
         prune: true,
+        compactAt: 0.85,
       },
     }) as Config
     const { client } = summaryClient('SUMMARY')
@@ -97,6 +109,7 @@ describe('ContextManager', () => {
         reserved: 0,
         keepTokens: 1,
         prune: true,
+        compactAt: 0.85,
       },
     }) as Config
     // huge "summary" so the window is never recovered
@@ -118,6 +131,7 @@ describe('ContextManager', () => {
         reserved: 0,
         keepTokens: 1,
         prune: true,
+        compactAt: 0.85,
       },
     }) as Config
     const { client, calls } = summaryClient('y'.repeat(1000))
@@ -128,5 +142,49 @@ describe('ContextManager', () => {
     expect(await m.onOverflow(client, config, history)).toBe(true)
     expect(await m.onOverflow(client, config, history)).toBe(false)
     expect(calls()).toBe(3)
+  })
+
+  it('includes the task list in the compaction instruction when a store is set', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 50,
+        reserved: 0,
+        keepTokens: 1,
+        prune: true,
+        compactAt: 0.85,
+      },
+    }) as Config
+    const { client, lastInput } = summaryClient('SUMMARY')
+    const store = new TaskStore()
+    store.create('write tests')
+    const m = new ContextManager(config.context, createLogger(config), store)
+    const action = await m.beforeTurn(client, config, bigHistory())
+    expect(action).toBe('compacted')
+    const instruction = (lastInput()[0] as { content: string }).content
+    expect(instruction).toContain('Authoritative task list')
+    expect(instruction).toContain('[pending] T1 write tests')
+  })
+
+  it('compacts proactively at the soft threshold, before the hard limit', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 10000,
+        reserved: 0,
+        keepTokens: 10,
+        prune: true,
+        compactAt: 0.2,
+      },
+    }) as Config
+    const { client } = summaryClient('SUMMARY')
+    const m = new ContextManager(config.context, createLogger(config))
+    // ~2500 estimated tokens: above the 0.2*10000 = 2000 soft threshold, but well
+    // below the 10000 hard limit — the old hard-only trigger would have skipped it.
+    const history: ResponseInput = [
+      { role: 'user', content: 'x'.repeat(5000) },
+      { role: 'user', content: 'x'.repeat(5000) },
+    ]
+    expect(await m.beforeTurn(client, config, history)).toBe('compacted')
   })
 })

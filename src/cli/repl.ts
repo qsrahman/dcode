@@ -27,7 +27,7 @@ export function createSession(config: Config, logger: Logger): Session {
     client: createClient(config),
     history: [],
     tools: createLocalTools(tasks),
-    context: new ContextManager(config.context, logger),
+    context: new ContextManager(config.context, logger, tasks),
     tasks,
   }
 }

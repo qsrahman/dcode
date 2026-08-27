@@ -94,11 +94,15 @@ the list is in-memory only and is cleared by `/reset` (and listed with `/todo`).
 
 **Context-window management.** Long sessions are kept within `context.window`:
 before each request, dcode prunes old tool outputs (collapsing them to a short
-marker) and, if still over budget, summarizes the oldest history into a single
-`developer` message while keeping a recent tail verbatim. The token estimate is
-calibrated against the real `usage` the API returns, so no tokenizer dependency
-is needed. If a request still exceeds the window, dcode compacts and retries
-once. Set `context.window` to match your model (lower it for small local
+marker) and, once the estimate crosses `context.compactAt` of the usable budget
+(default 0.85), summarizes the oldest history into a single `developer` message
+while keeping a recent tail verbatim — *proactively*, before a context-length
+error forces a retry. The summary is produced by a separate model call whose
+instruction also includes the session's authoritative task list (from the `todo`
+tool), so the summary can't contradict what was actually tracked. The token
+estimate is calibrated against the real `usage` the API returns, so no tokenizer
+dependency is needed. If a request still exceeds the window, dcode compacts and
+retries once. Set `context.window` to match your model (lower it for small local
 models); `/compact` triggers a summary on demand and `/context` reports usage.
 
 ## Configuration (`dcode.json`)
@@ -113,7 +117,7 @@ JSON, loaded from `--config <path>` or a default location. Example:
   "maxToolOutputBytes": 32768,
   "stateful": false,
   "ignore": [".git", "node_modules"],
-  "context": { "window": 200000, "reserved": 20000, "keepTokens": 15000 }
+  "context": { "window": 200000, "reserved": 20000, "keepTokens": 15000, "compactAt": 0.85 }
 }
 ```
 
