@@ -144,10 +144,9 @@ const commands: Record<string, CommandHandler> = {
   },
   undo: (session, _args, sink) => {
     const h = session.history
-    let lastUser = -1
-    for (let i = 0; i < h.length; i++) {
-      if ((h[i] as { role?: string }).role === 'user') lastUser = i
-    }
+    const lastUser = h.findLastIndex(
+      (it) => (it as { role?: string }).role === 'user',
+    )
     if (lastUser === -1) {
       sink.write('nothing to undo\n')
       return 'ok'
