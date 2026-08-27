@@ -1,3 +1,14 @@
+## [0.13.8] - 2026-08-27
+
+### Added
+- GAIA benchmark harness (`scripts/gaia/`, new; standalone from the agent).
+  `run_gaia.py` loads the GAIA validation split, runs dcode per task (cwd =
+  a per-task dir holding the attachment), extracts the `FINAL ANSWER:` line,
+  and scores with a faithful port of GAIA's `question_scorer` (numeric equality,
+  comma/semicolon list equality, normalized string equality, and the `"3,676"`
+  two-element-list quirk). Run artifacts stay in a temp dir; the repo only
+  carries the harness + `requirements.txt`.
+
 ## [0.13.7] - 2026-08-27
 
 ### Added
