@@ -1,5 +1,5 @@
 import ansis from 'ansis'
-import type { AppConfig } from '../config/schema.ts'
+import type { Config } from '../config/schema.ts'
 import type { Client, ResponseInput } from '../agent/client.ts'
 import type { RunSink } from '../agent/run.ts'
 import type { Logger } from '../util/log.ts'
@@ -9,7 +9,7 @@ import type { TaskStore } from '../agent/tasks.ts'
 import { getVersion } from '../version.ts'
 
 export interface Session {
-  config: AppConfig
+  config: Config
   logger: Logger
   client: Client
   history: ResponseInput

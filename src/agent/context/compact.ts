@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import type { Client, ResponseInput } from '../client.ts'
-import type { AppConfig } from '../../config/schema.ts'
+import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
 import { errorMessage } from '../../util/log.ts'
 import { estimateItem } from './tokens.ts'
@@ -122,7 +122,7 @@ async function summarize(
 // is not part of `history` and is not re-injected here.
 export async function compactHistory(
   client: Client,
-  config: AppConfig,
+  config: Config,
   history: ResponseInput,
   logger: Logger,
 ): Promise<ResponseInput> {

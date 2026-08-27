@@ -1,10 +1,10 @@
 import type { z } from 'zod'
-import type { AppConfig } from '../config/schema.ts'
+import type { Config } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 
 export interface ToolContext {
   root: string
-  config: AppConfig
+  config: Config
   logger: Logger
   // Aborted when the user cancels the turn (Ctrl-C). Tools that spawn processes
   // forward it so the child is killed; runTool also races against it.

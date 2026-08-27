@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline/promises'
 import ansis from 'ansis'
-import type { AppConfig } from '../config/schema.ts'
+import type { Config } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
 import type { ResponseInput } from '../agent/client.ts'
 import { TaskStore } from '../agent/tasks.ts'
@@ -19,7 +19,7 @@ import {
 const HINT = 'Ask anything, /help for commands...'
 const PROMPT = ansis.cyan('> ')
 
-export function createSession(config: AppConfig, logger: Logger): Session {
+export function createSession(config: Config, logger: Logger): Session {
   const tasks = new TaskStore()
   return {
     config,
@@ -90,7 +90,7 @@ export async function handleLine(
 }
 
 export async function startRepl(
-  config: AppConfig,
+  config: Config,
   logger: Logger,
 ): Promise<void> {
   const session = createSession(config, logger)

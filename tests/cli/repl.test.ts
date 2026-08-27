@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as readline from 'node:readline/promises'
-import type { AppConfig } from '../../src/config/schema.ts'
+import type { Config } from '../../src/config/schema.ts'
 import {
   createSession,
   handleLine,
@@ -13,7 +13,7 @@ import type { ResponseInput } from '../../src/agent/client.ts'
 import { cfg, fakeClient, makeSink } from '../helpers.ts'
 import { getVersion } from '../../src/version.ts'
 
-function makeSession(over: Partial<AppConfig> = {}): Session {
+function makeSession(over: Partial<Config> = {}): Session {
   const config = cfg(over)
   return createSession(config, createLogger(config))
 }

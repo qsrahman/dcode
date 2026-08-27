@@ -6,7 +6,7 @@ import type {
   ResponseInput,
 } from '../../../src/agent/client.ts'
 import { isContextOverflowError } from '../../../src/agent/client.ts'
-import type { AppConfig } from '../../../src/config/schema.ts'
+import type { Config } from '../../../src/config/schema.ts'
 import { createLogger } from '../../../src/util/log.ts'
 import { ContextManager } from '../../../src/agent/context/manager.ts'
 import { cfg } from '../../helpers.ts'
@@ -76,7 +76,7 @@ describe('ContextManager', () => {
         keepTokens: 49,
         prune: true,
       },
-    }) as AppConfig
+    }) as Config
     const { client } = summaryClient('SUMMARY')
     const m = new ContextManager(config.context, createLogger(config))
     const history = bigHistory()
@@ -98,7 +98,7 @@ describe('ContextManager', () => {
         keepTokens: 1,
         prune: true,
       },
-    }) as AppConfig
+    }) as Config
     // huge "summary" so the window is never recovered
     const { client, calls } = summaryClient('y'.repeat(1000))
     const m = new ContextManager(config.context, createLogger(config))
@@ -119,7 +119,7 @@ describe('ContextManager', () => {
         keepTokens: 1,
         prune: true,
       },
-    }) as AppConfig
+    }) as Config
     const { client, calls } = summaryClient('y'.repeat(1000))
     const m = new ContextManager(config.context, createLogger(config))
     const history = bigHistory()

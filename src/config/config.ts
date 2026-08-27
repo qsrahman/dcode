@@ -1,11 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { ParsedArgs } from '../cli/args.ts'
-import { configSchema, type AppConfig } from './schema.ts'
+import { configSchema, type Config } from './schema.ts'
 
 const DEFAULT_CONFIG_FILES = ['dcode.json', '.dcode.json']
 
-export function resolveRoot(config: Pick<AppConfig, 'root'>): string {
+export function resolveRoot(config: Pick<Config, 'root'>): string {
   return config.root ?? process.cwd()
 }
 
@@ -13,7 +13,7 @@ export function resolveRoot(config: Pick<AppConfig, 'root'>): string {
 // A missing default config (dcode.json / .dcode.json) is fine and falls back to
 // schema defaults, but an explicit --config path that doesn't exist is an error:
 // the user named a file they expect to load, so silence would hide a typo.
-export function loadConfig(path?: string): Partial<AppConfig> {
+export function loadConfig(path?: string): Partial<Config> {
   if (path !== undefined) return readConfigFile(resolve(process.cwd(), path))
   for (const name of DEFAULT_CONFIG_FILES) {
     const abs = resolve(process.cwd(), name)
@@ -22,7 +22,7 @@ export function loadConfig(path?: string): Partial<AppConfig> {
   return {}
 }
 
-function readConfigFile(abs: string): Partial<AppConfig> {
+function readConfigFile(abs: string): Partial<Config> {
   if (!existsSync(abs)) throw new Error(`Config file not found: ${abs}`)
   const raw = readFileSync(abs, 'utf8')
   try {
@@ -38,10 +38,10 @@ function readConfigFile(abs: string): Partial<AppConfig> {
 }
 
 export function mergeConfigs(
-  file: Partial<AppConfig>,
-  env: Partial<AppConfig>,
+  file: Partial<Config>,
+  env: Partial<Config>,
   args: ParsedArgs,
-): AppConfig {
+): Config {
   const merged: Record<string, unknown> = { ...file, ...env }
   if (args.model) merged.model = args.model
   if (args.noColor) merged.color = false
@@ -49,9 +49,9 @@ export function mergeConfigs(
   return configSchema.parse(merged)
 }
 
-export function buildConfig(args: ParsedArgs): AppConfig {
+export function buildConfig(args: ParsedArgs): Config {
   const file = loadConfig(args.config)
-  const env: Partial<AppConfig> = {}
+  const env: Partial<Config> = {}
   if (process.env.OPENAI_API_KEY) env.apiKey = process.env.OPENAI_API_KEY
   if (process.env.OPENAI_BASE_URL) env.baseURL = process.env.OPENAI_BASE_URL
   if (process.env.OPENAI_MODEL) env.model = process.env.OPENAI_MODEL

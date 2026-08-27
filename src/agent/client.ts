@@ -5,7 +5,7 @@ import type {
   ResponseInput,
   Tool as ResponsesTool,
 } from 'openai/resources/responses/responses'
-import type { AppConfig } from '../config/schema.ts'
+import type { Config } from '../config/schema.ts'
 
 export type { ResponseInput, OpenAIResponse }
 
@@ -47,7 +47,7 @@ export function isContextOverflowError(err: unknown): boolean {
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here
 // so the rest of the app can depend on the Client interface and stay
 // testable without network access.
-export function createClient(config: AppConfig): Client {
+export function createClient(config: Config): Client {
   const client = new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseURL,

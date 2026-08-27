@@ -4,7 +4,7 @@ import type {
   OpenAIResponse,
   ResponseInput,
 } from '../../../src/agent/client.ts'
-import type { AppConfig } from '../../../src/config/schema.ts'
+import type { Config } from '../../../src/config/schema.ts'
 import { createLogger } from '../../../src/util/log.ts'
 import { compactHistory } from '../../../src/agent/context/compact.ts'
 import { cfg } from '../../helpers.ts'
@@ -33,7 +33,7 @@ describe('compactHistory', () => {
         keepTokens: 1,
         prune: true,
       },
-    }) as AppConfig
+    }) as Config
     const history: ResponseInput = [
       { role: 'user', content: 'first request' },
       { role: 'assistant', content: 'first answer' },
@@ -63,7 +63,7 @@ describe('compactHistory', () => {
         keepTokens: 1,
         prune: true,
       },
-    }) as AppConfig
+    }) as Config
     const history: ResponseInput = [{ role: 'user', content: 'only' }]
     const out = await compactHistory(
       summaryClient('SUMMARY'),

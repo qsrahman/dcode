@@ -1,5 +1,5 @@
 import type { Client, ResponseInput } from '../client.ts'
-import type { AppConfig } from '../../config/schema.ts'
+import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
 import { estimateHistory } from './tokens.ts'
 import { pruneHistory } from './prune.ts'
@@ -23,10 +23,10 @@ export class ContextManager {
   // provider's `usage` so the cheap heuristic tracks the model's tokenizer.
   private ratio = 1
   private failures = 0
-  private readonly cfg: AppConfig['context']
+  private readonly cfg: Config['context']
   private readonly logger: Logger
 
-  constructor(cfg: AppConfig['context'], logger: Logger) {
+  constructor(cfg: Config['context'], logger: Logger) {
     this.cfg = cfg
     this.logger = logger
   }
@@ -57,7 +57,7 @@ export class ContextManager {
 
   private async compact(
     client: Client,
-    config: AppConfig,
+    config: Config,
     history: ResponseInput,
   ): Promise<void> {
     const next = await compactHistory(client, config, history, this.logger)
@@ -70,7 +70,7 @@ export class ContextManager {
   // loop can log it.
   async beforeTurn(
     client: Client,
-    config: AppConfig,
+    config: Config,
     history: ResponseInput,
   ): Promise<ContextAction> {
     if (!this.cfg.auto) return 'none'
@@ -92,7 +92,7 @@ export class ContextManager {
   // request once; returns false when recovery is exhausted.
   async onOverflow(
     client: Client,
-    config: AppConfig,
+    config: Config,
     history: ResponseInput,
   ): Promise<boolean> {
     if (this.failures >= CIRCUIT_BREAKER) return false
@@ -103,7 +103,7 @@ export class ContextManager {
   // Manual `/compact`: summarize now regardless of the budget.
   async manual(
     client: Client,
-    config: AppConfig,
+    config: Config,
     history: ResponseInput,
   ): Promise<void> {
     await this.compact(client, config, history)

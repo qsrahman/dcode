@@ -4,7 +4,7 @@ import type {
   OpenAIResponse,
   ResponseInput,
 } from './client.ts'
-import type { AppConfig } from '../config/schema.ts'
+import type { Config } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 import { errorMessage } from '../util/log.ts'
 import type {
@@ -47,7 +47,7 @@ export interface TurnOpts {
 // live, not to reconstruct the final text.
 export async function runTurn(
   client: Client,
-  config: AppConfig,
+  config: Config,
   input: ResponseInput,
   opts: TurnOpts,
 ): Promise<{ text: string; response: OpenAIResponse }> {

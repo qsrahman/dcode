@@ -45,4 +45,4 @@ export const configSchema = z.object({
       prune: true,
     }),
 })
-export type AppConfig = z.infer<typeof configSchema>
+export type Config = z.infer<typeof configSchema>

@@ -60,7 +60,7 @@ src/
   cli/args.ts         # parseCli(argv) -> ParsedArgs (pure, fully tested)
   cli/repl.ts         # readline loop; builds the Session and drives runAgent
   cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
-  config/schema.ts    # zod schema (AppConfig), .strict()
+  config/schema.ts    # zod schema (Config), .strict()
   config/config.ts    # loadConfig(path) + mergeConfigs(CLI, file, env) + resolveRoot
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
   agent/system.ts     # buildSystemPrompt(config)
@@ -334,7 +334,7 @@ is an alternative but more churn).
 
 ### 11.6 Tool interface & registry
 ```ts
-export interface ToolContext { root: string; config: AppConfig; logger: Logger }
+export interface ToolContext { root: string; config: Config; logger: Logger }
 export interface ToolDefinition {
   name: string
   description: string

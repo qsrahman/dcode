@@ -1,6 +1,6 @@
 import type { Client, OpenAIResponse, ResponseInput } from './client.ts'
 import { isContextOverflowError } from './client.ts'
-import type { AppConfig } from '../config/schema.ts'
+import type { Config } from '../config/schema.ts'
 import { resolveRoot } from '../config/config.ts'
 import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
@@ -23,7 +23,7 @@ import { ContextManager } from './context/manager.ts'
 
 export async function runAgent(
   client: Client,
-  config: AppConfig,
+  config: Config,
   history: ResponseInput,
   opts: {
     sink?: RunSink
@@ -137,7 +137,7 @@ export async function runAgent(
 // input (system + user) and delegates to runAgent. Returns the final text.
 export async function runOneShot(
   client: Client,
-  config: AppConfig,
+  config: Config,
   prompt: string,
   opts: {
     sink?: RunSink

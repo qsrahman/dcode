@@ -1,6 +1,6 @@
 import ansis from 'ansis'
 import { format } from 'node:util'
-import type { AppConfig } from '../config/schema.ts'
+import type { Config } from '../config/schema.ts'
 
 export interface Logger {
   debug(...args: unknown[]): void
@@ -29,7 +29,7 @@ function paintFor(color: boolean): Record<keyof Logger, Paint> {
 }
 
 export function createLogger(
-  config: Pick<AppConfig, 'verbose' | 'color'>,
+  config: Pick<Config, 'verbose' | 'color'>,
   stream: NodeJS.WritableStream = process.stderr,
 ): Logger {
   const paint = paintFor(config.color)
