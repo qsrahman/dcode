@@ -1,6 +1,7 @@
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import { open, readFile, writeFile, readdir, stat } from 'node:fs/promises'
+import type { Stats } from 'node:fs'
 import { z } from 'zod'
-import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
+import type { ToolDefinition } from '../../agent/types.ts'
 import { resolvePath, fsError } from './paths.ts'
 
 function readFileTool(): ToolDefinition<{ path: string }> {
@@ -10,12 +11,31 @@ function readFileTool(): ToolDefinition<{ path: string }> {
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
     }),
-    async execute(args: { path: string }, ctx: ToolContext) {
+    async execute(args, ctx) {
       const file = await resolvePath(ctx.root, args.path)
+      // Read at most the configured output cap so a huge or symlinked-to-huge
+      // file can't blow up memory before the runner truncates the result.
+      const limit = ctx.config.maxToolOutputBytes
+      const handle = await open(file, 'r').catch((err) => {
+        throw new Error(fsError(err, args.path))
+      })
       try {
-        return await readFile(file, 'utf8')
+        const { size } = await stat(file)
+        const buf = Buffer.alloc(Math.min(size, limit))
+        const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
+        // A NUL byte means binary: dumping it as text is useless and risks the
+        // model acting on mojibake, so describe it instead (as web_fetch does).
+        if (buf.subarray(0, bytesRead).includes(0)) {
+          return `(binary ${args.path}, ${size} bytes; not shown)`
+        }
+        let text = buf.toString('utf8', 0, bytesRead)
+        if (size > limit)
+          text += `\n…(${size} bytes total; truncated at ${limit})`
+        return text
       } catch (err) {
         throw new Error(fsError(err, args.path))
+      } finally {
+        await handle.close()
       }
     },
   }
@@ -31,7 +51,7 @@ function listDirTool(): ToolDefinition<{ path?: string }> {
         .optional()
         .describe('Directory under the working directory; defaults to root'),
     }),
-    async execute(args: { path?: string }, ctx: ToolContext) {
+    async execute(args, ctx) {
       const target = args.path ?? '.'
       const dir = await resolvePath(ctx.root, target)
       try {
@@ -57,10 +77,10 @@ function statTool(): ToolDefinition<{ path?: string }> {
         .optional()
         .describe('Path under the working directory; defaults to root'),
     }),
-    async execute(args: { path?: string }, ctx: ToolContext) {
+    async execute(args, ctx) {
       const target = args.path ?? '.'
       const full = await resolvePath(ctx.root, target)
-      let info: Awaited<ReturnType<typeof stat>>
+      let info: Stats
       try {
         info = await stat(full)
       } catch (err) {
@@ -89,9 +109,13 @@ function writeFileTool(): ToolDefinition<{ path: string; content: string }> {
       path: z.string().describe('Relative path under the working directory'),
       content: z.string().describe('Full file contents to write'),
     }),
-    async execute(args: { path: string; content: string }, ctx: ToolContext) {
+    async execute(args, ctx) {
       const file = await resolvePath(ctx.root, args.path)
-      await writeFile(file, args.content, 'utf8')
+      try {
+        await writeFile(file, args.content, 'utf8')
+      } catch (err) {
+        throw new Error(fsError(err, args.path))
+      }
       // Byte length, not JS string length: they differ for non-ASCII content.
       return `wrote ${Buffer.byteLength(args.content)} bytes to ${args.path}`
     },
@@ -120,22 +144,19 @@ function editFileTool(): ToolDefinition<{
         .optional()
         .describe('Replace all occurrences instead of requiring exactly one'),
     }),
-    async execute(
-      args: {
-        path: string
-        old_string: string
-        new_string: string
-        replace_all?: boolean
-      },
-      ctx: ToolContext,
-    ) {
+    async execute(args, ctx) {
       const file = await resolvePath(ctx.root, args.path)
-      let before: string
-      try {
-        before = await readFile(file, 'utf8')
-      } catch (err) {
+      const beforeBuf = await readFile(file).catch((err) => {
         throw new Error(fsError(err, args.path))
+      })
+      // NUL byte ⇒ binary; editing it as text would corrupt the file, so refuse
+      // rather than round-tripping mojibake through string ops.
+      if (beforeBuf.includes(0)) {
+        throw new Error(
+          `is a binary file; edit_file only supports text: ${args.path}`,
+        )
       }
+      const before = beforeBuf.toString('utf8')
       const count = countOccurrences(before, args.old_string)
       if (count === 0) throw new Error(`old_string not found in ${args.path}`)
       if (count > 1 && !args.replace_all) {

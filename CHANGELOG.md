@@ -1,3 +1,12 @@
+## [0.13.3] - 2026-08-27
+
+### Changed
+- Harden filesystem tools (`src/tools/local/fs.ts`):
+  - `read_file` reads at most `maxToolOutputBytes` (was buffering the whole file, risking OOM on huge/symlinked files) and notes truncation.
+  - `read_file` and `edit_file` now detect binary content (NUL sniff) and refuse/cap it instead of dumping or corrupting mojibake.
+  - `write_file` routes write failures through `fsError` for consistent, self-correcting messages (was letting raw Node errors through).
+  - Simplified: dropped redundant `execute` param type annotations; `stat` uses `Stats` instead of `Awaited<ReturnType<typeof stat>>`.
+
 ## [0.13.2] - 2026-08-27
 
 ### Added

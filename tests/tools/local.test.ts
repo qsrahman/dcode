@@ -168,6 +168,26 @@ describe('read-only tools', () => {
     ).rejects.toThrow(/is a directory/)
   })
 
+  it('read_file describes binary files instead of dumping them', async () => {
+    await writeFile(
+      join(root, 'img.bin'),
+      Buffer.from('\x89PNG\r\n\x00\x00body\x00', 'binary'),
+    )
+    const out = await tool('read_file').execute({ path: 'img.bin' }, ctx)
+    expect(out).toContain('(binary img.bin')
+    expect(out).toContain('bytes; not shown)')
+    expect(out).not.toContain('body')
+  })
+
+  it('read_file truncates content past the output cap', async () => {
+    const big = 'x'.repeat(ctx.config.maxToolOutputBytes + 500)
+    await writeFile(join(root, 'big.txt'), big)
+    const out = await tool('read_file').execute({ path: 'big.txt' }, ctx)
+    expect(out).toMatch(/truncated at/)
+    expect(out.length).toBeLessThanOrEqual(ctx.config.maxToolOutputBytes + 64)
+    expect(out).not.toContain(big)
+  })
+
   it('list_dir reports non-directories clearly', async () => {
     await writeFile(join(root, 'a.txt'), 'x')
     await expect(
@@ -229,6 +249,26 @@ describe('mutating tools', () => {
       ctx,
     )
     expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('x x')
+  })
+
+  it('edit_file refuses binary files', async () => {
+    await writeFile(
+      join(root, 'img.bin'),
+      Buffer.from('\x00\x01\x02', 'binary'),
+    )
+    await expect(
+      tool('edit_file').execute(
+        { path: 'img.bin', old_string: 'x', new_string: 'y' },
+        ctx,
+      ),
+    ).rejects.toThrow(/is a binary file/)
+  })
+
+  it('write_file reports write errors clearly', async () => {
+    await mkdir(join(root, 'sub'))
+    await expect(
+      tool('write_file').execute({ path: 'sub', content: 'x' }, ctx),
+    ).rejects.toThrow(/is a directory/)
   })
 
   // String.replace would interpret `$&`-style patterns in new_string; the edit
