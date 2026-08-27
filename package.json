@@ -1,6 +1,6 @@
 {
   "name": "dcode",
-  "version": "0.13.5",
+  "version": "0.13.6",
   "description": "A CLI-based AI coding agent built on the OpenAI Responses SDK.",
   "type": "module",
   "bin": {

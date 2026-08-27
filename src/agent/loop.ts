@@ -190,15 +190,26 @@ export function renderToolResult(
 ): string {
   const status = ok ? ansis.green('✓') : ansis.red('✗')
   const secs = (ms / 1000).toFixed(1)
-  return `› ${name}: ${status} ${ok ? 'done' : 'failed'} (${secs}s)`
+  return `› ${ansis.cyan(name)}: ${status} ${ok ? 'done' : 'failed'} (${ansis.dim(secs + 's')})`
 }
 
 const RULE = '─'.repeat(40)
 
+// Color a unified-diff line so edits and `git diff` output are scannable in
+// verbose mode: hunk headers cyan, additions green, removals red.
+function colorDiffLine(line: string): string {
+  if (line.startsWith('@@')) return ansis.cyan(line)
+  if (line.startsWith('+')) return ansis.green(line)
+  if (line.startsWith('-')) return ansis.red(line)
+  return line
+}
+
 // Verbose mode echoes a tool's raw output between turns; dim fences mark it
-// as diagnostics so it doesn't read as more streamed model text.
+// as diagnostics so it doesn't read as more streamed model text. Diff-like
+// lines (from git diff or edit_file) are colored.
 export function renderToolOutput(name: string, output: string): string {
-  return [ansis.dim(`── ${name} output ${RULE}`), output, ansis.dim(RULE)].join(
+  const body = output.split('\n').map(colorDiffLine).join('\n')
+  return [ansis.dim(`── ${name} output ${RULE}`), body, ansis.dim(RULE)].join(
     '\n',
   )
 }

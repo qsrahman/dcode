@@ -311,4 +311,13 @@ describe('tool result rendering', () => {
     expect(stripped).toContain('── grep output ─')
     expect(stripped).toContain('\na\nb\n')
   })
+
+  it('colors diff lines (additions green, removals red, headers cyan)', () => {
+    const out = renderToolOutput('edit_file', '@@ -1 +1 @@\n-old\n+new')
+    expect(ansis.strip(out)).toContain('@@ -1 +1 @@')
+    expect(ansis.strip(out)).toContain('-old')
+    expect(ansis.strip(out)).toContain('+new')
+    expect(out).toContain(ansis.green('+new'))
+    expect(out).toContain(ansis.red('-old'))
+  })
 })

@@ -1,3 +1,20 @@
+## [0.13.6] - 2026-08-27
+
+### Added
+- REPL UX enhancements (`src/agent/loop.ts`, `src/cli/completer.ts`):
+  - Richer tool-status lines: the tool name is colored, the ✓/✗ status stays
+    green/red, and the duration is dimmed. Stripped text is unchanged, so the
+    model-fed contract holds.
+  - Colored diff preview in verbose mode: unified-diff lines are colored (hunk
+    headers cyan, `+` green, `-` red), lighting up `git diff` and any diff
+    output. `edit_file` output stays `edited <path>` (no diff in the tool
+    result — purely a display change).
+  - REPL tab-completion (`src/cli/completer.ts`, new; wired into `startRepl`):
+    slash commands complete from the known list; otherwise the last
+    whitespace-delimited token is completed as a path under the working
+    directory, confined via `resolvePath` so it can't suggest escapes.
+  - PLAN.md §22 documents the enhancement.
+
 ## [0.13.5] - 2026-08-27
 
 ### Added

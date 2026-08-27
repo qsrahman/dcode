@@ -16,6 +16,7 @@ export interface Session {
   tools: ToolRegistry
   context: ContextManager
   tasks: TaskStore
+  root: string
 }
 
 export type HandleResult = 'ok' | 'exit'
@@ -37,7 +38,7 @@ const HELP = ansis.dim(
     '  /todo     list in-session tasks',
     '  /config   print effective configuration',
     '  /undo     remove the last exchange (user turn + response)',
-    '  /verbose  toggle verbose mode (on|off|)',
+    '  /verbose  toggle verbose mode (on|off)',
     '  /tools    list available tools',
     '  /version  print version',
   ].join('\n'),
@@ -165,6 +166,8 @@ const commands: Record<string, CommandHandler> = {
   },
   exit: () => 'exit',
 }
+
+export const SLASH_COMMANDS = Object.keys(commands)
 
 export function parseCommand(
   line: string,

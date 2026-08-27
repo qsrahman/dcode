@@ -81,7 +81,8 @@ src/
    #   fs.ts      (read_file, list_dir, stat, write_file, edit_file,
    #               move_file, copy_file, delete_file, make_dir)
    #   process.ts (run_process, read_process, kill_process — background)
-   #   search.ts  (grep, glob)
+   #   search.ts  (grep, glob, find_symbol, find_references)
+   #   patch.ts   (apply_patch — atomic multi-file unified-diff apply)
                         #   shell.ts   (run_shell)
    tools/index.ts      # createLocalTools: assembles local + web + todo into a ToolRegistry
    tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
@@ -154,6 +155,8 @@ See §17 for deferred candidates.
 | P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
 | P10 | Context-window management (prune + compact + overflow retry) | **Done** |
 | P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** (see §19) |
+| P12 | Symbol search (`find_symbol` / `find_references`, ripgrep-lite) | **Planned** (see §20) |
+| P13 | `apply_patch` (atomic multi-file unified-diff apply) | **Planned** (see §21) |
 
 ## 9. Testing strategy
 
@@ -876,5 +879,87 @@ control (for dev servers, watchers, and any long-running command).
 ### 19.4 Status
 **Done.** File-lifecycle and background-process tools join the local set,
 confined to the working directory. Covered by `tests/tools/local.test.ts`.
+
+## 20. P12 Specification (symbol search — find_symbol / find_references) — planned
+
+Adds LSP-lite symbol search over the working directory. v1 uses
+ripgrep-style heuristics (zero new dependencies, reuses the existing search
+traversal) rather than tree-sitter/LSP; a precise tree-sitter upgrade is a
+later option.
+
+### 20.1 Scope
+- `find_symbol(name, kind?, path?)` — locate definition sites using a small
+  per-language definition-regex map (e.g. `function\s+<name>`, `class\s+<name>`,
+  `def\s+<name>`, `const\s+<name>\s*=`, `type\s+<name>\s*=`), keyed by file
+  extension. Reuses `walkDir` + `GREP_MAX_MATCHES`.
+- `find_references(name, kind?, path?)` — word-boundary (`\b<name>\b`) search
+  across files of the same language family. Best-effort: cannot resolve
+  scoping, so it may include shadowed/同名 symbols (stated in the tool
+  description).
+
+### 20.2 Module changes
+- `src/tools/local/search.ts`: add `findSymbolTool()`, `findReferencesTool()`;
+  add a `langDefRegex` map (TS/JS/Python/C/Rust first). Both `resolvePath`-
+  confined, capped + footer like `grep`.
+
+### 20.3 Tests (`tests/tools/search.test.ts`)
+- Definition matching for each supported language; `kind` filter narrows
+  results; `find_references` finds usages and ignores non-word-boundary
+  substrings; path confinement (escape rejection); cap + footer.
+
+### 20.4 Status
+**Planned.** Tree-sitter/LSP precision (curated grammars, scoped references)
+is a documented future upgrade, not part of v1.
+
+## 21. P13 Specification (apply_patch — atomic multi-file unified-diff apply) — planned
+
+Applies a unified diff (possibly multi-file) atomically: either every file
+changes or none do. No new dependency — a minimal hand-rolled unified-diff
+parser + temp-file-then-rename apply (the `diff` npm package is a fallback
+only if parsing proves fiddly).
+
+### 21.1 Scope
+- `apply_patch(patch, dry_run?, allow_conflict?)` — parse a unified diff into
+  per-file records, `resolvePath` each path (reject escapes), apply hunks to
+  temp files, then `rename` each temp over its target only after *all* apply
+  cleanly. On any failure (parse error, missing context lines, conflict) the
+  whole patch is aborted and originals are untouched.
+
+### 21.2 Module changes
+- `src/tools/local/patch.ts` (new): `parseUnifiedDiff()`, `applyPatch()`
+  (atomic + rollback), `applyPatchTool()`. Conflict detection (hunk context
+  lines must still match the current file) is strict by default; `dry_run`
+  reports the files that would change without writing.
+
+### 21.3 Tests (`tests/tools/patch.test.ts`)
+- Atomic success (multi-file); partial-failure rollback (originals
+  unchanged); path-escape rejection; conflict detection; dry_run.
+
+### 21.4 Status
+**Planned.** Shell `patch` is deliberately not used (it escapes `root`
+confinement and yields harder-to-structure errors).
+
+## 22. REPL UX enhancements (cheap + safe) — implemented
+
+Status: **Done.** Display-only improvements that don't change tool contracts
+or the agent data flow.
+
+- **Richer tool-status lines** (`src/agent/loop.ts` `renderToolResult`): the
+  tool name is colored, the status check/cross stays green/red, and the
+  duration is dimmed. Stripped text is unchanged, so the contract holds.
+- **Colored diff preview** (`renderToolOutput`): unified-diff lines are colored
+  (hunk headers cyan, `+` green, `-` red). Lights up `git diff` output in
+  verbose mode. `edit_file` output stays `edited <path>` (no diff in the tool
+  result, so the model contract is unchanged); the coloring is purely display.
+- **REPL tab-completion** (`src/cli/completer.ts`, new; wired into
+  `startRepl`): slash commands complete from the known list; otherwise the last
+  whitespace-delimited token is completed as a path under the working
+  directory, confined via `resolvePath` so it can't suggest escapes.
+
+### 22.1 Tests
+- `tests/cli/completer.test.ts`: slash-command completion; file/nested/dir
+  completion; escape returns nothing.
+- `tests/agent/loop.test.ts`: diff-line coloring preserves content under
+  `ansis.strip`.
 
 

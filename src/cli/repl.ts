@@ -7,6 +7,7 @@ import { TaskStore } from '../agent/tasks.ts'
 import { ContextManager } from '../agent/context/manager.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
+import { resolveRoot } from '../config/config.ts'
 import type { RunSink, StreamRef } from '../agent/run.ts'
 import { type Logger, errorMessage } from '../util/log.ts'
 import {
@@ -15,6 +16,7 @@ import {
   dispatch,
   parseCommand,
 } from './commands.ts'
+import { createCompleter } from './completer.ts'
 
 const HINT = 'Ask anything, /help for commands...'
 const PROMPT = ansis.cyan('> ')
@@ -29,6 +31,7 @@ export function createSession(config: Config, logger: Logger): Session {
     tools: createLocalTools(tasks),
     context: new ContextManager(config.context, logger, tasks),
     tasks,
+    root: resolveRoot(config),
   }
 }
 
@@ -99,6 +102,7 @@ export async function startRepl(config: Config, logger: Logger): Promise<void> {
     input: process.stdin,
     output: process.stdout,
     terminal: true,
+    completer: createCompleter(session.root),
   })
   rl.setPrompt(PROMPT)
 
