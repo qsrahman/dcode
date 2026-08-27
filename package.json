@@ -6,6 +6,12 @@
   "bin": {
     "dcode": "src/index.ts"
   },
+  "files": [
+    "src",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=26.0.0"
   },

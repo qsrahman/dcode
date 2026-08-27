@@ -8,6 +8,15 @@ build step (Node 26 runs TypeScript directly).
 > `git` tool, and automatic context-window management all work. See
 > [PLAN.md](./PLAN.md) for the full roadmap.
 
+> **⚠️ Security warning — tools are ungated.** dcode has **no permission
+> architecture**. Every tool, including mutating ones (`write_file`, `edit_file`,
+> `run_shell`, and `git` `commit`/`branch`), runs **automatically** the moment the
+> model calls it — there is no confirmation prompt, allow-list, sandbox, or
+> dry-run mode. The model can edit files and execute arbitrary shell commands in
+> the working directory entirely on its own initiative. **Use with caution:**
+> point dcode only at sandboxed or disposable directories, and review its
+> actions. A declarative permissions/modes system was planned (P5) but cancelled.
+
 ## Requirements
 
 - Node.js **26+** (type stripping — no `tsc` build step).
