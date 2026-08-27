@@ -68,11 +68,11 @@ export async function main(): Promise<void> {
     if (!config.apiKey) {
       process.stderr.write(
         'OPENAI_API_KEY is not set — dcode needs an OpenAI-compatible API key to run.\n\n' +
-          'Add it to your shell profile so it persists across sessions:\n' +
-          "  echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc && source ~/.zshrc\n" +
-          '  # or for bash: ~/.bashrc\n\n' +
-          'You can also put OPENAI_API_KEY=sk-... in a .env file in this\n' +
-          'directory, or set "apiKey" in your dcode.json config. Then restart dcode.\n',
+          'Provide it (highest precedence first): environment, global config, or local:\n' +
+          "  shell profile:  echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc\n" +
+          '  global config:  run  /key set openai sk-...  in the REPL (persists anywhere)\n' +
+          '  local dcode.json: set "apiKey", or put OPENAI_API_KEY=sk-... in a .env here\n' +
+          'Then restart dcode.\n',
       )
       process.exit(1)
     }

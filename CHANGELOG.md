@@ -1,3 +1,22 @@
+## [0.13.7] - 2026-08-27
+
+### Added
+- Global API-key storage for installed-anywhere use (`src/cli/keys.ts`, new). A
+  globally installed dcode can persist secrets so they apply from any directory
+  without per-shell env exports or hand-editing JSON:
+  - `/key set openai <key>` and `/key set brave <key>` write the key to
+    `~/.config/dcode/dcode.json` (relocatable via `DCODE_CONFIG_HOME`) with the
+    file at `0600` and its directory at `0700`.
+  - `/key list` shows which providers are set without revealing values;
+    `/key unset <openai|brave>` clears one. Setting a key also updates the live
+    session config so it takes effect immediately.
+  - A small provider allowlist (`openai` → `apiKey`, `brave` → `brave`) keeps
+    `/key` from writing arbitrary config keys.
+- `schema.ts` adds a `brave` field; `web_search` reads `ctx.config.brave ??
+  process.env.BRAVE_API_KEY`, so Brave search works from stored config.
+- `/config` prints a redacted `keys: openai=set brave=unset (values hidden)`
+  line. Key precedence: CLI > env > local config > global config > default.
+
 ## [0.13.6] - 2026-08-27
 
 ### Added

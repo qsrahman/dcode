@@ -93,6 +93,21 @@ describe('web_search', () => {
     )
   })
 
+  it('uses ctx.config.brave when the env key is unset', async () => {
+    delete process.env.BRAVE_API_KEY
+    const localCtx: ToolContext = {
+      ...ctx,
+      config: { ...cfg(), brave: 'from-config' },
+    }
+    mockFetch({
+      web: {
+        results: [{ title: 'A', url: 'https://a.example', description: 'da' }],
+      },
+    })
+    const out = await tool.execute({ query: 'q' }, localCtx)
+    expect(out).toContain('A')
+  })
+
   it('returns (no results) when the result set is empty', async () => {
     mockFetch({ web: { results: [] } })
     const out = await tool.execute({ query: 'q' }, ctx)

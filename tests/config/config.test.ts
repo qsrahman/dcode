@@ -134,6 +134,8 @@ describe('mergeConfigs', () => {
 
 describe('buildConfig', () => {
   const prevEnv = process.env.OPENAI_MODEL
+  const prevKey = process.env.OPENAI_API_KEY
+  const prevBrave = process.env.BRAVE_API_KEY
   const prevCwd = process.cwd()
   const prevGlobalHome = process.env.DCODE_CONFIG_HOME
   let dir: string
@@ -150,6 +152,10 @@ describe('buildConfig', () => {
     else process.env.DCODE_CONFIG_HOME = prevGlobalHome
     if (prevEnv === undefined) delete process.env.OPENAI_MODEL
     else process.env.OPENAI_MODEL = prevEnv
+    if (prevKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = prevKey
+    if (prevBrave === undefined) delete process.env.BRAVE_API_KEY
+    else process.env.BRAVE_API_KEY = prevBrave
   })
 
   it('reads OPENAI_MODEL from the environment', () => {
@@ -166,5 +172,17 @@ describe('buildConfig', () => {
     delete process.env.OPENAI_MODEL
     expect(existsSync(join(dir, 'dcode.json'))).toBe(false)
     expect(buildConfig(parseCli([])).model).toBe('gpt-5')
+  })
+
+  it('reads apiKey and brave from the global config when env is unset', () => {
+    delete process.env.OPENAI_API_KEY
+    delete process.env.BRAVE_API_KEY
+    writeFileSync(
+      globalConfigPath(),
+      JSON.stringify({ apiKey: 'sk-global', brave: 'br-global' }),
+    )
+    const cfg = buildConfig(parseCli([]))
+    expect(cfg.apiKey).toBe('sk-global')
+    expect(cfg.brave).toBe('br-global')
   })
 })

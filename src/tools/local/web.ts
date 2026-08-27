@@ -38,10 +38,14 @@ function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
         .optional()
         .describe('Number of results to return (default 5)'),
     }),
-    async execute(args) {
-      const key = process.env.BRAVE_API_KEY
+    async execute(args, ctx) {
+      // Config wins only because buildConfig already folds BRAVE_API_KEY into
+      // config.brave; the env fallback covers tests/direct callers.
+      const key = process.env.BRAVE_API_KEY ?? ctx.config.brave
       if (!key) {
-        throw new Error('BRAVE_API_KEY is not set; cannot search the web')
+        throw new Error(
+          'BRAVE_API_KEY is not set; cannot search the web (store it with: /key set brave <key>)',
+        )
       }
       const url = new URL(BRAVE_ENDPOINT)
       url.searchParams.set('q', args.query)

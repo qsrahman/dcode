@@ -962,4 +962,32 @@ or the agent data flow.
 - `tests/agent/loop.test.ts`: diff-line coloring preserves content under
   `ansis.strip`.
 
+## 23. Global API-key storage — implemented
+
+Status: **Done.** Lets a globally installed `dcode` persist secrets across
+directories without editing JSON or exporting env vars per shell.
+
+- `src/cli/keys.ts` (new): `setGlobalKey`/`unsetGlobalKey` write a single secret
+  into `~/.config/dcode/dcode.json` (relocatable via `DCODE_CONFIG_HOME`), with
+  the file at `0600` and its directory at `0700`. A small provider allowlist
+  (`openai` → `apiKey`, `brave` → `brave`) stops `/key` from writing arbitrary
+  config keys.
+- `/key` REPL command (`src/cli/commands.ts`): `set <openai|brave> <value>`,
+  `unset <openai|brave>`, `list` (shows set/unset, never the values). Setting a
+  key also updates the live session config so it takes effect immediately.
+- `schema.ts` adds a `brave` field; `config.ts` folds `BRAVE_API_KEY` into config
+  (env > file > default, same precedence as `apiKey`). `web_search` reads
+  `ctx.config.brave ?? process.env.BRAVE_API_KEY`.
+- `/config` now prints a `keys: openai=set brave=unset (values hidden)` line.
+- Key resolution precedence: CLI > env > local config (`apiKey`/`brave`) > global
+  config > schema default. Secrets are never logged and are not echoed by
+  `/key list`.
+
+### 23.1 Tests
+- `tests/cli/keys.test.ts`: 0600 perms, field merge, unset, provider allowlist.
+- `tests/config/config.test.ts`: `buildConfig` picks up `apiKey`/`brave` from the
+  global config when env is unset.
+- `tests/tools/web.test.ts`: `web_search` uses `ctx.config.brave` when env unset.
+
+
 

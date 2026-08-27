@@ -6,7 +6,15 @@ import type { Logger } from '../util/log.ts'
 import type { ToolRegistry } from '../tools/registry.ts'
 import type { ContextManager } from '../agent/context/manager.ts'
 import type { TaskStore } from '../agent/tasks.ts'
+import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../version.ts'
+import {
+  isKnownProvider,
+  keyField,
+  KEY_PROVIDERS,
+  setGlobalKey,
+  unsetGlobalKey,
+} from './keys.ts'
 
 export interface Session {
   config: Config
@@ -40,6 +48,7 @@ const HELP = ansis.dim(
     '  /undo     remove the last exchange (user turn + response)',
     '  /verbose  toggle verbose mode (on|off)',
     '  /tools    list available tools',
+    '  /key      store/show API keys (openai, brave)',
     '  /version  print version',
   ].join('\n'),
 )
@@ -128,11 +137,15 @@ const commands: Record<string, CommandHandler> = {
   todo: listTasks,
   config: (session, _args, sink) => {
     const c = session.config
+    const keysLine = KEY_PROVIDERS.map(
+      (p) => `${p}=${c[keyField(p)] ? 'set' : 'unset'}`,
+    ).join(' ')
     const lines = [
       `model:        ${c.model}`,
       `baseURL:      ${c.baseURL ?? '(default)'}`,
       `stateful:     ${c.stateful}`,
       `verbose:      ${c.verbose}`,
+      `keys:         ${keysLine} (values hidden)`,
       `maxTools:     ${c.maxToolIterations}`,
       `maxHistory:   ${c.maxHistoryItems}`,
       `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
@@ -162,6 +175,55 @@ const commands: Record<string, CommandHandler> = {
     else if (arg === 'off') session.config.verbose = false
     else session.config.verbose = !session.config.verbose
     sink.write(`verbose: ${session.config.verbose ? 'on' : 'off'}\n`)
+    return 'ok'
+  },
+  key: (session, args, sink) => {
+    const parts = args.trim().split(/\s+/).filter(Boolean)
+    const sub = parts[0]
+    if (sub === 'list' || sub === undefined) {
+      const status = KEY_PROVIDERS.map(
+        (p) =>
+          `  ${p.padEnd(7)} ${session.config[keyField(p)] ? 'set' : 'not set'}`,
+      ).join('\n')
+      sink.write(`keys (global config, values hidden):\n${status}\n`)
+      return 'ok'
+    }
+    if (sub === 'set') {
+      const provider = parts[1]
+      const value = parts.slice(2).join(' ')
+      if (!provider || !value) {
+        sink.write('usage: /key set <openai|brave> <value>\n')
+        return 'ok'
+      }
+      if (!isKnownProvider(provider)) {
+        sink.write(
+          `unknown provider: ${provider} (known: ${KEY_PROVIDERS.join(', ')})\n`,
+        )
+        return 'ok'
+      }
+      const field = keyField(provider)
+      setGlobalKey(field, value)
+      session.config[field] = value
+      sink.write(`stored ${provider} key in ${globalConfigPath()}\n`)
+      return 'ok'
+    }
+    if (sub === 'unset') {
+      const provider = parts[1]
+      if (!provider) {
+        sink.write('usage: /key unset <openai|brave>\n')
+        return 'ok'
+      }
+      if (!isKnownProvider(provider)) {
+        sink.write(`unknown provider: ${provider}\n`)
+        return 'ok'
+      }
+      const field = keyField(provider)
+      unsetGlobalKey(field)
+      delete (session.config as Record<string, unknown>)[field]
+      sink.write(`cleared ${provider} key\n`)
+      return 'ok'
+    }
+    sink.write('usage: /key <set|unset|list> [provider] [value]\n')
     return 'ok'
   },
   exit: () => 'exit',

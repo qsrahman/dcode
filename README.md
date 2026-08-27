@@ -144,6 +144,14 @@ explicit `--config` path is used alone (the global config is not consulted). The
 global config is convenient for the globally installed `dcode`, so a fixed
 `model`/`baseURL` applies no matter which directory you run it from.
 
+API keys (`OPENAI_API_KEY`, `BRAVE_API_KEY`) are read from the environment
+(first), then from the global or local config (`apiKey` / `brave` fields), then
+the schema default. For a global install, store them once without editing JSON
+or exporting them per shell: start `dcode` and run `/key set openai <key>`
+(and `/key set brave <key>` for web search). `/key` writes the key to
+`~/.config/dcode/dcode.json` with `0600` permissions and never prints it back;
+`/key list` shows which providers are set without revealing values.
+
 See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 
 ## Phases

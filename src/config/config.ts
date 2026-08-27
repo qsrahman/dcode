@@ -73,5 +73,6 @@ export function buildConfig(args: ParsedArgs): Config {
   if (process.env.OPENAI_API_KEY) env.apiKey = process.env.OPENAI_API_KEY
   if (process.env.OPENAI_BASE_URL) env.baseURL = process.env.OPENAI_BASE_URL
   if (process.env.OPENAI_MODEL) env.model = process.env.OPENAI_MODEL
+  if (process.env.BRAVE_API_KEY) env.brave = process.env.BRAVE_API_KEY
   return mergeConfigs(file, env, args)
 }
