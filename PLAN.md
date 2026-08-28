@@ -979,9 +979,8 @@ directories without editing JSON or exporting env vars per shell.
   (env > file > default, same precedence as `apiKey`). `web_search` reads
   `ctx.config.brave ?? process.env.BRAVE_API_KEY`.
 - `/config` now prints a `keys: openai=set brave=unset (values hidden)` line.
-- Key resolution precedence: CLI > env > local config (`apiKey`/`brave`) > global
-  config > schema default. Secrets are never logged and are not echoed by
-  `/key list`.
+- Key resolution precedence: CLI > env > global config > schema default. Secrets
+  are never logged and are not echoed by `/key list`.
 
 ### 23.1 Tests
 - `tests/cli/keys.test.ts`: 0600 perms, field merge, unset, provider allowlist.
@@ -992,11 +991,11 @@ directories without editing JSON or exporting env vars per shell.
 ## 24. Dropped `.env` auto-loading — implemented
 
 Status: **Done.** `dcode` no longer auto-loads a `.env` file. Config resolution is
-now exclusively `CLI > env (process) > local ./dcode.json > global
-~/.config/dcode/dcode.json > schema defaults`.
+now exclusively `CLI > env (process) > global ~/.config/dcode/dcode.json > schema
+defaults` (with an explicit `--config <path>` replacing the global file).
 
-Rationale: `dcode.json` (local + global via `/key`) fully subsumes project-local
-and global secret/config needs; the `.env` loader lived in the `src/index.ts`
+Rationale: the global `~/.config/dcode/dcode.json` (set via `/key`) covers
+secret/config needs; the `.env` loader lived in the `src/index.ts`
 shebang and was cwd-relative (so a global install got no global `.env`) and did
 not apply to Windows bin installs. `process.env` is still read (shell-exported
 vars) — distinct from `.env` file loading.
@@ -1004,6 +1003,18 @@ vars) — distinct from `.env` file loading.
 Changes: removed `--env-file-if-exists=.env` from the `src/index.ts` shebang and
 the `dev`/`start`/`stress` scripts; updated the missing-key / invalid-key
 guidance in `src/index.ts` and the config docs in `README.md`/`AGENTS.md`.
+
+## 25. Dropped repo-local `./dcode.json` discovery — implemented
+
+Status: **Done.** dcode targets a globally installed, general-purpose use rather
+than repo-based use, so automatic discovery of a local `./dcode.json` / `.dcode.json`
+in the working directory was removed. Config resolution is now
+`CLI > env (process) > global ~/.config/dcode/dcode.json > schema defaults`, with
+an explicit `--config <path>` replacing the global file. `loadConfig` no longer
+searches the cwd for config files; the loadConfig/mergeConfigs tests were updated
+(explicit `--config` file is used instead of global; the precedence integration
+test asserts global < env < cli). Guidance text in `src/index.ts` points to
+`/key` / the global file.
 
 
 

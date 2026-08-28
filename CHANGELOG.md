@@ -1,3 +1,24 @@
+## [0.13.10] - 2026-08-28
+
+### Added
+- First-run key bootstrap: in REPL mode, when no API key is configured, dcode
+  prompts once and persists it to the global store via `/key`. One-shot mode
+  still hard-fails with setup guidance.
+
+### Changed
+- Dropped repo-local `./dcode.json` / `.dcode.json` auto-discovery. Config now
+  resolves as `CLI > env (process) > global ~/.config/dcode/dcode.json > schema
+  defaults`; an explicit `--config <path>` replaces the global file (a missing
+  path is an error). dcode is a globally installed personal tool, so there is no
+  repo-local config.
+- Default model changed from `gpt-5` to `gpt-5.4-mini`.
+
+### Fixed
+- Default base URL is now `https://api.openai.com/` (the OpenAI SDK appends
+  `/v1` itself; the previous `…/v1` produced a doubled `/v1/v1/…` path). The
+  `validateApiKey` probe now hits `/v1/models`, so the default endpoint is
+  actually authenticated.
+
 ## [0.13.9] - 2026-08-27
 
 ### Changed

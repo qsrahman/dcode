@@ -4,8 +4,6 @@ import { join, resolve } from 'node:path'
 import type { ParsedArgs } from '../cli/args.ts'
 import { configSchema, type Config } from './schema.ts'
 
-const DEFAULT_CONFIG_FILES = ['dcode.json', '.dcode.json']
-
 export function resolveRoot(config: Pick<Config, 'root'>): string {
   return config.root ?? process.cwd()
 }
@@ -20,25 +18,19 @@ export function globalConfigPath(): string {
   return join(base, 'dcode.json')
 }
 
-// Config precedence (highest wins): CLI flags > env (OPENAI_*) > local
-// (./dcode.json) > global (~/.config/dcode/dcode.json) > schema defaults. The
-// local file wins over the global one (merged in loadConfig). An explicit
-// --config path that doesn't exist is an error: the user named a file they
-// expect to load, so silence would hide a typo.
+// Config precedence (highest wins): CLI flags > env (OPENAI_*) > global
+// (~/.config/dcode/dcode.json) > schema defaults. An explicit --config <path> is
+// read instead of the global file (and a missing path is an error, so a typo
+// doesn't fail silently). dcode is a globally installed personal tool, so there
+// is no repo-local config discovery.
 export function loadConfig(path?: string): Partial<Config> {
-  if (path !== undefined) return readConfigFile(resolve(process.cwd(), path))
-  let local: Partial<Config> | undefined
-  for (const name of DEFAULT_CONFIG_FILES) {
-    const abs = resolve(process.cwd(), name)
-    if (existsSync(abs)) {
-      local = readConfigFile(abs)
-      break
-    }
+  const target =
+    path !== undefined ? resolve(process.cwd(), path) : globalConfigPath()
+  if (!existsSync(target)) {
+    if (path !== undefined) throw new Error(`Config file not found: ${target}`)
+    return {}
   }
-  const gpath = globalConfigPath()
-  const global = existsSync(gpath) ? readConfigFile(gpath) : undefined
-  if (local && global) return { ...global, ...local }
-  return local ?? global ?? {}
+  return readConfigFile(target)
 }
 
 function readConfigFile(abs: string): Partial<Config> {

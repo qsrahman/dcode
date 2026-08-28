@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const configSchema = z.object({
-  model: z.string().default('gpt-5'),
+  model: z.string().default('gpt-5.4-mini'),
   baseURL: z.string().optional(),
   apiKey: z.string().optional(),
   brave: z.string().optional(),

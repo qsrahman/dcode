@@ -137,13 +137,11 @@ JSON, loaded from `--config <path>` or a default location. Example:
 }
 ```
 
-Config resolution precedence is: CLI flags > env (`OPENAI_*`) > local
-`dcode.json` / `.dcode.json` (working directory) > global
-`DCODE_CONFIG_HOME`/`~/.config/dcode/dcode.json` > schema defaults. The local
-file wins over the global one when both exist; an explicit `--config <path>`
-replaces both files (the global config is not consulted) and a missing path is
-an error. The global config is convenient for the globally installed `dcode`, so
-a fixed `model`/`baseURL` applies no matter which directory you run it from.
+Config resolution precedence is: CLI flags > env (`OPENAI_*`) > global
+`DCODE_CONFIG_HOME`/`~/.config/dcode/dcode.json` > schema defaults. An explicit
+`--config <path>` replaces the global file (and a missing path is an error). The
+global config is the canonical store for a globally installed `dcode`, so a fixed
+`model`/`baseURL`/`apiKey` applies no matter which directory you run it from.
 
 API keys (`OPENAI_API_KEY`, `BRAVE_API_KEY`) are read from the environment
 (first), then the local config (`apiKey` / `brave` fields), then the global

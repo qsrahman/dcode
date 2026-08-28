@@ -71,7 +71,7 @@ describe('loadConfig', () => {
     }
   })
 
-  it('lets a local config override the global config', () => {
+  it('uses an explicit --config file instead of the global config', () => {
     const prev = process.cwd()
     try {
       process.chdir(dir)
@@ -79,10 +79,11 @@ describe('loadConfig', () => {
         globalConfigPath(),
         JSON.stringify({ model: 'global', baseURL: 'http://global' }),
       )
-      writeFileSync(join(dir, 'dcode.json'), JSON.stringify({ model: 'local' }))
-      const cfg = loadConfig()
-      expect(cfg.model).toBe('local')
-      expect(cfg.baseURL).toBe('http://global')
+      const explicit = join(dir, 'explicit.json')
+      writeFileSync(explicit, JSON.stringify({ model: 'explicit' }))
+      const cfg = loadConfig(explicit)
+      expect(cfg.model).toBe('explicit')
+      expect(cfg.baseURL).toBeUndefined()
     } finally {
       process.chdir(prev)
     }
@@ -109,7 +110,7 @@ describe('mergeConfigs', () => {
 
   it('applies schema defaults', () => {
     const cfg = mergeConfigs({}, {}, base)
-    expect(cfg.model).toBe('gpt-5')
+    expect(cfg.model).toBe('gpt-5.4-mini')
   })
 
   it('lets the file override defaults', () => {
@@ -165,13 +166,13 @@ describe('buildConfig', () => {
 
   it('falls back to the schema default when unset', () => {
     delete process.env.OPENAI_MODEL
-    expect(buildConfig(parseCli([])).model).toBe('gpt-5')
+    expect(buildConfig(parseCli([])).model).toBe('gpt-5.4-mini')
   })
 
   it('is unaffected by a global config when local is absent', () => {
     delete process.env.OPENAI_MODEL
     expect(existsSync(join(dir, 'dcode.json'))).toBe(false)
-    expect(buildConfig(parseCli([])).model).toBe('gpt-5')
+    expect(buildConfig(parseCli([])).model).toBe('gpt-5.4-mini')
   })
 
   it('reads apiKey and brave from the global config when env is unset', () => {
@@ -186,19 +187,15 @@ describe('buildConfig', () => {
     expect(cfg.brave).toBe('br-global')
   })
 
-  it('resolves the full precedence chain defaults < global < local < env < cli', () => {
+  it('resolves the full precedence chain defaults < global < env < cli', () => {
     for (const k of ['OPENAI_MODEL', 'OPENAI_API_KEY']) delete process.env[k]
     writeFileSync(
       globalConfigPath(),
       JSON.stringify({ model: 'global-model', apiKey: 'global-key' }),
     )
-    writeFileSync(
-      join(dir, 'dcode.json'),
-      JSON.stringify({ model: 'local-model' }),
-    )
-    // local overrides global when env/cli are absent
-    expect(buildConfig(parseCli([])).model).toBe('local-model')
-    // env overrides the local file
+    // global config applies when env/cli are absent
+    expect(buildConfig(parseCli([])).model).toBe('global-model')
+    // env overrides the global config
     process.env.OPENAI_MODEL = 'env-model'
     process.env.OPENAI_API_KEY = 'env-key'
     expect(buildConfig(parseCli([])).model).toBe('env-model')

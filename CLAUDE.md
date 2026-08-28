@@ -79,7 +79,7 @@ before falling through to a model turn. `index.ts` wires CLI args -> config ->
 either `runOneShot` (prompt given, with its own `ToolRegistry`) or `startRepl`
 (no prompt, builds its own `ToolRegistry` inside `createSession`).
 
-Config resolution precedence is **CLI > env > local (`./dcode.json`) > global (`~/.config/dcode/dcode.json`) > schema defaults**,
+Config resolution precedence is **CLI > env > global (`~/.config/dcode/dcode.json`) > schema defaults**,
 implemented as pure `mergeConfigs` in `config/config.ts` with `config/schema.ts`
 (zod) as the source of truth for shape and defaults. `resolveRoot(config)`
 (also in `config/config.ts`) is the single place that resolves the effective

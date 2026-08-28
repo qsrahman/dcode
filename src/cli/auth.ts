@@ -6,12 +6,9 @@ import type { Config } from '../config/schema.ts'
 // block startup" so dcode still runs against endpoints that don't expose
 // /models or don't require a key.
 export async function validateApiKey(config: Config): Promise<boolean> {
-  const base = (config.baseURL ?? 'https://api.openai.com/v1').replace(
-    /\/+$/,
-    '',
-  )
+  const base = (config.baseURL ?? 'https://api.openai.com/').replace(/\/+$/, '')
   try {
-    const res = await fetch(`${base}/models`, {
+    const res = await fetch(`${base}/v1/models`, {
       headers: { Authorization: `Bearer ${config.apiKey}` },
     })
     return res.status !== 401 && res.status !== 403

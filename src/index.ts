@@ -14,6 +14,8 @@ import { getVersion } from './version.ts'
 import { fileURLToPath } from 'node:url'
 import { realpathSync } from 'node:fs'
 import { validateApiKey } from './cli/auth.ts'
+import { setGlobalKey } from './cli/keys.ts'
+import * as readline from 'node:readline'
 
 // True when this module is the process entry point. Resolving symlinks matters:
 // a global `pnpm add -g` install is reached through symlinks, so the raw
@@ -48,6 +50,24 @@ Flags:
   --help           Print this help`)
 }
 
+// First-run key bootstrap for interactive (REPL) startup: if no API key is
+// available from env or config, prompt once and persist it to the global config.
+// Visible input (no hidden echo); only runs on a TTY so piped/one-shot use
+// doesn't block. Returns the entered key, or '' if skipped/empty.
+async function promptForApiKey(): Promise<string> {
+  if (!process.stdin.isTTY) return ''
+  process.stderr.write(
+    'No API key found. Paste your OpenAI-compatible key (saved to the global config):\n> ',
+  )
+  const rl = readline.createInterface({ input: process.stdin })
+  const line = await new Promise<string>((resolve) => {
+    rl.once('line', (l) => resolve(l))
+    rl.once('close', () => resolve(''))
+  })
+  rl.close()
+  return line.trim()
+}
+
 export async function main(): Promise<void> {
   // A defaults logger is created up front so the catch block can report
   // arg/config parse failures. The real, config-driven logger isn't built
@@ -65,19 +85,29 @@ export async function main(): Promise<void> {
     }
     const config = buildConfig(args)
     logger = createLogger(config)
+    // REPL (interactive) first-run: prompt for a key and persist it, rather than
+    // hard-failing. One-shot use (a prompt was given) keeps the hard failure
+    // because there's no TTY to prompt on.
+    if (!args.prompt && !config.apiKey) {
+      const key = await promptForApiKey()
+      if (key) {
+        setGlobalKey('apiKey', key)
+        config.apiKey = key
+      }
+    }
     if (!config.apiKey) {
       process.stderr.write(
         'OPENAI_API_KEY is not set — dcode needs an OpenAI-compatible API key to run.\n\n' +
-          'Provide it (highest precedence first): environment, global config, or local:\n' +
+          'Provide it one of these ways:\n' +
           "  shell profile:  echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc\n" +
-          '  global config:  run  /key set openai sk-...  in the REPL (persists anywhere)\n' +
-          '  local config: set "apiKey" in ./dcode.json (project) or /key (global)\n' +
-          'Then restart dcode.\n',
+          '  interactive:    paste it when dcode prompts on startup (saved to global config)\n' +
+          '  /key command:   run  /key set openai sk-...  in the REPL\n' +
+          'Then restart dcode if you used the shell profile.\n',
       )
       process.exit(1)
     }
     if (!(await validateApiKey(config))) {
-      const base = config.baseURL ?? 'https://api.openai.com/v1'
+      const base = config.baseURL ?? 'https://api.openai.com/'
       process.stderr.write(
         `OPENAI_API_KEY is invalid (authentication failed) — dcode could not ` +
           `authenticate with the configured endpoint (${base}).\n\n` +

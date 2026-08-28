@@ -56,10 +56,11 @@ architecture, or conventions.
 
 ## Configuration sources
 
-Config is resolved with precedence **CLI > env > local (`./dcode.json`) > global (`~/.config/dcode/dcode.json`) > schema defaults**:
+Config is resolved with precedence **CLI > env > global (`~/.config/dcode/dcode.json`) > schema defaults**:
 
-- File: `./dcode.json` (or `.dcode.json`), or `--config <path>`. JSON, validated
-  by `config/schema.ts` (zod).
+- File: `~/.config/dcode/dcode.json` (global), or an explicit `--config <path>`.
+  JSON, validated by `config/schema.ts` (zod). dcode is a globally installed
+  personal tool, so there is no repo-local config discovery.
 - Env: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` (read from the process
   environment; the same values can be persisted in `dcode.json` instead).
 - CLI flags (`--model`, `--no-color`, `--verbose`) override the above.
