@@ -2,6 +2,10 @@ import { z } from 'zod'
 
 export const configSchema = z.object({
   model: z.string().default('gpt-5.4-mini'),
+  // OpenAI-compatible endpoint. dcode appends the resource path (`/responses`,
+  // `/models`) to this value, so include the API-version prefix (e.g.
+  // `http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1` for
+  // OpenAI). A missing `/v1` is added automatically during config merge.
   baseURL: z.string().optional(),
   apiKey: z.string().optional(),
   brave: z.string().optional(),

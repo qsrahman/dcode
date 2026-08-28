@@ -131,6 +131,20 @@ describe('mergeConfigs', () => {
     )
     expect(cfg.model).toBe('cli')
   })
+
+  it('appends /v1 to a bare-origin baseURL', () => {
+    const cfg = mergeConfigs({ baseURL: 'http://localhost:11434' }, {}, base)
+    expect(cfg.baseURL).toBe('http://localhost:11434/v1')
+  })
+
+  it('leaves a baseURL that already ends in /v1 unchanged', () => {
+    const cfg = mergeConfigs(
+      { baseURL: 'http://localhost:11434/v1/' },
+      {},
+      base,
+    )
+    expect(cfg.baseURL).toBe('http://localhost:11434/v1')
+  })
 })
 
 describe('buildConfig', () => {

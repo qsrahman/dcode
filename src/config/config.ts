@@ -18,6 +18,15 @@ export function globalConfigPath(): string {
   return join(base, 'dcode.json')
 }
 
+// The OpenAI SDK appends resource paths (`/responses`, `/models`) to `baseURL`,
+// so the configured value must include the API-version prefix (e.g.
+// `http://localhost:11434/v1`, `https://api.openai.com/v1`). Ensure that prefix
+// is present so both bare origins and explicit `/v1` work.
+export function normalizeBaseURL(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, '')
+  return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`
+}
+
 // Config precedence (highest wins): CLI flags > env (OPENAI_*) > global
 // (~/.config/dcode/dcode.json) > schema defaults. An explicit --config <path> is
 // read instead of the global file (and a missing path is an error, so a typo
@@ -61,6 +70,9 @@ export function mergeConfigs(
   args: ParsedArgs,
 ): Config {
   const merged: Record<string, unknown> = { ...file, ...env }
+  if (typeof merged.baseURL === 'string') {
+    merged.baseURL = normalizeBaseURL(merged.baseURL)
+  }
   if (args.model) merged.model = args.model
   if (args.noColor) merged.color = false
   if (args.verbose) merged.verbose = true

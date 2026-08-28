@@ -1,3 +1,14 @@
+## [0.14.0] - 2026-08-28
+
+### Fixed
+- `baseURL` normalization now ensures the `/v1` API-version prefix is present
+  (appended when missing) instead of stripping it. The OpenAI SDK appends the
+  resource path (`/responses`, `/models`) to `baseURL`, so the prefix must be
+  part of the value; stripping it produced a `…/responses` path that 404'd on
+  OpenAI-compatible endpoints such as Ollama. Both `http://localhost:11434` and
+  `http://localhost:11434/v1` now resolve correctly, and `validateApiKey` probes
+  the real `/v1/models` endpoint (so the default key is actually authenticated).
+
 ## [0.13.11] - 2026-08-28
 
 ### Fixed

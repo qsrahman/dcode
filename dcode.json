@@ -1,6 +1,8 @@
 {
   "model": "gemma4:cloud",
-  "baseURL": "http://localhost:11434/v1",
+  "baseURL": "http://localhost:11434/",
+  "apiKey": "ollama",
+  "brave": "BSA3Rkvp960bwTJ8pu-F1QBVn9gsLSf",
   "verbose": false,
   "color": true,
   "maxToolIterations": 16,
@@ -8,6 +10,14 @@
   "maxToolOutputBytes": 32768,
   "maxTokens": 8192,
   "maxRetries": 3,
+  "stateful": false,
   "toolTimeout": 30000,
-  "ignore": [".git", "node_modules"]
+  "ignore": [".git", "node_modules"],
+  "context": {
+    "window": 200000,
+    "reserved": 20000,
+    "keepTokens": 15000,
+    "prune": true,
+    "auto": true
+  }
 }

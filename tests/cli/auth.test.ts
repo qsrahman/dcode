@@ -68,4 +68,13 @@ describe('validateApiKey', () => {
       expect.anything(),
     )
   })
+
+  it('appends /v1 to a bare-origin baseURL for the probe', async () => {
+    fetchMock.mockResolvedValue({ status: 200 } as Response)
+    await validateApiKey(baseConfig({ baseURL: 'http://localhost:11434' }))
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:11434/v1/models',
+      expect.anything(),
+    )
+  })
 })
