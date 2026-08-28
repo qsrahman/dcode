@@ -20,6 +20,12 @@ import { resolvePath, fsError } from './paths.ts'
 // Cap directory listings so a huge directory can't flood the model's context
 // (runTool's byte-truncation is a blunt backstop, not a real limit).
 const LIST_MAX = 1000
+// When offset/limit is requested, read up to this much of the file instead of
+// just maxToolOutputBytes — otherwise paging into a large file would only ever
+// see the first ~32 KiB and silently report "no lines in range" past that,
+// which reads as end-of-file when it isn't. runTool still truncates whatever
+// this returns to maxToolOutputBytes, so this only bounds the disk read.
+const PAGE_READ_MAX_BYTES = 8 * 1024 * 1024
 // Only count lines for files up to this size; reading a multi-GB file just to
 // count newlines would defeat the bounded-read discipline elsewhere.
 const LINE_COUNT_MAX = 1_000_000
@@ -55,9 +61,14 @@ function readFileTool(): ToolDefinition<{
     }),
     async execute(args, ctx) {
       const file = await resolvePath(ctx.root, args.path)
+      const paging = args.offset !== undefined || args.limit !== undefined
       // Read at most the configured output cap so a huge or symlinked-to-huge
       // file can't blow up memory before the runner truncates the result.
-      const limitBytes = ctx.config.maxToolOutputBytes
+      // Paging reads a much larger window instead — otherwise offset/limit
+      // could only ever see the first ~32 KiB of a large file.
+      const limitBytes = paging
+        ? Math.max(PAGE_READ_MAX_BYTES, ctx.config.maxToolOutputBytes)
+        : ctx.config.maxToolOutputBytes
       const handle = await open(file, 'r').catch((err) => {
         throw new Error(fsError(err, args.path))
       })
@@ -77,7 +88,17 @@ function readFileTool(): ToolDefinition<{
         const window = args.limit
           ? lines.slice(offset, offset + args.limit)
           : lines.slice(offset)
-        if (window.length === 0 && !truncated) return '(no lines in range)'
+        if (window.length === 0) {
+          // Truncated + empty window means the requested offset falls beyond
+          // what was read, not beyond the file's actual end — say so instead
+          // of implying the file has fewer lines than it does.
+          if (truncated) {
+            throw new Error(
+              `offset ${offset} is beyond the ${limitBytes}-byte read window (file is ${size} bytes); narrow the offset or use grep to locate the section you need`,
+            )
+          }
+          return '(no lines in range)'
+        }
         const numbered = args.line_numbers ?? true
         const body = window
           .map((ln, i) => (numbered ? `${offset + i + 1}\t${ln}` : ln))

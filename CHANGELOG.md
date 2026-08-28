@@ -1,9 +1,35 @@
 ## [Unreleased]
 
+### Fixed
+- `grep` no longer loads an entire file into memory unconditionally before
+  searching it (files above 5 MiB are now skipped, with a note) and no longer
+  tests a model-supplied regex against arbitrarily long lines (lines above
+  10,000 chars are skipped) — a pathological pattern backtracking against a
+  long line could previously hang the whole process, since regex execution is
+  synchronous and the tool-level timeout can't interrupt it.
+- `read_file`'s `offset`/`limit` paging only ever saw the first
+  `maxToolOutputBytes` (32 KiB default) of a file; requesting a later page
+  silently returned `(no lines in range)`, misreading as end-of-file. Paging
+  now reads up to 8 MiB, and an offset genuinely past that window throws a
+  clear error instead of a misleading empty result.
+- `web_search` now forwards `ctx.signal`, like `web_fetch` already did, so
+  Ctrl-C cancels an in-flight search instead of only fetches.
+- `web_search`'s Brave key resolution read `process.env.BRAVE_API_KEY` ahead
+  of `ctx.config.brave`, even though `buildConfig` already resolves env-over-
+  file precedence into `ctx.config.brave` before any tool runs. It now trusts
+  `ctx.config.brave` alone, so a key set at runtime via `/key set brave` isn't
+  shadowed by a stale environment variable.
+
 ### Changed
 - `ignore` config patterns are now matched with real gitignore syntax (via the
   `ignore` package) instead of exact directory-name matching, so `grep`/`glob`
   can prune globs (`*.log`) and negation, not just bare names like `.git`.
+- `run_process`/`kill_process` now spawn via `execa` (`killDescendants: true`)
+  instead of hand-rolled `child_process.spawn` + `process.kill(-pid, sig)`
+  process-group bookkeeping — the same mechanism `run_shell`/`git` already use.
+  The in-memory process-record map is also now capped (evicting the oldest
+  already-exited entries), so a long session calling `run_process` repeatedly
+  no longer grows it without bound.
 
 ### Internal
 - `run_shell`/`git` now run subprocesses via `execa` instead of raw

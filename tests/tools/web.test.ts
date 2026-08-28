@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   webTools,
   webFetchTool,
@@ -13,7 +13,7 @@ const tool = webTools[0]!
 const fetchTool = webFetchTool()
 const ctx: ToolContext = {
   root: '/tmp',
-  config: cfg(),
+  config: cfg({ brave: 'test-key' }),
   logger: createLogger(cfg()),
 }
 
@@ -61,12 +61,8 @@ function mockFetch(body: unknown, ok = true, status = 200): void {
   )
 }
 
-beforeEach(() => {
-  process.env.BRAVE_API_KEY = 'test-key'
-})
 afterEach(() => {
   vi.unstubAllGlobals()
-  delete process.env.BRAVE_API_KEY
 })
 
 describe('web_search', () => {
@@ -87,25 +83,43 @@ describe('web_search', () => {
   })
 
   it('reports a missing API key', async () => {
-    delete process.env.BRAVE_API_KEY
-    await expect(tool.execute({ query: 'q' }, ctx)).rejects.toThrow(
+    const noKeyCtx: ToolContext = { ...ctx, config: cfg() }
+    await expect(tool.execute({ query: 'q' }, noKeyCtx)).rejects.toThrow(
       'BRAVE_API_KEY',
     )
   })
 
-  it('uses ctx.config.brave when the env key is unset', async () => {
-    delete process.env.BRAVE_API_KEY
-    const localCtx: ToolContext = {
-      ...ctx,
-      config: { ...cfg(), brave: 'from-config' },
+  // ctx.config.brave is the only source dcode reads for this key (buildConfig
+  // already folds BRAVE_API_KEY into it before a tool ever runs) — a bare
+  // process.env value with no matching config must not work.
+  it('ignores process.env.BRAVE_API_KEY; only ctx.config.brave is used', async () => {
+    process.env.BRAVE_API_KEY = 'env-key'
+    try {
+      const noKeyCtx: ToolContext = { ...ctx, config: cfg() }
+      await expect(tool.execute({ query: 'q' }, noKeyCtx)).rejects.toThrow(
+        'BRAVE_API_KEY',
+      )
+    } finally {
+      delete process.env.BRAVE_API_KEY
     }
-    mockFetch({
-      web: {
-        results: [{ title: 'A', url: 'https://a.example', description: 'da' }],
-      },
-    })
-    const out = await tool.execute({ query: 'q' }, localCtx)
-    expect(out).toContain('A')
+  })
+
+  it('forwards ctx.signal to the search request', async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({ web: { results: [] } }),
+        }) as unknown as Response,
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+    const ac = new AbortController()
+    await tool.execute({ query: 'q' }, { ...ctx, signal: ac.signal })
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ signal: ac.signal }),
+    )
   })
 
   it('returns (no results) when the result set is empty', async () => {

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execa } from 'execa'
 import { z } from 'zod'
 import type { ToolDefinition } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
@@ -8,41 +8,50 @@ import { safeEnv } from './exec.ts'
 // logger shouldn't grow without limit (runTool's byte-truncation is a blunt
 // backstop, not a real cap).
 const PROC_MAX_OUTPUT = 64 * 1024
+// Bound how many process records a session can accumulate. A long REPL session
+// that calls run_process repeatedly would otherwise grow this map forever, each
+// entry holding up to PROC_MAX_OUTPUT of buffered output.
+const PROC_MAX_ENTRIES = 50
 
 interface ManagedProcess {
   handle: string
   cmd: string
-  child: ChildProcess
+  pid?: number
   output: string
   exited: boolean
   exitCode: number | null
   exitSignal: string | null
+  kill(signal: string): boolean
 }
 
-// Spawning with detached: true puts each child in its own process group, so
-// killing the group (process.kill(-pid)) stops the whole tree (e.g. a dev
-// server and its children), not just the immediate shell.
+// Spawned via execa with killDescendants: true, which runs the child in its own
+// process group and signals the whole group — so killing a dev server also
+// kills whatever it spawned, not just the immediate shell.
 class ProcessManager {
   private procs = new Map<string, ManagedProcess>()
   private seq = 0
 
   spawn(command: string, cwd: string, signal?: AbortSignal): ManagedProcess {
+    this.evictExited()
     const handle = `proc-${++this.seq}`
-    const child = spawn(command, [], {
+    const subprocess = execa(command, [], {
       shell: true,
       cwd,
       env: safeEnv(),
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      extendEnv: false,
+      killDescendants: true,
+      cancelSignal: signal,
+      reject: false,
     })
     const proc: ManagedProcess = {
       handle,
       cmd: command,
-      child,
+      pid: subprocess.pid,
       output: '',
       exited: false,
       exitCode: null,
       exitSignal: null,
+      kill: (sig) => subprocess.kill(sig as NodeJS.Signals),
     }
     const onData = (d: Buffer) => {
       proc.output += d.toString('utf8')
@@ -50,33 +59,19 @@ class ProcessManager {
         proc.output = proc.output.slice(-PROC_MAX_OUTPUT)
       }
     }
-    child.stdout?.on('data', onData)
-    child.stderr?.on('data', onData)
-    child.on('exit', (code, sig) => {
+    subprocess.stdout?.on('data', onData)
+    subprocess.stderr?.on('data', onData)
+    // reject: false means this always resolves, even on non-zero exit, a
+    // signal kill, a timeout, or a failure to spawn at all (e.g. ENOENT) — so
+    // there's no unhandled rejection to guard against.
+    void subprocess.then((result) => {
       proc.exited = true
-      proc.exitCode = code
-      proc.exitSignal = sig
-    })
-    child.on('error', (err) => {
-      proc.output += `\n[spawn error] ${err.message}`
-      proc.exited = true
-    })
-    const killGroup = (sig: NodeJS.Signals) => {
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, sig)
-        } catch {
-          // already gone
-        }
+      proc.exitCode = result.exitCode ?? null
+      proc.exitSignal = result.signal ?? null
+      if (result.failed && result.exitCode === undefined && !result.signal) {
+        proc.output += `\n[spawn error] ${result.shortMessage}`
       }
-    }
-    if (signal) {
-      if (signal.aborted) killGroup('SIGTERM')
-      else
-        signal.addEventListener('abort', () => killGroup('SIGTERM'), {
-          once: true,
-        })
-    }
+    })
     this.procs.set(handle, proc)
     return proc
   }
@@ -90,18 +85,22 @@ class ProcessManager {
     const proc = this.procs.get(handle)
     if (!proc) return 'notfound'
     if (proc.exited) return 'exited'
-    if (proc.child.pid) {
-      try {
-        process.kill(-proc.child.pid, sig as NodeJS.Signals)
-      } catch {
-        // already gone
-      }
-    }
+    proc.kill(sig)
     return 'signaled'
   }
 
   killAll() {
     for (const h of [...this.procs.keys()]) this.kill(h, 'SIGTERM')
+  }
+
+  // Forget exited processes once the map grows past the cap, oldest first.
+  // Running processes are never evicted, regardless of the cap.
+  private evictExited() {
+    if (this.procs.size < PROC_MAX_ENTRIES) return
+    for (const [h, p] of this.procs) {
+      if (this.procs.size < PROC_MAX_ENTRIES) break
+      if (p.exited) this.procs.delete(h)
+    }
   }
 }
 
@@ -126,7 +125,7 @@ function runProcessTool(): ToolDefinition<{ command: string; cwd?: string }> {
     async execute(args, ctx) {
       const cwd = args.cwd ? await resolvePath(ctx.root, args.cwd) : ctx.root
       const proc = processManager.spawn(args.command, cwd, ctx.signal)
-      return `started ${proc.handle} (pid ${proc.child.pid}): ${args.command}`
+      return `started ${proc.handle} (pid ${proc.pid}): ${args.command}`
     },
   }
 }

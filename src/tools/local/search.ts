@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { relative } from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
@@ -10,6 +10,16 @@ import { walkDir, globToRegExp, createIgnore } from './traverse.ts'
 const GREP_MAX_MATCHES = 200
 // Cap glob results the same way.
 const GLOB_MAX = 1000
+// Skip files above this size instead of loading them whole: unlike read_file
+// (bounded to maxToolOutputBytes), grep had no size guard at all, so a large
+// log/dump anywhere under root could load it entirely into memory.
+const GREP_MAX_FILE_BYTES = 5 * 1024 * 1024
+// Skip testing the regex against any single line longer than this. A model-
+// supplied pattern can backtrack catastrophically on long input; since regex
+// execution is synchronous, a hung match blocks the whole process and the
+// tool-level timeout (which only races a promise) can't rescue it. Bounding
+// line length bounds the worst case.
+const GREP_MAX_LINE_CHARS = 10_000
 
 function grepTool(): ToolDefinition<{
   pattern: string
@@ -57,11 +67,17 @@ function grepTool(): ToolDefinition<{
       const ctxLines = args.context ?? 0
       const matches: string[] = []
       let capped = false
+      let skippedLarge = false
       let matchCount = 0
       outer: for await (const { full, entry } of walkDir(dir, ig)) {
         if (!entry.isFile()) continue
         let content: string
         try {
+          const { size } = await stat(full)
+          if (size > GREP_MAX_FILE_BYTES) {
+            skippedLarge = true
+            continue
+          }
           const buf = await readFile(full)
           // Skip binaries: a NUL byte in the leading chunk (git's heuristic)
           // means UTF-8 decoding would yield garbage lines that pollute
@@ -75,8 +91,10 @@ function grepTool(): ToolDefinition<{
         const lines = content.split('\n')
         const hitIdx: number[] = []
         for (let i = 0; i < lines.length; i++) {
+          const line = lines[i]!
+          if (line.length > GREP_MAX_LINE_CHARS) continue
           re.lastIndex = 0
-          if (re.test(lines[i]!)) hitIdx.push(i)
+          if (re.test(line)) hitIdx.push(i)
         }
         if (hitIdx.length === 0) continue
         let lastPushed = -2
@@ -99,6 +117,9 @@ function grepTool(): ToolDefinition<{
       let out = matches.join('\n').trimEnd() || '(no matches)'
       if (capped) {
         out += `\n… (stopped at ${GREP_MAX_MATCHES} matches; narrow the pattern or path)`
+      }
+      if (skippedLarge) {
+        out += `\n… (some files larger than ${GREP_MAX_FILE_BYTES} bytes were skipped)`
       }
       return out
     },

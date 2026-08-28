@@ -92,6 +92,16 @@ describe('read-only tools', () => {
     expect(out).toBe('2\tb\n3\tc')
   })
 
+  it('read_file paging past the read window errors instead of implying EOF', async () => {
+    // No newlines, so the whole file is one "line" within the 8 MiB paging
+    // window; offset 1 asks for a line past what was read, not past the
+    // file's actual end.
+    await writeFile(join(root, 'big.txt'), 'x'.repeat(9 * 1024 * 1024))
+    await expect(
+      tool('read_file').execute({ path: 'big.txt', offset: 1 }, ctx),
+    ).rejects.toThrow(/beyond the \d+-byte read window/)
+  })
+
   it('read_file can disable line numbers', async () => {
     await writeFile(join(root, 'n.txt'), 'a\nb')
     const out = await tool('read_file').execute(
@@ -162,6 +172,24 @@ describe('read-only tools', () => {
     const gl = await tool('glob').execute({ pattern: '**/*' }, globCtx)
     expect(gl).toContain('app.ts')
     expect(gl).not.toContain('debug.log')
+  })
+
+  it('grep skips files above the size guard, with a note', async () => {
+    await writeFile(join(root, 'big.txt'), 'needle\n'.repeat(800_000))
+    await writeFile(join(root, 'small.txt'), 'needle')
+    const out = await tool('grep').execute({ pattern: 'needle' }, ctx)
+    expect(out).toContain('small.txt')
+    expect(out).not.toContain('big.txt')
+    expect(out).toMatch(/files larger than \d+ bytes were skipped/)
+  })
+
+  // A pathological pattern could backtrack catastrophically on a long line and
+  // hang the process (regex execution is synchronous); bounding line length
+  // bounds the worst case instead.
+  it('grep skips matching against lines longer than the length guard', async () => {
+    await writeFile(join(root, 'a.txt'), 'x'.repeat(20_000) + 'needle')
+    const out = await tool('grep').execute({ pattern: 'needle' }, ctx)
+    expect(out).toBe('(no matches)')
   })
 
   it('grep caps total matches with a note', async () => {
@@ -705,5 +733,17 @@ describe('background process tools', () => {
     await expect(
       tool('kill_process').execute({ handle: 'proc-999' }, ctx),
     ).rejects.toThrow(/unknown process handle/)
+  })
+
+  it('evicts old exited processes once the map grows past the cap', async () => {
+    const handles: string[] = []
+    for (let i = 0; i < 50; i++) {
+      const out = await tool('run_process').execute({ command: 'true' }, ctx)
+      handles.push(out.match(/started (proc-\d+)/)![1]!)
+    }
+    await new Promise((r) => setTimeout(r, 300))
+    // The 51st spawn triggers eviction of the oldest already-exited entry.
+    await tool('run_process').execute({ command: 'true' }, ctx)
+    expect(processManager.get(handles[0]!)).toBeUndefined()
   })
 })

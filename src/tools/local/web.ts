@@ -39,9 +39,12 @@ function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
         .describe('Number of results to return (default 5)'),
     }),
     async execute(args, ctx) {
-      // Config wins only because buildConfig already folds BRAVE_API_KEY into
-      // config.brave; the env fallback covers tests/direct callers.
-      const key = process.env.BRAVE_API_KEY ?? ctx.config.brave
+      // ctx.config.brave is the single source of truth: buildConfig already
+      // resolves BRAVE_API_KEY (env) over the stored config file into it, so
+      // reading process.env here too would just re-derive the same value (or,
+      // if they ever diverge, wrongly prefer the stale env over a key set at
+      // runtime via `/key set brave`).
+      const key = ctx.config.brave
       if (!key) {
         throw new Error(
           'BRAVE_API_KEY is not set; cannot search the web (store it with: /key set brave <key>)',
@@ -58,6 +61,7 @@ function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
             Accept: 'application/json',
             'X-Subscription-Token': key,
           },
+          signal: ctx.signal,
         })
       } catch (err) {
         throw new Error(
