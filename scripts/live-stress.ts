@@ -10,10 +10,10 @@ import { CapturingSink } from '../src/agent/run.ts'
 import { createLogger, errorMessage } from '../src/util/log.ts'
 import ansis from 'ansis'
 
-// Live end-to-end stress test. Talks to the real model (configured via .env)
-// and drives the real agent loop + tools over THIS repository. Not part of the
-// unit suite: run it explicitly with `node --env-file-if-exists=.env
-// scripts/live-stress.ts`. Exercises tool iteration, truncation, context
+// Live end-to-end stress test. Talks to the real model (configured via the
+// global config, env, or CLI flags) and drives the real agent loop + tools over
+// THIS repository. Not part of the unit suite: run it explicitly with
+// `node scripts/live-stress.ts`. Exercises tool iteration, truncation, context
 // compaction (proactive + todo-aware), auto-approved writes, web search, and
 // concurrent runs, and verifies the UI/UX spacing of the rendered output
 // (exactly one well-formed line per tool call).
@@ -128,6 +128,17 @@ async function main(): Promise<void> {
     `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +
       `root=${config.root ?? process.cwd()} maxToolIterations=${config.maxToolIterations}`,
   )
+  // A leftover placeholder key ("ollama") is harmless against a local endpoint
+  // but 401s against OpenAI's default baseURL with a confusing message. Warn
+  // before spending a full run on it.
+  const looksLocal = /localhost|127\.0\.0\.1|ollama/i.test(config.baseURL ?? '')
+  if ((config.apiKey ?? '').trim().toLowerCase() === 'ollama' && !looksLocal) {
+    console.log(
+      'warning: apiKey is the placeholder "ollama" and baseURL is not a local ' +
+        'endpoint — requests will likely 401. Set a real key via OPENAI_API_KEY ' +
+        'or run `dcode` and use `/key set openai <key>`.',
+    )
+  }
   console.log('')
 
   let failed = 0
