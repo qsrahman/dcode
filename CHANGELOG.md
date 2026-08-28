@@ -1,3 +1,12 @@
+## [Unreleased]
+
+### Internal
+- Refactored REPL slash commands into a `CommandRegistry` (`src/cli/registry.ts`),
+  mirroring the tool registry: each command is a self-describing definition
+  (name, description, aliases, handler). `/help` and tab-completion now derive
+  from one source, removing the separate `COMMAND_DESCRIPTIONS` map. No behavior
+  change beyond `/help` listing aliases inline (`tasks (alias: /todo)`).
+
 ## [0.15.2] - 2026-08-28
 
 ### Fixed

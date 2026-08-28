@@ -4,6 +4,7 @@ import type { Client, ResponseInput } from '../agent/client.ts'
 import type { RunSink } from '../agent/run.ts'
 import type { Logger } from '../util/log.ts'
 import type { ToolRegistry } from '../tools/registry.ts'
+import { CommandRegistry } from './registry.ts'
 import type { ContextManager } from '../agent/context/manager.ts'
 import type { TaskStore } from '../agent/tasks.ts'
 import { globalConfigPath } from '../config/config.ts'
@@ -35,36 +36,7 @@ export type HandleResult = 'ok' | 'exit'
 // ANSI sequence to clear screen + scrollback and move home.
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
 
-// `/help` descriptions, keyed by command name. Rendered sorted, so the order
-// here is irrelevant.
-const COMMAND_DESCRIPTIONS: Record<string, string> = {
-  clear: 'clear the screen',
-  compact: 'summarize the oldest conversation into a short summary',
-  config: 'print effective configuration',
-  context: 'show estimated token usage vs. the model window',
-  exit: 'quit dcode',
-  help: 'show this help',
-  key: 'store/show API keys (openai, brave)',
-  limit: 'set maxToolIterations at runtime: /limit <n>',
-  model: 'show/set model: /model <id>',
-  reset: 'clear the conversation',
-  save: 'write the conversation transcript to a file (/save [path.md|path.json])',
-  tasks: 'list in-session tasks (alias of /todo)',
-  todo: 'list in-session tasks',
-  tools: 'list available tools',
-  undo: 'remove the last exchange (user turn + response)',
-  verbose: 'toggle verbose mode (on|off)',
-  version: 'print version',
-}
-
-const HELP = ansis.dim(
-  [
-    'Commands:',
-    ...Object.keys(COMMAND_DESCRIPTIONS)
-      .sort()
-      .map((name) => `  /${name.padEnd(8)} ${COMMAND_DESCRIPTIONS[name]}`),
-  ].join('\n'),
-)
+// `/help` text and `SLASH_COMMANDS` are derived from the command registry below.
 
 // Best-effort Markdown rendering of a conversation transcript for `/save`.
 function historyToMarkdown(history: ResponseInput): string {
@@ -93,12 +65,6 @@ function historyToMarkdown(history: ResponseInput): string {
   return parts.join('\n')
 }
 
-type CommandHandler = (
-  session: Session,
-  args: string,
-  sink: RunSink,
-) => Promise<HandleResult> | HandleResult
-
 function listTasks(
   session: Session,
   _args: string,
@@ -118,192 +84,277 @@ function listTasks(
   return 'ok'
 }
 
-const commands: Record<string, CommandHandler> = {
-  help: (_session, _args, sink) => {
-    sink.write(HELP + '\n')
-    return 'ok'
-  },
-  version: (_session, _args, sink) => {
-    sink.write(`dcode v${getVersion()}\n`)
-    return 'ok'
-  },
-  model: (session, args, sink) => {
-    const id = args.trim()
-    if (!id) {
-      sink.write(`model: ${session.config.model}\n`)
+// `/help` text derived from the registry so the listing can never drift from the
+// actual commands (no separate description map to keep in sync).
+function buildHelp(registry: CommandRegistry): string {
+  const lines = registry
+    .list()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => {
+      const aliasNote = c.aliases?.length
+        ? ` (alias: ${c.aliases.map((a) => `/${a}`).join(', ')})`
+        : ''
+      return `  /${c.name.padEnd(8)} ${c.description}${aliasNote}`
+    })
+  return ansis.dim(['Commands:', ...lines].join('\n'))
+}
+
+export function createCommands(): CommandRegistry {
+  const r = new CommandRegistry()
+  r.register({
+    name: 'help',
+    description: 'show this help',
+    handler: (_s, _a, sink) => {
+      sink.write(buildHelp(COMMANDS) + '\n')
       return 'ok'
-    }
-    session.config.model = id
-    // Rebuild the client so the new model takes effect even if createClient ever
-    // captures config by value instead of by the shared object reference.
-    session.client = createClient(session.config)
-    sink.write(`model set to ${id}\n`)
-    return 'ok'
-  },
-  reset: (session, _args, sink) => {
-    // The system prompt lives in `instructions`, not in `history`, so a reset
-    // just drops the conversation entirely.
-    session.history = []
-    sink.write('session reset\n')
-    return 'ok'
-  },
-  tools: (session, _args, sink) => {
-    sink.write(
-      `Tools: ${session.tools
-        .list()
-        .map((t) => t.name)
-        .join(', ')}\n`,
-    )
-    return 'ok'
-  },
-  clear: (_session, _args, sink) => {
-    sink.write(CLEAR)
-    return 'ok'
-  },
-  compact: async (session, _args, sink): Promise<HandleResult> => {
-    await session.context.manual(
-      session.client,
-      session.config,
-      session.history,
-    )
-    sink.write('conversation compacted\n')
-    return 'ok'
-  },
-  context: (session, _args, sink) => {
-    const r = session.context.report(session.history)
-    sink.write(
-      `context: ~${r.used} / ${r.usable} tokens used (model window ${session.config.context.window})\n`,
-    )
-    return 'ok'
-  },
-  tasks: listTasks,
-  todo: listTasks,
-  config: (session, _args, sink) => {
-    const c = session.config
-    const keysLine = KEY_PROVIDERS.map(
-      (p) => `${p}=${c[keyField(p)] ? 'set' : 'unset'}`,
-    ).join(' ')
-    const lines = [
-      `model:        ${c.model}`,
-      `baseURL:      ${c.baseURL ?? '(default)'}`,
-      `stateful:     ${c.stateful}`,
-      `verbose:      ${c.verbose}`,
-      `keys:         ${keysLine} (values hidden)`,
-      `maxTools:     ${c.maxToolIterations}`,
-      `maxHistory:   ${c.maxHistoryItems}`,
-      `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
-      `toolTimeout:  ${c.toolTimeout} ms`,
-      `maxRetries:   ${c.maxRetries}`,
-      `context:      window=${c.context.window} reserved=${c.context.reserved} keep=${c.context.keepTokens} prune=${c.context.prune} auto=${c.context.auto}`,
-    ]
-    sink.write(lines.join('\n') + '\n')
-    return 'ok'
-  },
-  undo: (session, _args, sink) => {
-    const h = session.history
-    const lastUser = h.findLastIndex(
-      (it) => (it as { role?: string }).role === 'user',
-    )
-    if (lastUser === -1) {
-      sink.write('nothing to undo\n')
+    },
+  })
+  r.register({
+    name: 'version',
+    description: 'print version',
+    handler: (_s, _a, sink) => {
+      sink.write(`dcode v${getVersion()}\n`)
       return 'ok'
-    }
-    h.splice(lastUser)
-    sink.write('undid last exchange\n')
-    return 'ok'
-  },
-  verbose: (session, args, sink) => {
-    const arg = args.trim()
-    if (arg === 'on') session.config.verbose = true
-    else if (arg === 'off') session.config.verbose = false
-    else session.config.verbose = !session.config.verbose
-    sink.write(`verbose: ${session.config.verbose ? 'on' : 'off'}\n`)
-    return 'ok'
-  },
-  key: (session, args, sink) => {
-    const parts = args.trim().split(/\s+/).filter(Boolean)
-    const sub = parts[0]
-    if (sub === 'list' || sub === undefined) {
-      const status = KEY_PROVIDERS.map(
-        (p) =>
-          `  ${p.padEnd(7)} ${session.config[keyField(p)] ? 'set' : 'not set'}`,
-      ).join('\n')
-      sink.write(`keys (global config, values hidden):\n${status}\n`)
-      return 'ok'
-    }
-    if (sub === 'set') {
-      const provider = parts[1]?.toLowerCase()
-      const value = parts.slice(2).join(' ')
-      if (!provider || !value) {
-        sink.write('usage: /key set <openai|brave> <value>\n')
+    },
+  })
+  r.register({
+    name: 'model',
+    description: 'show/set model: /model <id>',
+    handler: (session, args, sink) => {
+      const id = args.trim()
+      if (!id) {
+        sink.write(`model: ${session.config.model}\n`)
         return 'ok'
       }
-      if (!isKnownProvider(provider)) {
+      session.config.model = id
+      // Rebuild the client so the new model takes effect even if createClient
+      // ever captures config by value instead of by the shared object reference.
+      session.client = createClient(session.config)
+      sink.write(`model set to ${id}\n`)
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'reset',
+    description: 'clear the conversation',
+    handler: (session, _a, sink) => {
+      // The system prompt lives in `instructions`, not in `history`, so a reset
+      // just drops the conversation entirely.
+      session.history = []
+      sink.write('session reset\n')
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'tools',
+    description: 'list available tools',
+    handler: (session, _a, sink) => {
+      sink.write(
+        `Tools: ${session.tools
+          .list()
+          .map((t) => t.name)
+          .join(', ')}\n`,
+      )
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'clear',
+    description: 'clear the screen',
+    handler: (_s, _a, sink) => {
+      sink.write(CLEAR)
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'compact',
+    description: 'summarize the oldest conversation into a short summary',
+    handler: async (session, _a, sink): Promise<HandleResult> => {
+      await session.context.manual(
+        session.client,
+        session.config,
+        session.history,
+      )
+      sink.write('conversation compacted\n')
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'context',
+    description: 'show estimated token usage vs. the model window',
+    handler: (session, _a, sink) => {
+      const rep = session.context.report(session.history)
+      sink.write(
+        `context: ~${rep.used} / ${rep.usable} tokens used (model window ${session.config.context.window})\n`,
+      )
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'tasks',
+    description: 'list in-session tasks',
+    aliases: ['todo'],
+    handler: listTasks,
+  })
+  r.register({
+    name: 'config',
+    description: 'print effective configuration',
+    handler: (session, _a, sink) => {
+      const c = session.config
+      const keysLine = KEY_PROVIDERS.map(
+        (p) => `${p}=${c[keyField(p)] ? 'set' : 'unset'}`,
+      ).join(' ')
+      const lines = [
+        `model:        ${c.model}`,
+        `baseURL:      ${c.baseURL ?? '(default)'}`,
+        `stateful:     ${c.stateful}`,
+        `verbose:      ${c.verbose}`,
+        `keys:         ${keysLine} (values hidden)`,
+        `maxTools:     ${c.maxToolIterations}`,
+        `maxHistory:   ${c.maxHistoryItems}`,
+        `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
+        `toolTimeout:  ${c.toolTimeout} ms`,
+        `maxRetries:   ${c.maxRetries}`,
+        `context:      window=${c.context.window} reserved=${c.context.reserved} keep=${c.context.keepTokens} prune=${c.context.prune} auto=${c.context.auto}`,
+      ]
+      sink.write(lines.join('\n') + '\n')
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'undo',
+    description: 'remove the last exchange (user turn + response)',
+    handler: (session, _a, sink) => {
+      const h = session.history
+      const lastUser = h.findLastIndex(
+        (it) => (it as { role?: string }).role === 'user',
+      )
+      if (lastUser === -1) {
+        sink.write('nothing to undo\n')
+        return 'ok'
+      }
+      h.splice(lastUser)
+      sink.write('undid last exchange\n')
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'verbose',
+    description: 'toggle verbose mode (on|off)',
+    handler: (session, args, sink) => {
+      const arg = args.trim()
+      if (arg === 'on') session.config.verbose = true
+      else if (arg === 'off') session.config.verbose = false
+      else session.config.verbose = !session.config.verbose
+      sink.write(`verbose: ${session.config.verbose ? 'on' : 'off'}\n`)
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'key',
+    description: 'store/show API keys (openai, brave)',
+    handler: (session, args, sink) => {
+      const parts = args.trim().split(/\s+/).filter(Boolean)
+      const sub = parts[0]
+      if (sub === 'list' || sub === undefined) {
+        const status = KEY_PROVIDERS.map(
+          (p) =>
+            `  ${p.padEnd(7)} ${session.config[keyField(p)] ? 'set' : 'not set'}`,
+        ).join('\n')
+        sink.write(`keys (global config, values hidden):\n${status}\n`)
+        return 'ok'
+      }
+      if (sub === 'set') {
+        const provider = parts[1]?.toLowerCase()
+        const value = parts.slice(2).join(' ')
+        if (!provider || !value) {
+          sink.write('usage: /key set <openai|brave> <value>\n')
+          return 'ok'
+        }
+        if (!isKnownProvider(provider)) {
+          sink.write(
+            `unknown provider: ${provider} (known: ${KEY_PROVIDERS.join(', ')})\n`,
+          )
+          return 'ok'
+        }
+        const field = keyField(provider)
+        setGlobalKey(field, value)
+        session.config[field] = value
+        // The OpenAI client captured the key at construction; rebuild it so the
+        // new key is actually used for subsequent requests this session.
+        session.client = createClient(session.config)
+        sink.write(`stored ${provider} key in ${globalConfigPath()}\n`)
+        return 'ok'
+      }
+      if (sub === 'unset') {
+        const provider = parts[1]?.toLowerCase()
+        if (!provider) {
+          sink.write('usage: /key unset <openai|brave>\n')
+          return 'ok'
+        }
+        if (!isKnownProvider(provider)) {
+          sink.write(`unknown provider: ${provider}\n`)
+          return 'ok'
+        }
+        const field = keyField(provider)
+        unsetGlobalKey(field)
+        delete (session.config as Record<string, unknown>)[field]
+        session.client = createClient(session.config)
+        sink.write(`cleared ${provider} key\n`)
+        return 'ok'
+      }
+      sink.write('usage: /key <set|unset|list> [provider] [value]\n')
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'limit',
+    description: 'set maxToolIterations at runtime: /limit <n>',
+    handler: (session, args, sink) => {
+      const n = Number.parseInt(args.trim(), 10)
+      if (!Number.isInteger(n) || n < 1) {
+        sink.write('usage: /limit <positive integer>\n')
+        return 'ok'
+      }
+      session.config.maxToolIterations = n
+      sink.write(`maxToolIterations set to ${n}\n`)
+      return 'ok'
+    },
+  })
+  r.register({
+    name: 'save',
+    description:
+      'write the conversation transcript to a file (/save [path.md|path.json])',
+    handler: (session, args, sink) => {
+      const arg = args.trim()
+      const useMarkdown = arg.endsWith('.md')
+      const fileName = arg || `dcode-transcript.${useMarkdown ? 'md' : 'json'}`
+      const target = join(session.root, fileName)
+      if (existsSync(target)) {
         sink.write(
-          `unknown provider: ${provider} (known: ${KEY_PROVIDERS.join(', ')})\n`,
+          `refusing to overwrite ${target} (choose a different path)\n`,
         )
         return 'ok'
       }
-      const field = keyField(provider)
-      setGlobalKey(field, value)
-      session.config[field] = value
-      // The OpenAI client captured the key at construction; rebuild it so the new
-      // key is actually used for subsequent requests this session.
-      session.client = createClient(session.config)
-      sink.write(`stored ${provider} key in ${globalConfigPath()}\n`)
+      const payload = useMarkdown
+        ? historyToMarkdown(session.history)
+        : JSON.stringify(session.history, null, 2)
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, payload)
+      sink.write(`saved ${session.history.length} items to ${target}\n`)
       return 'ok'
-    }
-    if (sub === 'unset') {
-      const provider = parts[1]?.toLowerCase()
-      if (!provider) {
-        sink.write('usage: /key unset <openai|brave>\n')
-        return 'ok'
-      }
-      if (!isKnownProvider(provider)) {
-        sink.write(`unknown provider: ${provider}\n`)
-        return 'ok'
-      }
-      const field = keyField(provider)
-      unsetGlobalKey(field)
-      delete (session.config as Record<string, unknown>)[field]
-      session.client = createClient(session.config)
-      sink.write(`cleared ${provider} key\n`)
-      return 'ok'
-    }
-    sink.write('usage: /key <set|unset|list> [provider] [value]\n')
-    return 'ok'
-  },
-  limit: (session, args, sink) => {
-    const n = Number.parseInt(args.trim(), 10)
-    if (!Number.isInteger(n) || n < 1) {
-      sink.write('usage: /limit <positive integer>\n')
-      return 'ok'
-    }
-    session.config.maxToolIterations = n
-    sink.write(`maxToolIterations set to ${n}\n`)
-    return 'ok'
-  },
-  save: (session, args, sink) => {
-    const arg = args.trim()
-    const useMarkdown = arg.endsWith('.md')
-    const fileName = arg || `dcode-transcript.${useMarkdown ? 'md' : 'json'}`
-    const target = join(session.root, fileName)
-    if (existsSync(target)) {
-      sink.write(`refusing to overwrite ${target} (choose a different path)\n`)
-      return 'ok'
-    }
-    const payload = useMarkdown
-      ? historyToMarkdown(session.history)
-      : JSON.stringify(session.history, null, 2)
-    mkdirSync(dirname(target), { recursive: true })
-    writeFileSync(target, payload)
-    sink.write(`saved ${session.history.length} items to ${target}\n`)
-    return 'ok'
-  },
-  exit: () => 'exit',
+    },
+  })
+  r.register({
+    name: 'exit',
+    description: 'quit dcode',
+    handler: () => 'exit',
+  })
+  return r
 }
 
-export const SLASH_COMMANDS = Object.keys(commands)
+const COMMANDS = createCommands()
+export const SLASH_COMMANDS = COMMANDS.names()
 
 export function parseCommand(
   line: string,
@@ -321,10 +372,10 @@ export async function dispatch(
   cmd: { name: string; args: string },
   sink: RunSink,
 ): Promise<HandleResult> {
-  const handler = commands[cmd.name]
-  if (!handler) {
+  const def = COMMANDS.get(cmd.name)
+  if (!def) {
     sink.write(`unknown command: /${cmd.name} (try /help)\n`)
     return 'ok'
   }
-  return handler(session, cmd.args, sink)
+  return def.handler(session, cmd.args, sink)
 }
