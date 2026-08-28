@@ -104,7 +104,17 @@ export async function runAgent(
     const calls = (response.output ?? []).filter(
       (o): o is ResponseFunctionToolCall => o.type === 'function_call',
     )
-    for (const c of calls) history.push(c)
+    for (const c of calls) {
+      // Store only the canonical input shape. The SDK's response object also
+      // carries `parsed_arguments` (and other server fields) that the API rejects
+      // when the item is replayed as `input` on the next turn.
+      history.push({
+        type: 'function_call',
+        call_id: c.call_id,
+        name: c.name,
+        arguments: c.arguments,
+      })
+    }
     if (calls.length === 0) break
     prevHadTools = true
     const results = await runCalls(calls, registry, ctx)

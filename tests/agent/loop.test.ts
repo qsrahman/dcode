@@ -124,6 +124,31 @@ describe('runAgent', () => {
     expect(outputs).toHaveLength(3)
   })
 
+  it('strips SDK-only fields (parsed_arguments) from stored function_call items', async () => {
+    const client = fakeClientWithCalls([
+      [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'read_file',
+          arguments: '{"path":"a"}',
+          parsed_arguments: { path: 'a' },
+        },
+      ],
+      [],
+    ])
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([readTool]),
+    })
+    const stored = history.find(
+      (h) => (h as { type?: string }).type === 'function_call',
+    ) as unknown as Record<string, unknown>
+    expect(stored).toBeDefined()
+    expect('parsed_arguments' in stored).toBe(false)
+  })
+
   it('runs mutating tools unconditionally', async () => {
     const client = fakeClientWithCalls([
       [

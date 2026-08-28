@@ -1,3 +1,12 @@
+## [0.15.2] - 2026-08-28
+
+### Fixed
+- The agent loop stored the raw SDK `function_call` object (which carries a
+  `parsed_arguments` server field) in `history`; replaying it as `input` on the
+  next turn caused `400 Unknown parameter: 'input[n].parsed_arguments'`. Tool-call
+  items are now stored with only the canonical input shape (`type`/`call_id`/
+  `name`/`arguments`).
+
 ## [0.15.1] - 2026-08-28
 
 ### Fixed
