@@ -73,24 +73,22 @@ src/
                       #   manager.ts (ContextManager: prune→compact, overflow retry, breaker)
   agent/types.ts      # ToolDefinition<P>, ToolContext, ToolCall, ToolResult
   agent/tasks.ts      # TaskStore: in-session task list (create/list/update)
-  tools/index.ts      # createLocalTools(tasks): hub that registers all local tools into the registry
+  tools/index.ts      # createLocalTools(tasks): hub that registers all built-in tools into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
-   tools/local/        # local tool set, split by concern:
-                        #   paths.ts   (resolvePath, fsError — path confinement)
-                        #   traverse.ts (walkDir, globToRegExp)
-   #   fs.ts      (read_file, list_dir, stat, write_file, edit_file,
-   #               move_file, copy_file, delete_file, make_dir)
-   #   process.ts (run_process, read_process, kill_process — background)
-   #   search.ts  (grep, glob, find_symbol, find_references)
-   #   patch.ts   (apply_patch — atomic multi-file unified-diff apply)
-                        #   shell.ts   (run_shell)
-   tools/index.ts      # createLocalTools: assembles local + web + todo into a ToolRegistry
-   tools/local/web.ts  # web_search (Brave Search API; key from BRAVE_API_KEY)
-  tools/local/todo.ts # todo (single tool over TaskStore: add/list/update/done)
-  tools/local/git.ts  # git: scoped status/diff/log/show/add/commit/branch
-   tools/mcp/manager.ts# connect servers, cache tools, callTool (P6)
-   agent/loop.ts       # orchestration; renders tool status lines inline
-   util/log.ts         # diagnostics -> stderr (never console.log)
+  tools/local/        # local tool set, split by concern:
+    constants.ts      #   CHILD_MAX_BUFFER — shared child_process buffer ceiling
+    paths.ts          #   resolvePath, fsError — path confinement (realpath-checked against symlink escapes)
+    traverse.ts       #   walkDir, globToRegExp, createIgnore — gitignore-syntax matching via the `ignore` package
+    exec.ts           #   runExec, safeEnv — shared execa wrapper (timeout/cancelSignal/maxBuffer, env redaction) for run_shell/git
+    fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
+    search.ts         #   grep, glob (find_symbol/find_references planned, P12; not yet a file)
+    shell.ts          #   run_shell (via exec.ts's runExec)
+    process.ts        #   run_process, read_process, kill_process — background, via execa (killDescendants: true)
+    git.ts            #   git: scoped status/diff/log/show/add/commit/branch (via exec.ts's runExec)
+    todo.ts           #   todo (single tool over TaskStore: add/list/update/done)
+    web.ts            #   web_search (Brave; key from ctx.config.brave only), web_fetch
+  tools/mcp/manager.ts  # connect servers, cache tools, callTool (P6, not yet built)
+  util/log.ts           # diagnostics -> stderr (never console.log)
 ```
 
 ### Agent loop
@@ -977,7 +975,9 @@ directories without editing JSON or exporting env vars per shell.
   key also updates the live session config so it takes effect immediately.
 - `schema.ts` adds a `brave` field; `config.ts` folds `BRAVE_API_KEY` into config
   (env > file > default, same precedence as `apiKey`). `web_search` reads
-  `ctx.config.brave ?? process.env.BRAVE_API_KEY`.
+  `ctx.config.brave` only — that precedence is already resolved by the time a
+  tool runs, so re-checking `process.env.BRAVE_API_KEY` in the tool would be
+  redundant and could shadow a key set at runtime via `/key set brave`.
 - `/config` now prints a `keys: openai=set brave=unset (values hidden)` line.
 - Key resolution precedence: CLI > env > global config > schema default. Secrets
   are never logged and are not echoed by `/key list`.

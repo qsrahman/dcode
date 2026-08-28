@@ -70,13 +70,22 @@ generic with zod-typed params and a type-safe `execute(args: P, ctx)`;
 it is named `ToolDefinition` rather than `Tool` to avoid colliding with the
 SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — and
 converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/`
-implements the full local tool set over a shared `walkDir` traversal,
-path-confined to the working directory and returning root-relative paths:
-`read_file`, `list_dir`, `grep`, `stat`, `glob` (read-only); `write_file`,
-`edit_file`, `move_file`, `copy_file`, `delete_file`, `make_dir`, `run_shell`
-(mutating); `run_process`, `read_process`, `kill_process` (background); plus a
-scoped `git` tool, the `todo` task-list tool, and `web_search`/`web_fetch`
-(Brave key from `BRAVE_API_KEY` in `tools/local/web.ts`). `createLocalTools()`
+implements the full local tool set, split by concern, over shared
+`paths.ts` (`resolvePath`, `fsError` — path confinement, realpath-checked
+against symlink escapes) and `traverse.ts` (`walkDir`, `globToRegExp`,
+`createIgnore` — gitignore-syntax pruning via the `ignore` package) modules:
+`fs.ts` (`read_file`, `list_dir`, `stat`, `write_file`, `edit_file`,
+`move_file`, `copy_file`, `delete_file`, `make_dir`), `search.ts` (`grep`,
+`glob`), `shell.ts` (`run_shell`), `git.ts` (`git`), `process.ts`
+(`run_process`, `read_process`, `kill_process`), `todo.ts` (`todo`), `web.ts`
+(`web_search`, `web_fetch`). `shell.ts`/`git.ts`/`process.ts` all spawn
+through `exec.ts`'s shared `runExec`/`safeEnv` helpers, which wrap `execa`
+(`killDescendants: true` so a killed shell/process's own children die with
+it; env is rebuilt via `safeEnv()` rather than inherited, so secret-looking
+vars like `OPENAI_API_KEY` never reach a child process). `web_search`'s Brave
+key comes from `ctx.config.brave` only — `buildConfig` already resolves
+`BRAVE_API_KEY` (env) over the stored config file into it before any tool
+runs, so the tool itself doesn't re-read `process.env`. `createLocalTools()`
 is the single hub that registers all built-in tools into the `ToolRegistry`
 (no config argument) and is used by both `runOneShot` and the REPL.
 
@@ -95,11 +104,11 @@ working-directory root (`config.root ?? process.cwd()`), used by both the
 system prompt and the tool context. `loadConfig` parses the config file with
 `configSchema.strict()` (not `.partial()` — every field already tolerates
 absence via `.optional()`/`.default()`), so a typo'd key in `dcode.json` fails
-loudly instead of being silently ignored; `mcpServerSchema` is strict too, since
-`.strict()` doesn't cascade into nested objects. A missing
-default config (`dcode.json`/`.dcode.json`) falls back to schema defaults
-(`{}`), but an explicit `--config <path>` that doesn't exist throws rather than
-being silently ignored.
+loudly instead of being silently ignored; the nested `context` object is
+`.strict()` too, since `.strict()` doesn't cascade into nested objects on its
+own. A missing default config (`dcode.json`/`.dcode.json`) falls back to
+schema defaults (`{}`), but an explicit `--config <path>` that doesn't exist
+throws rather than being silently ignored.
 
 See PLAN.md §5 for the full target module tree (including mutating tools and
 MCP modules not yet built) and §10+ for the current phase's detailed spec.
