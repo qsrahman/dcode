@@ -69,7 +69,16 @@ export async function handleLine(
   if (trimmed === '') return 'ok'
 
   const cmd = parseCommand(trimmed)
-  if (cmd) return dispatch(session, cmd, sink)
+  if (cmd) {
+    // Guard command handlers: an error here (e.g. /save to a bad path, /compact
+    // failing) must not escape and terminate the REPL loop.
+    try {
+      return await dispatch(session, cmd, sink)
+    } catch (err) {
+      session.logger.error(errorMessage(err))
+      return 'ok'
+    }
+  }
 
   session.history.push({ role: 'user', content: trimmed })
 

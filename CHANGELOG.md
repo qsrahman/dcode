@@ -1,3 +1,16 @@
+## [0.15.1] - 2026-08-28
+
+### Fixed
+- `/key set`/`unset` and `/model` now rebuild the client so the change takes
+  effect for subsequent requests (the OpenAI client captured the key/model at
+  construction, making earlier in-session changes no-ops).
+- A failing REPL command (e.g. `/save` to a missing directory, `/compact`
+  erroring) no longer crashes the REPL — the dispatch error is logged and the
+  session continues.
+- `/save` creates parent directories for nested paths instead of erroring.
+- Command names are case-insensitive (`/Help`, `/MODEL` work); `/key` provider
+  names too. Args (keys, paths, model ids) keep their original case.
+
 ## [0.15.0] - 2026-08-28
 
 ### Added

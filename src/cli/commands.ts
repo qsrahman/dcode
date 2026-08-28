@@ -8,8 +8,9 @@ import type { ContextManager } from '../agent/context/manager.ts'
 import type { TaskStore } from '../agent/tasks.ts'
 import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../version.ts'
-import { existsSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { createClient } from '../agent/client.ts'
 import {
   isKnownProvider,
   keyField,
@@ -133,6 +134,9 @@ const commands: Record<string, CommandHandler> = {
       return 'ok'
     }
     session.config.model = id
+    // Rebuild the client so the new model takes effect even if createClient ever
+    // captures config by value instead of by the shared object reference.
+    session.client = createClient(session.config)
     sink.write(`model set to ${id}\n`)
     return 'ok'
   },
@@ -228,7 +232,7 @@ const commands: Record<string, CommandHandler> = {
       return 'ok'
     }
     if (sub === 'set') {
-      const provider = parts[1]
+      const provider = parts[1]?.toLowerCase()
       const value = parts.slice(2).join(' ')
       if (!provider || !value) {
         sink.write('usage: /key set <openai|brave> <value>\n')
@@ -243,11 +247,14 @@ const commands: Record<string, CommandHandler> = {
       const field = keyField(provider)
       setGlobalKey(field, value)
       session.config[field] = value
+      // The OpenAI client captured the key at construction; rebuild it so the new
+      // key is actually used for subsequent requests this session.
+      session.client = createClient(session.config)
       sink.write(`stored ${provider} key in ${globalConfigPath()}\n`)
       return 'ok'
     }
     if (sub === 'unset') {
-      const provider = parts[1]
+      const provider = parts[1]?.toLowerCase()
       if (!provider) {
         sink.write('usage: /key unset <openai|brave>\n')
         return 'ok'
@@ -259,6 +266,7 @@ const commands: Record<string, CommandHandler> = {
       const field = keyField(provider)
       unsetGlobalKey(field)
       delete (session.config as Record<string, unknown>)[field]
+      session.client = createClient(session.config)
       sink.write(`cleared ${provider} key\n`)
       return 'ok'
     }
@@ -287,6 +295,7 @@ const commands: Record<string, CommandHandler> = {
     const payload = useMarkdown
       ? historyToMarkdown(session.history)
       : JSON.stringify(session.history, null, 2)
+    mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, payload)
     sink.write(`saved ${session.history.length} items to ${target}\n`)
     return 'ok'
@@ -302,8 +311,9 @@ export function parseCommand(
   if (!line.startsWith('/')) return null
   const rest = line.slice(1)
   const sp = rest.indexOf(' ')
-  if (sp === -1) return { name: rest, args: '' }
-  return { name: rest.slice(0, sp), args: rest.slice(sp + 1) }
+  // Only the command name is normalized; args (keys, paths, model ids) keep case.
+  if (sp === -1) return { name: rest.toLowerCase(), args: '' }
+  return { name: rest.slice(0, sp).toLowerCase(), args: rest.slice(sp + 1) }
 }
 
 export async function dispatch(

@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as readline from 'node:readline/promises'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Config } from '../../src/config/schema.ts'
@@ -33,6 +39,12 @@ describe('parseCommand', () => {
   })
   it('parses a command with no args', () => {
     expect(parseCommand('/help')).toEqual({ name: 'help', args: '' })
+  })
+  it('lower-cases the command name but preserves args case', () => {
+    expect(parseCommand('/Key Set OpenAI SK-123')).toEqual({
+      name: 'key',
+      args: 'Set OpenAI SK-123',
+    })
   })
 })
 
@@ -367,6 +379,15 @@ describe('REPL commands /save and /limit', () => {
     expect(out.join('')).toContain('usage: /limit')
   })
 
+  it('/model rebuilds the client so the new model takes effect', async () => {
+    const s = makeSession()
+    const before = s.client
+    const { sink } = makeSink()
+    await handleLine(s, '/model gpt-4o', { sink })
+    expect(s.config.model).toBe('gpt-4o')
+    expect(s.client).not.toBe(before)
+  })
+
   it('/save writes a JSON transcript and refuses to overwrite', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
     const s = makeSession({ root: dir })
@@ -389,6 +410,27 @@ describe('REPL commands /save and /limit', () => {
     const md = readFileSync(join(dir, 'notes.md'), 'utf8')
     expect(md).toContain('## user')
     expect(md).toContain('hi')
+  })
+
+  it('/save creates parent directories for a nested path', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
+    const s = makeSession({ root: dir })
+    s.history.push({ role: 'user', content: 'hi' })
+    const { sink } = makeSink()
+    await handleLine(s, '/save sub/notes.json', { sink })
+    expect(existsSync(join(dir, 'sub', 'notes.json'))).toBe(true)
+  })
+
+  it('a throwing command handler does not crash the REPL', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
+    const s = makeSession({ root: dir })
+    // Plant a file where the parent dir should go so mkdirSync fails, exercising
+    // the dispatch error guard in handleLine.
+    writeFileSync(join(dir, 'blocker'), 'x')
+    const { sink } = makeSink()
+    await expect(
+      handleLine(s, '/save blocker/notes.json', { sink }),
+    ).resolves.toBe('ok')
   })
 })
 
