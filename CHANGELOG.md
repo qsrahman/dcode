@@ -1,3 +1,13 @@
+## [0.13.11] - 2026-08-28
+
+### Fixed
+- First-run key bootstrap now validates the prompted key before persisting it, so
+  a typo'd key can't get stuck in the global config.
+- The `context` config block is now `.strict()`, so typos inside it (e.g.
+  `windw`) are rejected instead of silently ignored.
+- `readConfigFile` no longer re-checks file existence (already guarded by
+  `loadConfig`) and reports JSON parse errors with their own message.
+
 ## [0.13.10] - 2026-08-28
 
 ### Added

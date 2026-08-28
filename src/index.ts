@@ -51,9 +51,10 @@ Flags:
 }
 
 // First-run key bootstrap for interactive (REPL) startup: if no API key is
-// available from env or config, prompt once and persist it to the global config.
-// Visible input (no hidden echo); only runs on a TTY so piped/one-shot use
-// doesn't block. Returns the entered key, or '' if skipped/empty.
+// available from env or config, prompt once. The key is only persisted after it
+// validates (see main), so a bad paste isn't stored. Visible input (no hidden
+// echo); only runs on a TTY so piped/one-shot use doesn't block. Returns the
+// entered key, or '' if skipped/empty.
 async function promptForApiKey(): Promise<string> {
   if (!process.stdin.isTTY) return ''
   process.stderr.write(
@@ -85,15 +86,14 @@ export async function main(): Promise<void> {
     }
     const config = buildConfig(args)
     logger = createLogger(config)
-    // REPL (interactive) first-run: prompt for a key and persist it, rather than
-    // hard-failing. One-shot use (a prompt was given) keeps the hard failure
-    // because there's no TTY to prompt on.
+    // First-run key bootstrap (REPL/interactive only): if no key is available
+    // from env or config, prompt once. The key is only persisted after it
+    // validates, so a typo can't get stuck in the global config. One-shot use
+    // (a prompt was given) keeps the hard failure — there's no TTY to prompt on.
+    let promptedKey = ''
     if (!args.prompt && !config.apiKey) {
-      const key = await promptForApiKey()
-      if (key) {
-        setGlobalKey('apiKey', key)
-        config.apiKey = key
-      }
+      promptedKey = await promptForApiKey()
+      if (promptedKey) config.apiKey = promptedKey
     }
     if (!config.apiKey) {
       process.stderr.write(
@@ -116,6 +116,8 @@ export async function main(): Promise<void> {
       )
       process.exit(1)
     }
+    // Persist a freshly prompted key now that it has validated.
+    if (promptedKey) setGlobalKey('apiKey', promptedKey)
     if (!args.prompt) {
       await startRepl(config, logger)
       return

@@ -37,6 +37,7 @@ export const configSchema = z.object({
       prune: z.boolean().default(true),
       compactAt: z.number().min(0).max(1).default(0.85),
     })
+    .strict()
     .refine(
       (ctx) => ctx.keepTokens < ctx.window - ctx.reserved,
       'keepTokens must be less than window - reserved to allow headroom for compaction',

@@ -34,13 +34,20 @@ export function loadConfig(path?: string): Partial<Config> {
 }
 
 function readConfigFile(abs: string): Partial<Config> {
-  if (!existsSync(abs)) throw new Error(`Config file not found: ${abs}`)
   const raw = readFileSync(abs, 'utf8')
+  let json: unknown
   try {
-    // .strict() (not .partial()) catches typo'd keys — every field already
-    // tolerates absence via .optional()/.default(), so .partial() was a
-    // no-op that also silently accepted unrecognized keys.
-    return configSchema.strict().parse(JSON.parse(raw))
+    json = JSON.parse(raw)
+  } catch (err) {
+    throw new Error(
+      `Invalid JSON in ${abs}: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  try {
+    // .strict() catches typo'd keys (including inside `context`) — every field
+    // tolerates absence via .optional()/.default(), so unknown keys are rejected
+    // rather than silently ignored.
+    return configSchema.strict().parse(json)
   } catch (err) {
     throw new Error(
       `Failed to load config ${abs}: ${err instanceof Error ? err.message : String(err)}`,
