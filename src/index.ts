@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { realpathSync } from 'node:fs'
 import { validateApiKey } from './cli/auth.ts'
 import { setGlobalKey } from './cli/keys.ts'
-import * as readline from 'node:readline'
+import { createInterface } from 'node:readline/promises'
 
 // True when this module is the process entry point. Resolving symlinks matters:
 // a global `pnpm add -g` install is reached through symlinks, so the raw
@@ -60,11 +60,8 @@ async function promptForApiKey(): Promise<string> {
   process.stderr.write(
     'No API key found. Paste your OpenAI-compatible key (saved to the global config):\n> ',
   )
-  const rl = readline.createInterface({ input: process.stdin })
-  const line = await new Promise<string>((resolve) => {
-    rl.once('line', (l) => resolve(l))
-    rl.once('close', () => resolve(''))
-  })
+  const rl = createInterface({ input: process.stdin })
+  const line = await rl.question('')
   rl.close()
   return line.trim()
 }
