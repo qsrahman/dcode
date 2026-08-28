@@ -16,6 +16,11 @@ export interface ToolDefinition<P = unknown> {
   description: string
   parameters: z.ZodType<P>
   execute(args: P, ctx: ToolContext): Promise<string>
+  // `false` forces the call to run sequentially (in emission order) rather than
+  // being batched with other parallel-eligible calls via Promise.all. Mutating
+  // tools set this so side effects don't race; read-only tools default to
+  // parallel. This is scheduling only — there is no approval gate.
+  parallel?: boolean
 }
 
 export interface ToolCall {

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as readline from 'node:readline/promises'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { Config } from '../../src/config/schema.ts'
 import {
   createSession,
@@ -338,6 +341,54 @@ describe('startRepl (smoke, mocked boundaries)', () => {
     expect(captured().split('Ask anything').length - 1).toBe(1)
     rl.emit('/exit')
     await done
+  })
+})
+
+describe('REPL commands /save and /limit', () => {
+  let dir: string | undefined
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true })
+    dir = undefined
+  })
+
+  it('/limit sets maxToolIterations at runtime', async () => {
+    const s = makeSession()
+    const { sink, out } = makeSink()
+    expect(await handleLine(s, '/limit 5', { sink })).toBe('ok')
+    expect(s.config.maxToolIterations).toBe(5)
+    expect(out.join('')).toContain('maxToolIterations set to 5')
+  })
+
+  it('/limit rejects non-positive input', async () => {
+    const s = makeSession()
+    const { sink, out } = makeSink()
+    await handleLine(s, '/limit abc', { sink })
+    await handleLine(s, '/limit 0', { sink })
+    expect(out.join('')).toContain('usage: /limit')
+  })
+
+  it('/save writes a JSON transcript and refuses to overwrite', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
+    const s = makeSession({ root: dir })
+    s.history.push({ role: 'user', content: 'hi' })
+    const { sink, out } = makeSink()
+    expect(await handleLine(s, '/save', { sink })).toBe('ok')
+    const target = join(dir, 'dcode-transcript.json')
+    expect(existsSync(target)).toBe(true)
+    expect(JSON.parse(readFileSync(target, 'utf8'))).toEqual(s.history)
+    await handleLine(s, '/save', { sink })
+    expect(out.join('')).toContain('refusing to overwrite')
+  })
+
+  it('/save writes Markdown when the path ends in .md', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
+    const s = makeSession({ root: dir })
+    s.history.push({ role: 'user', content: 'hi' })
+    const { sink } = makeSink()
+    await handleLine(s, '/save notes.md', { sink })
+    const md = readFileSync(join(dir, 'notes.md'), 'utf8')
+    expect(md).toContain('## user')
+    expect(md).toContain('hi')
   })
 })
 

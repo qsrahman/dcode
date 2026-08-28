@@ -195,6 +195,7 @@ function writeFileTool(): ToolDefinition<{
 }> {
   return {
     name: 'write_file',
+    parallel: false,
     description:
       'Create or modify a UTF-8 text file under the working directory. Parent directories are created. Set append to add to the end; overwrite (default true) to replace an existing file, or false to refuse to clobber.',
     parameters: z.object({
@@ -252,6 +253,7 @@ function editFileTool(): ToolDefinition<{
 }> {
   return {
     name: 'edit_file',
+    parallel: false,
     description:
       'Replace occurrences of a string in a file under the working directory. Requires an exact, unique match unless replace_all is set.',
     parameters: z.object({
@@ -315,6 +317,7 @@ function moveFileTool(): ToolDefinition<{
 }> {
   return {
     name: 'move_file',
+    parallel: false,
     description:
       'Move or rename a file or directory under the working directory. The destination parent directory is created if needed. Both paths must stay within the working directory.',
     parameters: z.object({
@@ -347,6 +350,7 @@ function copyFileTool(): ToolDefinition<{
 }> {
   return {
     name: 'copy_file',
+    parallel: false,
     description:
       'Copy a file under the working directory to a new location. The destination parent directory is created if needed. Both paths must stay within the working directory.',
     parameters: z.object({
@@ -375,6 +379,7 @@ function deleteFileTool(): ToolDefinition<{
 }> {
   return {
     name: 'delete_file',
+    parallel: false,
     description:
       'Delete a file or directory under the working directory. Directories require recursive: true. Refuses to delete the working directory root itself.',
     parameters: z.object({
@@ -406,6 +411,7 @@ function deleteFileTool(): ToolDefinition<{
 function makeDirTool(): ToolDefinition<{ path: string }> {
   return {
     name: 'make_dir',
+    parallel: false,
     description:
       'Create a directory under the working directory, including any missing parents.',
     parameters: z.object({

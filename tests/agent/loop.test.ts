@@ -183,6 +183,89 @@ describe('runAgent', () => {
     expect(order).toEqual(['a', 'b'])
   })
 
+  it('runs parallel-eligible (read) calls concurrently via Promise.all', async () => {
+    let active = 0
+    let maxActive = 0
+    const makeRead = (name: string): ToolDefinition => ({
+      name,
+      description: 'reads',
+      parameters: z.object({}),
+      async execute() {
+        active++
+        maxActive = Math.max(maxActive, active)
+        await new Promise((r) => setTimeout(r, 20))
+        active--
+        return 'ok'
+      },
+    })
+    const client = fakeClientWithCalls([
+      [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'read_a',
+          arguments: '{}',
+        },
+        {
+          type: 'function_call',
+          call_id: 'c2',
+          name: 'read_b',
+          arguments: '{}',
+        },
+      ],
+      [],
+    ])
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([makeRead('read_a'), makeRead('read_b')]),
+    })
+    // Both reads ran in the same Promise.all batch, so peak concurrency was 2.
+    expect(maxActive).toBe(2)
+  })
+
+  it('runs mutating (parallel:false) calls sequentially', async () => {
+    let active = 0
+    let maxActive = 0
+    const write: ToolDefinition = {
+      name: 'write_file',
+      description: 'writes',
+      parameters: z.object({ path: z.string() }),
+      parallel: false,
+      async execute() {
+        active++
+        maxActive = Math.max(maxActive, active)
+        await new Promise((r) => setTimeout(r, 20))
+        active--
+        return 'ok'
+      },
+    }
+    const client = fakeClientWithCalls([
+      [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'write_file',
+          arguments: '{"path":"a"}',
+        },
+        {
+          type: 'function_call',
+          call_id: 'c2',
+          name: 'write_file',
+          arguments: '{"path":"b"}',
+        },
+      ],
+      [],
+    ])
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([write]),
+    })
+    // Mutating calls run one at a time, so peak concurrency was 1.
+    expect(maxActive).toBe(1)
+  })
+
   it('preserves call order in history across read and mutate results', async () => {
     const readTool2: ToolDefinition = {
       name: 'read_file',

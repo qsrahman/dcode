@@ -61,7 +61,7 @@ dcode                                                # REPL
 
 ### REPL slash commands
 
-`/help` `/model` `/tools` `/clear` `/reset` `/compact` `/context` `/tasks`
+`/help` `/key` `/model` `/tools` `/clear` `/reset` `/compact` `/context` `/tasks`
 `/config` `/undo` `/verbose` `/version` `/exit`
 
  (`/clear` clears the screen; `/reset` drops the conversation history. `/model`
@@ -98,6 +98,13 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `web_fetch` | Fetch a URL and return its content (HTML → Markdown, JSON pretty-printed); no API key required. |
 | `todo` | Manage the in-session task list (add / list / update / done) to plan and track multi-step work. |
 | `git` | Scoped git operations: `status`, `diff`, `log`, `show`, `add`, `commit`, `branch` (in the working directory). |
+| `move_file` | Move/rename a file or directory under the working directory. |
+| `copy_file` | Copy a file under the working directory. |
+| `delete_file` | Delete a file or (with `recursive`) a directory under the working directory. |
+| `make_dir` | Create a directory (and parents) under the working directory. |
+| `run_process` | Spawn a background process and return a handle. |
+| `read_process` | Tail a background process's output and exit status. |
+| `kill_process` | Stop a background process by handle. |
 
 `web_search` needs a Brave Search API key in the `BRAVE_API_KEY` environment
 variable; without it the tool returns an error instead of crashing. The recursive tools (`grep`, `glob`) skip directories named in `ignore`
@@ -127,7 +134,7 @@ JSON, loaded from `--config <path>` or a default location. Example:
 
 ```json
 {
-  "model": "gpt-5",
+  "model": "gpt-5.4-mini",
   "maxToolIterations": 16,
   "maxHistoryItems": 100,
   "maxToolOutputBytes": 32768,
@@ -144,8 +151,8 @@ global config is the canonical store for a globally installed `dcode`, so a fixe
 `model`/`baseURL`/`apiKey` applies no matter which directory you run it from.
 
 API keys (`OPENAI_API_KEY`, `BRAVE_API_KEY`) are read from the environment
-(first), then the local config (`apiKey` / `brave` fields), then the global
-config, then the schema default. For a global install, store them once without editing JSON
+(first), then the global config (`apiKey` / `brave` fields), then the schema
+default. For a global install, store them once without editing JSON
 or exporting them per shell: start `dcode` and run `/key set openai <key>`
 (and `/key set brave <key>` for web search). `/key` writes the key to
 `~/.config/dcode/dcode.json` with `0600` permissions and never prints it back;
@@ -168,6 +175,9 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 | P8 | Task list (in-session: create/list/update) | **Done** |
 | P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
 | P10 | Context-window management (prune + compact + overflow retry) | **Done** |
+| P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** |
+| P12 | Symbol search (`find_symbol` / `find_references`) | **Planned** |
+| P13 | `apply_patch` (atomic multi-file unified-diff apply) | **Planned** |
 
 ## Development
 

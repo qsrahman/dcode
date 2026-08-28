@@ -5,9 +5,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `dcode` — a CLI-based AI coding agent built on the OpenAI Responses SDK. Runs
-locally via Node's type stripping (no build step). Currently at P3 (tool core +
-read-only tools + agent loop); mutating tools, permissions, and MCP land in
-later phases (see PLAN.md §8).
+locally via Node's type stripping (no build step). Phases P0–P11 are complete
+(one-shot, REPL, tool-using agent loop, read-only + mutating local tools,
+in-session task list, scoped `git`, context-window management, global key
+storage). P5 (declarative permissions) was cancelled and its gate/approval
+machinery removed — all tool calls run unconditionally. P6 (MCP) is the next
+major phase; P12 (symbol search) and P13 (apply_patch) are planned. See
+PLAN.md §8.
 
 **Read [AGENTS.md](./AGENTS.md) and [PLAN.md](./PLAN.md) before changing code.**
 AGENTS.md has the full developer guide (stack constraints, code style, config
@@ -55,8 +59,10 @@ from `stream.finalResponse()`) plus the full response (so callers can inspect
 tool calls) — it does not reconstruct text from the deltas itself. `runTool`
 executes a single tool call with a timeout and output truncation.
 `agent/loop.ts` owns orchestration on top of those: `runAgent` drives the
-tool-calling loop (stream a turn, run any tool calls in parallel, feed
-`function_call_output`s back, repeat up to `maxToolIterations`), and
+tool-calling loop (stream a turn, execute the model's tool calls — read-only
+calls are batched in parallel via `Promise.all`, mutating calls run
+sequentially in emission order — feed `function_call_output`s back, repeat up
+to `maxToolIterations`), and
 `runOneShot` is a thin wrapper that builds `[system, user]` and delegates to
 `runAgent`. Tools live under `tools/`: `tools/registry.ts`'s `ToolRegistry` (built once
 per session; `toResponsesTools()` is memoized) registers `ToolDefinition<P>` objects — a
@@ -64,13 +70,15 @@ generic with zod-typed params and a type-safe `execute(args: P, ctx)`;
 it is named `ToolDefinition` rather than `Tool` to avoid colliding with the
 SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — and
 converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/`
-implements the full local tool set (`read_file`, `list_dir`, `grep`, `stat`,
-`glob`, `write_file`, `edit_file`, `run_shell`) over a shared `walkDir`
-traversal, path-confined to the working directory and returning root-relative
-paths. `tools/local/web.ts` adds `web_search` (Brave Search API, key from
-`BRAVE_API_KEY`). `createLocalTools()` is the single hub that registers all
-built-in tools (filesystem + web) into the `ToolRegistry` (no config argument)
-and is used by both `runOneShot` and the REPL.
+implements the full local tool set over a shared `walkDir` traversal,
+path-confined to the working directory and returning root-relative paths:
+`read_file`, `list_dir`, `grep`, `stat`, `glob` (read-only); `write_file`,
+`edit_file`, `move_file`, `copy_file`, `delete_file`, `make_dir`, `run_shell`
+(mutating); `run_process`, `read_process`, `kill_process` (background); plus a
+scoped `git` tool, the `todo` task-list tool, and `web_search`/`web_fetch`
+(Brave key from `BRAVE_API_KEY` in `tools/local/web.ts`). `createLocalTools()`
+is the single hub that registers all built-in tools into the `ToolRegistry`
+(no config argument) and is used by both `runOneShot` and the REPL.
 
 The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
 keeping a module-local `Session` (`{ config, client, logger, history, tools }`)

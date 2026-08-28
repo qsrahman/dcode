@@ -46,6 +46,7 @@ type GitArgs = z.infer<typeof gitSchema>
 export function gitTool(): ToolDefinition<GitArgs> {
   return {
     name: 'git',
+    parallel: false,
     description:
       'Run a scoped set of git operations in the working directory: status, diff, log, show, add, commit, branch. Destructive or remote operations (push, pull, reset, checkout, clean, merge, rebase) are intentionally unsupported — use run_shell for those.',
     parameters: gitSchema,

@@ -145,17 +145,24 @@ export async function runOneShot(
   return runAgent(client, config, input, { ...opts, context })
 }
 
-// Execute one turn's tool calls in the order the model emitted them. Every call
-// yields exactly one outcome — an unknown-tool error, an `aborted` marker if the
-// user cancelled before it ran, or the tool's real result — so history and
-// rendering stay aligned and every function_call gets a function_call_output.
+// Execute one turn's tool calls in the order the model emitted them. Parallel-
+// eligible calls (read-only tools; `parallel !== false`) are batched via
+// Promise.all; non-parallel calls (mutating tools) run one at a time in emission
+// order. Every call yields exactly one outcome — an unknown-tool error, an
+// `aborted` marker if the user cancelled before it ran, or the tool's real
+// result — so history and rendering stay aligned and every function_call gets a
+// function_call_output.
 async function runCalls(
   calls: ResponseFunctionToolCall[],
   registry: ToolRegistry,
   ctx: ToolContext,
 ): Promise<{ id: string; outcome: ToolResult }[]> {
   const results: { id: string; outcome: ToolResult }[] = []
-  for (const c of calls) {
+  let batch: ResponseFunctionToolCall[] = []
+
+  const runOne = async (
+    c: ResponseFunctionToolCall,
+  ): Promise<{ id: string; outcome: ToolResult }> => {
     const call = { id: c.call_id, name: c.name, arguments: c.arguments }
     const tool = registry.get(c.name)
     let outcome: ToolResult
@@ -178,8 +185,27 @@ async function runCalls(
     } else {
       outcome = await runTool(call, tool, ctx)
     }
-    results.push({ id: c.call_id, outcome })
+    return { id: c.call_id, outcome }
   }
+
+  // Flush the accumulated parallel batch, preserving emission order.
+  const flush = async () => {
+    if (batch.length === 0) return
+    const outs = await Promise.all(batch.map(runOne))
+    results.push(...outs)
+    batch = []
+  }
+
+  for (const c of calls) {
+    const tool = registry.get(c.name)
+    if (tool && tool.parallel !== false) {
+      batch.push(c)
+    } else {
+      await flush()
+      results.push(await runOne(c))
+    }
+  }
+  await flush()
   return results
 }
 

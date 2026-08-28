@@ -5,6 +5,7 @@ import { runExec } from './exec.ts'
 function runShellTool(): ToolDefinition<{ command: string }> {
   return {
     name: 'run_shell',
+    parallel: false,
     description:
       'Run a shell command in the working directory with a timeout. Combined stdout/stderr is returned as the tool output.',
     parameters: z.object({

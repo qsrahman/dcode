@@ -8,6 +8,8 @@ import type { ContextManager } from '../agent/context/manager.ts'
 import type { TaskStore } from '../agent/tasks.ts'
 import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../version.ts'
+import { existsSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   isKnownProvider,
   keyField,
@@ -42,8 +44,10 @@ const COMMAND_DESCRIPTIONS: Record<string, string> = {
   exit: 'quit dcode',
   help: 'show this help',
   key: 'store/show API keys (openai, brave)',
+  limit: 'set maxToolIterations at runtime: /limit <n>',
   model: 'show/set model: /model <id>',
   reset: 'clear the conversation',
+  save: 'write the conversation transcript to a file (/save [path.md|path.json])',
   tasks: 'list in-session tasks (alias of /todo)',
   todo: 'list in-session tasks',
   tools: 'list available tools',
@@ -60,6 +64,33 @@ const HELP = ansis.dim(
       .map((name) => `  /${name.padEnd(8)} ${COMMAND_DESCRIPTIONS[name]}`),
   ].join('\n'),
 )
+
+// Best-effort Markdown rendering of a conversation transcript for `/save`.
+function historyToMarkdown(history: ResponseInput): string {
+  const parts: string[] = []
+  for (const item of history) {
+    const it = item as {
+      type: string
+      role?: string
+      content?: unknown
+      name?: string
+      arguments?: string
+      output?: string
+    }
+    if (it.type === 'function_call') {
+      parts.push(
+        `## tool call: ${it.name}\n\n\`\`\`json\n${it.arguments}\n\`\`\`\n`,
+      )
+    } else if (it.type === 'function_call_output') {
+      parts.push(`## tool output\n\n\`\`\`\n${it.output}\n\`\`\`\n`)
+    } else if ('role' in it && 'content' in it) {
+      const text =
+        typeof it.content === 'string' ? it.content : JSON.stringify(it.content)
+      parts.push(`## ${it.role}\n\n${text}\n`)
+    }
+  }
+  return parts.join('\n')
+}
 
 type CommandHandler = (
   session: Session,
@@ -232,6 +263,32 @@ const commands: Record<string, CommandHandler> = {
       return 'ok'
     }
     sink.write('usage: /key <set|unset|list> [provider] [value]\n')
+    return 'ok'
+  },
+  limit: (session, args, sink) => {
+    const n = Number.parseInt(args.trim(), 10)
+    if (!Number.isInteger(n) || n < 1) {
+      sink.write('usage: /limit <positive integer>\n')
+      return 'ok'
+    }
+    session.config.maxToolIterations = n
+    sink.write(`maxToolIterations set to ${n}\n`)
+    return 'ok'
+  },
+  save: (session, args, sink) => {
+    const arg = args.trim()
+    const useMarkdown = arg.endsWith('.md')
+    const fileName = arg || `dcode-transcript.${useMarkdown ? 'md' : 'json'}`
+    const target = join(session.root, fileName)
+    if (existsSync(target)) {
+      sink.write(`refusing to overwrite ${target} (choose a different path)\n`)
+      return 'ok'
+    }
+    const payload = useMarkdown
+      ? historyToMarkdown(session.history)
+      : JSON.stringify(session.history, null, 2)
+    writeFileSync(target, payload)
+    sink.write(`saved ${session.history.length} items to ${target}\n`)
     return 'ok'
   },
   exit: () => 'exit',

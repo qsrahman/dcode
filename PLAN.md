@@ -135,7 +135,7 @@ dcode [prompt]      one-shot when a prompt is given, REPL otherwise
   --model <id>       --config <path>    --verbose   --no-color   --version   --help
 ```
 
-Slash commands (REPL): `/help` `/model` `/tools` `/clear` `/reset`
+Slash commands (REPL): `/help` `/key` `/model` `/tools` `/clear` `/reset`
 `/compact` `/context` `/tasks` `/config` `/undo` `/verbose` `/version` `/exit`.
 See §17 for deferred candidates.
 
@@ -802,16 +802,16 @@ configured window, and a context-window overflow is recovered transparently.
 Covered by `tests/agent/context/*`. The in-session task list survives compaction
 (it lives outside `history`), so `/compact` never loses tracked work.
 
-## 17. REPL command backlog (not yet built)
+## 17. REPL command backlog
 
 Candidate slash commands deferred from the v0.10.0 command pass:
 
-- **`/save [path]`** — write the current conversation transcript (`history`) to a
-  file for sharing or resuming. Format: Markdown (human-readable turns) or JSON
-  (verbatim `ResponseInput` for reload). Default path under `root` when none is
-  given; never overwrite without confirmation.
-- **`/limit <n>`** — set `maxToolIterations` at runtime (or `/keep <tokens>` for
-  `context.keepTokens`). Avoids restarting to tune runaway-loop caps or tail size.
+- **`/save [path]`** — **Implemented** (see §26): writes the conversation
+  transcript (`history`) to a file — Markdown (`.md`) or verbatim JSON — and
+  refuses to overwrite an existing file.
+- **`/limit <n>`** — **Implemented** (see §26): sets `maxToolIterations` at
+  runtime (so runaway-loop caps can be tuned without restarting). `/keep <tokens>`
+  for `context.keepTokens` remains deferred.
 
 Lower priority, also considered: `/mode` (read-only vs. mutate toggle; see
 cancelled P5), `/cost` (cumulative token-cost estimate building on `/context`),
@@ -1015,6 +1015,33 @@ searches the cwd for config files; the loadConfig/mergeConfigs tests were update
 (explicit `--config` file is used instead of global; the precedence integration
 test asserts global < env < cli). Guidance text in `src/index.ts` points to
 `/key` / the global file.
+
+## 26. REPL ergonomics + parallel reads — implemented
+
+Status: **Done.** A batch of small, high-value improvements shipped together:
+
+### 26.1 Parallel read-only tool execution
+`ToolDefinition` gains an optional `parallel?: boolean` (default `true`). The
+agent loop batches consecutive read-only calls via `Promise.all` while running
+mutating calls (`parallel: false`) sequentially in emission order. This restores
+the parallel-reads behavior that was lost when the P5 gate/parallel split was
+removed (§12.12) — but as pure scheduling, with no permission prompt. All
+mutating tools (`write_file`, `edit_file`, `move_file`, `copy_file`,
+`delete_file`, `make_dir`, `run_shell`, `git`, `run_process`, `kill_process`)
+set `parallel: false`; read-only tools keep the default.
+
+### 26.2 `/save` and `/limit` REPL commands
+- `/save [path]` writes the conversation `history` to a file. A `.md` extension
+  renders a Markdown transcript; otherwise it writes verbatim JSON
+  (`ResponseInput`) for reload. Defaults to `dcode-transcript.json` under `root`
+  and refuses to overwrite an existing file (no confirmation prompt exists).
+- `/limit <n>` sets `maxToolIterations` at runtime.
+
+### 26.3 Files touched
+`src/agent/types.ts` (`parallel`), `src/agent/loop.ts` (`runCalls` batches
+parallel calls), `src/tools/local/{fs,shell,git,process}.ts` (`parallel:
+false`), `src/cli/commands.ts` (`/save`, `/limit`, `historyToMarkdown`),
+`tests/agent/loop.test.ts`, `tests/cli/repl.test.ts`, `tests/cli/commands.test.ts`.
 
 
 

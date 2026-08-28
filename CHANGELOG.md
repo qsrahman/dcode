@@ -1,3 +1,23 @@
+## [0.15.0] - 2026-08-28
+
+### Added
+- Parallel read-only tool execution. `ToolDefinition` gains an optional
+  `parallel?: boolean` (default `true`); the agent loop batches consecutive
+  read-only calls via `Promise.all` while running mutating calls
+  (`parallel: false`) sequentially in emission order. Restores the parallel-reads
+  behavior lost when the P5 gate/parallel split was removed, but as pure
+  scheduling with no permission prompt.
+- `/save [path]` REPL command: writes the conversation `history` to a file.
+  A `.md` path renders a Markdown transcript; otherwise it writes verbatim JSON
+  for reload. Refuses to overwrite an existing file.
+- `/limit <n>` REPL command: sets `maxToolIterations` at runtime.
+
+### Docs
+- `README.md` and `PLAN.md` refreshed: full tool table (file lifecycle +
+  background-process tools), `/key` in the command lists, phase table extended
+  through P13, key-resolution prose no longer references the removed local
+  config, and the example model set to `gpt-5.4-mini`.
+
 ## [0.14.1] - 2026-08-28
 
 ### Fixed

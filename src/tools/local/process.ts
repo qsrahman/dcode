@@ -113,6 +113,7 @@ process.on('exit', () => processManager.killAll())
 function runProcessTool(): ToolDefinition<{ command: string; cwd?: string }> {
   return {
     name: 'run_process',
+    parallel: false,
     description:
       'Start a long-running shell command in the background and return a handle. Use read_process to get its output and kill_process to stop it. The process is killed when the session is cancelled.',
     parameters: z.object({
@@ -166,6 +167,7 @@ function killProcessTool(): ToolDefinition<{
 }> {
   return {
     name: 'kill_process',
+    parallel: false,
     description:
       'Stop a background process started with run_process. Sends SIGTERM by default; use signal to choose another (e.g. SIGKILL).',
     parameters: z.object({
