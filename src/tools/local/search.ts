@@ -3,7 +3,7 @@ import { relative } from 'node:path'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
-import { walkDir, globToRegExp } from './traverse.ts'
+import { walkDir, globToRegExp, createIgnore } from './traverse.ts'
 
 // Cap grep output so a broad pattern over a large tree can't flood the model's
 // context (runTool's byte-truncation is a blunt backstop, not a real limit).
@@ -53,12 +53,12 @@ function grepTool(): ToolDefinition<{
         throw new Error(`invalid regular expression: ${args.pattern}`)
       }
       const dir = await resolvePath(ctx.root, target)
-      const ignore = new Set(ctx.config.ignore)
+      const ig = createIgnore(ctx.config.ignore)
       const ctxLines = args.context ?? 0
       const matches: string[] = []
       let capped = false
       let matchCount = 0
-      outer: for await (const { full, entry } of walkDir(dir, ignore)) {
+      outer: for await (const { full, entry } of walkDir(dir, ig)) {
         if (!entry.isFile()) continue
         let content: string
         try {
@@ -134,9 +134,9 @@ function globTool(): ToolDefinition<{
         ? args.pattern
         : [args.pattern]
       const res = patterns.map((p) => globToRegExp(p))
-      const ignore = new Set(ctx.config.ignore)
+      const ig = createIgnore(ctx.config.ignore)
       const matches: string[] = []
-      for await (const { rel } of walkDir(ctx.root, ignore)) {
+      for await (const { rel } of walkDir(ctx.root, ig)) {
         if (res.some((re) => re.test(rel))) matches.push(rel)
       }
       matches.sort()

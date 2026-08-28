@@ -1,9 +1,7 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
+import { execa } from 'execa'
+import type { ExecaError } from 'execa'
 import type { ToolContext } from '../../agent/types.ts'
 import { CHILD_MAX_BUFFER } from './constants.ts'
-
-const execFileAsync = promisify(execFile)
 
 // Don't let child processes inherit secret-looking environment variables
 // (API keys, tokens): `run_shell` could otherwise `printenv` them straight
@@ -18,9 +16,9 @@ export function safeEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-// Shared execFile wrapper for run_shell/git: applies the tool timeout/signal/
+// Shared execa wrapper for run_shell/git: applies the tool timeout/signal/
 // buffer ceiling and formats success and failure the same way, surfacing
-// stdout+stderr either way instead of losing them to err.message on failure.
+// stdout+stderr either way instead of losing them to error.message on failure.
 export async function runExec(
   cmd: string,
   args: string[],
@@ -28,45 +26,45 @@ export async function runExec(
   opts: { shell?: boolean } = {},
 ): Promise<string> {
   try {
-    // `timeout` and `signal` both kill the child directly: the runTool
-    // deadline/abort race only rejects the promise, which would otherwise
-    // leave the process running and holding the event loop open.
-    const { stdout, stderr } = await execFileAsync(cmd, args, {
+    // `timeout` kills the child on expiry and `cancelSignal` kills it on
+    // ctx.signal firing — both terminate the process directly, so a timed-out
+    // or aborted tool call can't leave an orphaned child behind. killDescendants
+    // is required for that to actually be prompt in shell mode: a shell often
+    // doesn't forward SIGTERM to a running foreground child (e.g. `sleep`)
+    // until that child exits on its own, so without it execa would wait out
+    // the full forceKillAfterDelay (5s) before SIGKILLing the shell itself.
+    const { stdout, stderr } = await execa(cmd, args, {
       cwd: ctx.root,
       shell: opts.shell,
+      killDescendants: true,
       timeout: ctx.config.toolTimeout,
       maxBuffer: CHILD_MAX_BUFFER,
-      signal: ctx.signal,
+      cancelSignal: ctx.signal,
+      // env replaces process.env entirely (extendEnv: false) rather than
+      // merging on top of it — otherwise the vars safeEnv() filtered out
+      // would come right back in via the merge.
       env: safeEnv(),
+      extendEnv: false,
+      stripFinalNewline: false,
     })
     return `${stdout}${stderr}`.trim() || '(no output)'
   } catch (err) {
-    // execFile rejects on a non-zero exit (or timeout) with stdout/stderr
-    // attached to the error rather than returned — surface them the same
-    // way a successful run does instead of losing stdout to err.message.
-    const e = err as NodeJS.ErrnoException & {
-      stdout?: string
-      stderr?: string
-      code?: number | string
-      signal?: string | null
-      killed?: boolean
-    }
-    // Output above the buffer ceiling is discarded by Node, so a plain
-    // maxBuffer error with no captured output would be cryptic — say what happened.
-    if (e.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+    const e = err as ExecaError
+    // Output above the buffer ceiling is discarded, so a bare maxBuffer error
+    // with no captured output would be cryptic — say what happened.
+    if (e.isMaxBuffer) {
       throw new Error(
         `command output exceeded ${CHILD_MAX_BUFFER} bytes; narrow the command (e.g. pipe through head or grep)`,
       )
     }
     const out = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim()
-    // A non-zero exit carries a numeric code; a timeout (execFile kills the
-    // child, code null + killed) or an abort (ABORT_ERR from ctx.signal)
-    // shouldn't read as "exit <code>".
+    // A non-zero exit carries a numeric exitCode; a timeout or an abort
+    // (ctx.signal) shouldn't read as "exit <code>".
     let label: string
-    if (typeof e.code === 'number') label = `exit ${e.code}`
-    else if (e.code === 'ABORT_ERR') label = 'aborted'
-    else if (e.killed || e.signal) label = 'timed out'
-    else label = `${e.code ?? 'unknown'}`
+    if (e.isCanceled) label = 'aborted'
+    else if (e.timedOut) label = 'timed out'
+    else if (typeof e.exitCode === 'number') label = `exit ${e.exitCode}`
+    else label = e.signal ? `killed (${e.signal})` : 'unknown'
     throw new Error(`${label}: ${out || '(no output)'}`)
   }
 }

@@ -107,8 +107,9 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `kill_process` | Stop a background process by handle. |
 
 `web_search` needs a Brave Search API key in the `BRAVE_API_KEY` environment
-variable; without it the tool returns an error instead of crashing. The recursive tools (`grep`, `glob`) skip directories named in `ignore`
-(default `.git`, `node_modules`), and `grep` caps its output at 200 matches.
+variable; without it the tool returns an error instead of crashing. The recursive tools (`grep`, `glob`) skip paths matching `ignore`
+(default `.git`, `node_modules`; gitignore syntax, so globs like `*.log` and
+negation also work), and `grep` caps its output at 200 matches.
 Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
 (default 32 KiB), and tool errors are returned to the model so it can
 self-correct. In-flight tools (including `run_shell`) are cancelled on Ctrl-C.

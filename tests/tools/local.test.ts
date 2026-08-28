@@ -152,6 +152,18 @@ describe('read-only tools', () => {
     expect(gl).not.toContain('node_modules')
   })
 
+  it('grep and glob honor gitignore-syntax patterns, not just bare names', async () => {
+    await writeFile(join(root, 'app.ts'), 'needle')
+    await writeFile(join(root, 'debug.log'), 'needle')
+    const globCtx = { ...ctx, config: cfg({ ignore: ['*.log'] }) }
+    const g = await tool('grep').execute({ pattern: 'needle' }, globCtx)
+    expect(g).toContain('app.ts')
+    expect(g).not.toContain('debug.log')
+    const gl = await tool('glob').execute({ pattern: '**/*' }, globCtx)
+    expect(gl).toContain('app.ts')
+    expect(gl).not.toContain('debug.log')
+  })
+
   it('grep caps total matches with a note', async () => {
     const lines = Array.from({ length: 300 }, (_, i) => `m${i}`).join('\n')
     await writeFile(join(root, 'big.txt'), lines)

@@ -1,15 +1,25 @@
 import { readdir } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { resolve, relative } from 'node:path'
+import ignore from 'ignore'
+import type { Ignore } from 'ignore'
+
+// Build a gitignore-syntax matcher from the config's `ignore` patterns (names,
+// globs, negation, directory-only trailing slash) — the single place callers
+// turn config strings into something walkDir can query.
+function createIgnore(patterns: readonly string[]): Ignore {
+  return ignore().add([...patterns])
+}
 
 // Shared recursive directory walk: yields every entry with its path relative to
 // root. Skips symlinks entirely (never follow — a symlink could point outside
-// root), silently continues past unreadable directories, and prunes ignored
-// directory names (e.g. .git, node_modules) — the traversal rules grep and glob
-// need.
+// root), silently continues past unreadable directories, and prunes entries
+// matching `ig` (e.g. .git, node_modules, *.log) — the traversal rules grep and
+// glob need. Directories are tested with a trailing slash so a bare pattern
+// like `dist` still prunes the directory without also hiding a same-named file.
 async function* walkDir(
   root: string,
-  ignore: ReadonlySet<string>,
+  ig: Ignore,
 ): AsyncGenerator<{ full: string; rel: string; entry: Dirent }> {
   const stack = [root]
   while (stack.length) {
@@ -22,9 +32,10 @@ async function* walkDir(
     }
     for (const entry of entries) {
       if (entry.isSymbolicLink()) continue
-      if (entry.isDirectory() && ignore.has(entry.name)) continue
       const full = resolve(dir, entry.name)
-      yield { full, rel: relative(root, full), entry }
+      const rel = relative(root, full)
+      if (ig.ignores(entry.isDirectory() ? `${rel}/` : rel)) continue
+      yield { full, rel, entry }
       if (entry.isDirectory()) stack.push(full)
     }
   }
@@ -58,4 +69,4 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(re + '$')
 }
 
-export { walkDir, globToRegExp }
+export { walkDir, globToRegExp, createIgnore }

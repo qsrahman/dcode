@@ -1,6 +1,18 @@
 ## [Unreleased]
 
+### Changed
+- `ignore` config patterns are now matched with real gitignore syntax (via the
+  `ignore` package) instead of exact directory-name matching, so `grep`/`glob`
+  can prune globs (`*.log`) and negation, not just bare names like `.git`.
+
 ### Internal
+- `run_shell`/`git` now run subprocesses via `execa` instead of raw
+  `child_process.execFile`, replacing the hand-rolled timeout/signal/
+  maxBuffer error normalization with execa's structured error fields
+  (`timedOut`, `isCanceled`, `isMaxBuffer`, `exitCode`). `killDescendants: true`
+  is required to keep shell-mode timeout/abort prompt — otherwise the shell
+  doesn't forward the kill signal to a running foreground child until it
+  finishes on its own.
 - Refactored REPL slash commands into a `CommandRegistry` (`src/cli/registry.ts`),
   mirroring the tool registry: each command is a self-describing definition
   (name, description, aliases, handler). `/help` and tab-completion now derive
