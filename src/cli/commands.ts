@@ -32,24 +32,32 @@ export type HandleResult = 'ok' | 'exit'
 // ANSI sequence to clear screen + scrollback and move home.
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
 
+// `/help` descriptions, keyed by command name. Rendered sorted, so the order
+// here is irrelevant.
+const COMMAND_DESCRIPTIONS: Record<string, string> = {
+  clear: 'clear the screen',
+  compact: 'summarize the oldest conversation into a short summary',
+  config: 'print effective configuration',
+  context: 'show estimated token usage vs. the model window',
+  exit: 'quit dcode',
+  help: 'show this help',
+  key: 'store/show API keys (openai, brave)',
+  model: 'show/set model: /model <id>',
+  reset: 'clear the conversation',
+  tasks: 'list in-session tasks (alias of /todo)',
+  todo: 'list in-session tasks',
+  tools: 'list available tools',
+  undo: 'remove the last exchange (user turn + response)',
+  verbose: 'toggle verbose mode (on|off)',
+  version: 'print version',
+}
+
 const HELP = ansis.dim(
   [
     'Commands:',
-    '  /clear    clear the screen',
-    '  /compact  summarize the oldest conversation into a short summary',
-    '  /context  show estimated token usage vs. the model window',
-    '  /exit     quit dcode',
-    '  /help     show this help',
-    '  /model    show/set model: /model <id>',
-    '  /reset    clear the conversation',
-    '  /tasks    list in-session tasks (alias of /todo)',
-    '  /todo     list in-session tasks',
-    '  /config   print effective configuration',
-    '  /undo     remove the last exchange (user turn + response)',
-    '  /verbose  toggle verbose mode (on|off)',
-    '  /tools    list available tools',
-    '  /key      store/show API keys (openai, brave)',
-    '  /version  print version',
+    ...Object.keys(COMMAND_DESCRIPTIONS)
+      .sort()
+      .map((name) => `  /${name.padEnd(8)} ${COMMAND_DESCRIPTIONS[name]}`),
   ].join('\n'),
 )
 

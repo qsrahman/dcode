@@ -1,3 +1,10 @@
+## [0.14.1] - 2026-08-28
+
+### Fixed
+- `/help` now lists commands in alphabetical order. Entries are defined in a
+  `COMMAND_DESCRIPTIONS` map and rendered sorted, instead of a hardcoded,
+  unsorted list.
+
 ## [0.14.0] - 2026-08-28
 
 ### Fixed
