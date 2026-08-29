@@ -83,6 +83,24 @@
   file precedence into `ctx.config.brave` before any tool runs. It now trusts
   `ctx.config.brave` alone, so a key set at runtime via `/key set brave` isn't
   shadowed by a stale environment variable.
+- `ContextManager`'s compaction-failure counter (the one backing the 3-strike
+  circuit breaker) incremented on every call to the shared private `compact`,
+  including a manual `/compact` and a no-op auto-compaction. Three manual
+  `/compact` invocations could silently trip the breaker and disable
+  automatic context management for the rest of the session, for reasons
+  unrelated to any real overflow. The counter is now only incremented on the
+  automatic paths (`beforeTurn`/`onOverflow`); `manual()` no longer touches it.
+
+### Docs
+- `AGENTS.md` gained a "Security model" section documenting the accepted
+  trust boundary: dcode grants the model real shell access on the user's
+  machine by design, so `web_fetch`/`web_search` deliberately carry no
+  additional host/IP restriction on top of that — restricting them alone
+  wouldn't reduce risk while `run_shell` remains unrestricted. Also documents
+  why `grep`/`glob` spawn `rgPath` directly instead of going through
+  `exec.ts`'s `runExec` (ripgrep's exit-code convention doesn't fit
+  `runExec`'s throw-on-nonzero contract), so it isn't "fixed" into
+  inconsistency by a future contributor.
 
 ### Changed
 - `grep` and `glob` are now both backed by ripgrep (via `@vscode/ripgrep`, a

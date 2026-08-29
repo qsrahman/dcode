@@ -143,6 +143,29 @@ describe('ContextManager', () => {
     expect(calls()).toBe(3)
   })
 
+  it('manual /compact does not count toward the automatic circuit breaker', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 10,
+        reserved: 0,
+        keepTokens: 1,
+        prune: true,
+        compactAt: 0.85,
+      },
+    }) as Config
+    // huge "summary" so the window is never recovered
+    const { client } = summaryClient('y'.repeat(1000))
+    const m = new ContextManager(config.context, createLogger(config))
+    const history = bigHistory()
+    // Three manual compactions (e.g. the user repeatedly running /compact)
+    // must not trip the breaker that guards *automatic* compaction.
+    await m.manual(client, config, history)
+    await m.manual(client, config, history)
+    await m.manual(client, config, history)
+    expect(await m.beforeTurn(client, config, bigHistory())).toBe('compacted')
+  })
+
   it('includes the task list in the compaction instruction when a store is set', async () => {
     const config = cfg({
       context: {

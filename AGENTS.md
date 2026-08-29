@@ -82,6 +82,27 @@ See [PLAN.md](./PLAN.md) §5 for the authoritative module tree and the agent-loo
 description. The 12 locked design decisions are in PLAN.md §6 — do not reopen them
 without explicit agreement.
 
+`grep`/`glob` (`tools/local/search.ts`) spawn `rgPath` directly instead of going
+through `exec.ts`'s `runExec`, unlike every other tool that shells out. This is
+deliberate, not an inconsistency to "fix": ripgrep's exit-code convention (0 =
+matches, 1 = ran fine, nothing found — neither is an error) doesn't fit
+`runExec`'s throw-on-nonzero contract. Both tools share a local `runRg` helper
+with the correct exit-code handling instead.
+
+## Security model
+
+dcode grants the model your own shell access on your own machine (`run_shell`,
+`run_process`) by design — there is no approval/sandboxing layer (P5 was
+cancelled; see the top-level CLAUDE.md). Anything reachable from your machine —
+localhost services, your local network, cloud metadata endpoints if you're on a
+cloud VM — is already in scope through those tools. `web_fetch`/`web_search`
+deliberately have no additional host/IP restriction on top of that: a guard
+there alone wouldn't meaningfully reduce risk while `run_shell` remains
+unrestricted, so this is a conscious choice, not an oversight. If that trust
+boundary ever needs to shrink (e.g. a future sandboxed mode), it has to shrink
+for `run_shell`/`run_process` first — restricting `web_fetch` on its own
+wouldn't accomplish anything.
+
 ## Phase workflow
 
 1. Implement the phase's code.

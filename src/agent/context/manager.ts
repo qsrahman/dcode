@@ -73,7 +73,6 @@ export class ContextManager {
     // Replace in place via splice (not `length = 0` + `push`) so a no-op
     // compaction that returns `history` itself can't alias and wipe it.
     history.splice(0, history.length, ...next)
-    this.failures++
   }
 
   // Called before each model request. Returns what (if anything) it did so the
@@ -98,6 +97,7 @@ export class ContextManager {
       if (this.predict(history) < soft) return 'pruned'
     }
     await this.compact(client, config, history)
+    this.failures++
     return 'compacted'
   }
 
@@ -111,10 +111,13 @@ export class ContextManager {
   ): Promise<boolean> {
     if (this.failures >= CIRCUIT_BREAKER) return false
     await this.compact(client, config, history)
+    this.failures++
     return true
   }
 
-  // Manual `/compact`: summarize now regardless of the budget.
+  // Manual `/compact`: summarize now regardless of the budget. Doesn't touch
+  // `failures` — the circuit breaker exists to stop automatic compaction from
+  // thrashing on its own, not to track user-initiated actions.
   async manual(
     client: Client,
     config: Config,
