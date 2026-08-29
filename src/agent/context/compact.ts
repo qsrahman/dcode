@@ -3,7 +3,7 @@ import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
 import { errorMessage } from '../../util/log.ts'
 import type { Task } from '../tasks.ts'
-import { estimateItem } from './tokens.ts'
+import { estimateItem, contentToText } from './tokens.ts'
 
 const SUMMARY_CAP = 4096
 
@@ -73,11 +73,7 @@ function serializeHistory(items: ResponseInput): string {
         `[tool result ${item.call_id}]\n${typeof item.output === 'string' ? item.output : ''}`,
       )
     } else {
-      const content =
-        typeof item.content === 'string'
-          ? item.content
-          : JSON.stringify(item.content)
-      blocks.push(`[${item.role ?? 'msg'}]\n${content}`)
+      blocks.push(`[${item.role ?? 'msg'}]\n${contentToText(item.content)}`)
     }
   }
   return blocks.join('\n\n')

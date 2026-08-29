@@ -3,6 +3,7 @@ import {
   estimateTokens,
   estimateItem,
   estimateHistory,
+  contentToText,
 } from '../../../src/agent/context/tokens.ts'
 
 describe('estimateTokens', () => {
@@ -10,6 +11,38 @@ describe('estimateTokens', () => {
     expect(estimateTokens('')).toBe(0)
     expect(estimateTokens('abcd')).toBe(1)
     expect(estimateTokens('abcde')).toBe(2)
+  })
+})
+
+describe('contentToText', () => {
+  it('passes a plain string through', () => {
+    expect(contentToText('hello')).toBe('hello')
+  })
+
+  it('joins the text of content parts shaped like {type, text}', () => {
+    expect(
+      contentToText([
+        { type: 'output_text', text: 'part one' },
+        { type: 'output_text', text: ' part two' },
+      ]),
+    ).toBe('part one part two')
+  })
+
+  it('contributes nothing for a part with no text field (e.g. an image)', () => {
+    expect(contentToText([{ type: 'input_image', image_url: 'x' }])).toBe('')
+  })
+
+  it('falls back to empty for undefined (no content at all)', () => {
+    expect(contentToText(undefined)).toBe('')
+  })
+
+  // Regression: the old itemText silently returned '' for any shape that
+  // wasn't a string or an array, undercounting the item's real size in the
+  // token estimate instead of estimating it roughly.
+  it('falls back to JSON.stringify for an unexpected shape, not an empty string', () => {
+    const out = contentToText({ weird: 'shape' })
+    expect(out).not.toBe('')
+    expect(out).toContain('weird')
   })
 })
 

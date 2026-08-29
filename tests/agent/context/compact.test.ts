@@ -158,4 +158,35 @@ describe('compactHistory', () => {
     const instruction = (lastInput()[0] as { content: string }).content
     expect(instruction).not.toContain('Authoritative task list')
   })
+
+  // serializeHistory (used to build the summarization instruction) shares
+  // tokens.ts's contentToText extraction, so a message whose content is an
+  // array of parts (the shape the Responses API itself uses for assistant
+  // output, e.g. [{type: 'output_text', text: '...'}]) is summarized from
+  // its actual text — not dumped as a raw JSON blob for the model to parse.
+  it('reads array-shaped message content the same way the token estimator does', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 200000,
+        reserved: 20000,
+        keepTokens: 1,
+        prune: true,
+        compactAt: 0.85,
+      },
+    }) as Config
+    const history: ResponseInput = [
+      { role: 'user', content: 'first request' },
+      {
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'structured answer' }],
+      } as unknown as ResponseInput[number],
+      { role: 'user', content: 'second request' },
+    ]
+    const { client, lastInput } = capturingClient('SUMMARY')
+    await compactHistory(client, config, history, createLogger(config))
+    const instruction = (lastInput()[0] as { content: string }).content
+    expect(instruction).toContain('structured answer')
+    expect(instruction).not.toContain('"type"')
+  })
 })

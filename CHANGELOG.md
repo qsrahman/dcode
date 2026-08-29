@@ -264,6 +264,24 @@
   its one caller always filled with the same module-level `COMMANDS`
   singleton — now closes over it directly instead.
 
+### Duplication
+- `agent/context/tokens.ts`'s `itemText` and `agent/context/compact.ts`'s
+  `serializeHistory` each independently extracted text from the same
+  `ResponseInput` item shapes (a message's `content` — string, or an array
+  of `{type, text}`-shaped parts) with no shared code, so they could quietly
+  drift on how they read the same data. Worse, `itemText`'s version silently
+  returned `''` for any `content` shape that wasn't a string or an array
+  (e.g. an unexpected object), undercounting that item's real size in the
+  token-budget estimate instead of estimating it roughly. Extracted a shared
+  `contentToText` (in `tokens.ts`, imported by `compact.ts`) that both now
+  use; its fallback for an unrecognized shape is `JSON.stringify`, not `''`.
+  One side effect worth noting: `serializeHistory`'s compaction transcript
+  used to dump an array-shaped `content` as raw JSON (type tags, annotations
+  and all); it now reads just the joined text, same as the token estimator
+  — cleaner input for the summarization model, and verified via a new test
+  that the compaction instruction contains the extracted text without a
+  stray `"type"` JSON key leaking through.
+
 ### Dead Code
 - `tools/local/paths.ts`'s `fsError` was exported but never imported
   anywhere outside the module itself (only `withFsError`, in the same file,
