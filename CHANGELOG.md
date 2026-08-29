@@ -201,6 +201,33 @@
   expose `/models`), but now logs a warning before persisting a freshly
   prompted key when the check came back `'unknown'`, instead of silently
   treating it as verified.
+- Four smaller correctness fixes found in the same review pass:
+  - `runExec` (`tools/local/exec.ts`) ran a full `.trim()` on combined
+    stdout+stderr, which strips meaningful leading whitespace (e.g. a `git
+    diff` context line starting with a single space) or trailing spaces on
+    the last line, not just the trailing newline it was meant to clean up.
+    Now strips only trailing `\n`s (`replace(/\n+$/, '')`).
+  - `runRg` (`tools/local/search.ts`, shared by `grep`/`glob`) threw
+    `"ripgrep exited with undefined"` on a `maxBuffer` overflow, timeout, or
+    abort, since it only checked `exitCode` and none of those set it to a
+    number. Now checks `result.isMaxBuffer`/`isCanceled`/`timedOut` first,
+    the same fields `runExec`'s catch branch already checks, via a new
+    exported `classifyRgFailure` (unit-tested directly rather than by
+    triggering a real maxBuffer/timeout against ripgrep, which would be slow
+    and flaky).
+  - `pruneHistory` (`agent/context/prune.ts`) looped from index 1, silently
+    assuming index 0 could never be a `function_call_output` — true given
+    how `history` happens to be constructed today, but not actually checked,
+    so it was a latent off-by-one rather than an enforced invariant. Now
+    loops from index 0.
+  - `pruneHistory`'s `protectTurns` option is named as a count of turns but
+    protected the last N individual output *positions* — a turn that made
+    several parallel tool calls has several outputs pushed as one
+    consecutive block, so only part of the most recent turn could end up
+    protected while the rest of that same turn was pruned. Outputs are now
+    grouped into contiguous runs (each run is exactly one turn's outputs,
+    given how `loop.ts` constructs history) and the last `protectTurns` runs
+    are protected as a unit.
 
 ### Docs
 - `AGENTS.md`'s "Security model" section (added above, then revised once

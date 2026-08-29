@@ -27,10 +27,40 @@ interface RgEvent {
   }
 }
 
-// Shared by grep/glob: ripgrep's exit code convention (0 = found something,
-// 1 = ran fine with nothing found — neither is an error) doesn't fit
-// exec.ts's runExec (which throws on any nonzero exit), so both tools call
-// execa directly and share this result-checking helper instead.
+interface RgResult {
+  exitCode?: number
+  signal?: string
+  stderr: string
+  isMaxBuffer: boolean
+  isCanceled: boolean
+  timedOut: boolean
+}
+
+// A non-0/1 exit means something actually went wrong (0 = found something,
+// 1 = ran fine with nothing found — ripgrep's convention, not an error).
+// reject:false means execa never throws for this, so a maxBuffer overflow,
+// timeout, or abort all land here with exitCode left undefined (the process
+// was killed, not exited normally) — check the same result fields runExec's
+// catch branch checks, rather than falling through to a generic "ripgrep
+// exited with undefined". Exported (rather than inlined in runRg) so this
+// classification is unit-testable without spawning a real process.
+export function classifyRgFailure(result: RgResult): Error {
+  if (result.isMaxBuffer) {
+    return new Error(
+      `ripgrep output exceeded ${CHILD_MAX_BUFFER} bytes; narrow the search (a smaller path or a more specific pattern)`,
+    )
+  }
+  if (result.isCanceled) return new Error('aborted')
+  if (result.timedOut) return new Error('ripgrep timed out')
+  return new Error(
+    result.stderr.trim() ||
+      `ripgrep exited with ${result.exitCode ?? result.signal ?? 'unknown status'}`,
+  )
+}
+
+// Shared by grep/glob: ripgrep's exit code convention doesn't fit exec.ts's
+// runExec (which throws on any nonzero exit), so both tools call execa
+// directly and share this result-checking helper instead.
 async function runRg(rgArgs: string[], ctx: ToolContext) {
   const result = await execa(rgPath, rgArgs, {
     ...baseExecOptions(ctx.root, ctx.signal),
@@ -38,12 +68,8 @@ async function runRg(rgArgs: string[], ctx: ToolContext) {
     maxBuffer: CHILD_MAX_BUFFER,
     reject: false,
   })
-  if (result.exitCode !== 0 && result.exitCode !== 1) {
-    throw new Error(
-      result.stderr.trim() || `ripgrep exited with ${result.exitCode}`,
-    )
-  }
-  return result
+  if (result.exitCode === 0 || result.exitCode === 1) return result
+  throw classifyRgFailure(result)
 }
 
 // Normalize a path ripgrep reports (relative to cwd, or absolute if the

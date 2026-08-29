@@ -57,7 +57,13 @@ export async function runExec(
       maxBuffer: CHILD_MAX_BUFFER,
       stripFinalNewline: false,
     })
-    return `${stdout}${stderr}`.trim() || '(no output)'
+    // Strip only the trailing newline(s) a command's output typically ends
+    // with — not a full .trim(), which would also eat meaningful leading
+    // whitespace (e.g. a `git diff` context line starting with a single
+    // space) or internal-to-the-last-line trailing spaces that are part of
+    // the actual output.
+    const combined = `${stdout}${stderr}`.replace(/\n+$/, '')
+    return combined || '(no output)'
   } catch (err) {
     const e = err as ExecaError
     // Output above the buffer ceiling is discarded, so a bare maxBuffer error
