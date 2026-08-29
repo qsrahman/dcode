@@ -239,6 +239,30 @@
   directly instead of going through `exec.ts`'s `runExec` (ripgrep's
   exit-code convention doesn't fit `runExec`'s throw-on-nonzero contract), so
   it isn't "fixed" into inconsistency by a future contributor.
+- `config/config.ts`'s `mergeConfigs` gained a one-line comment explaining
+  why it doesn't use `.strict()` the way `readConfigFile` does: by the time
+  `file`/`env` reach the merge, they've already passed through
+  `configSchema.strict()` or are built from known, typed literal env-var
+  assignments — there's nothing left to typo that `.strict()` would catch.
+
+### Simplified
+- `agent/client.ts`'s `isContextOverflowError` cast `(err as {
+  code?: string }).code` inside an `if (err instanceof OpenAI.APIError)`
+  branch, even though `APIError` already types `code` — narrowed to
+  `err.code` directly.
+- `tools/local/search.ts`'s `grep` and `glob` each had an identical loop
+  pushing `-g '!pattern'` for every `config.ignore` entry — extracted to a
+  shared `pushIgnorePatterns(rgArgs, ignore)`.
+- `tools/local/process.ts`'s `ProcessManager.kill` discarded
+  `subprocess.kill()`'s own return value (whether the signal was actually
+  sent), always reporting `'signaled'` even when nothing was sent — e.g. the
+  process exited in the race between the `proc.exited` check and the kill
+  call. It now checks the return value and reports a distinct `'failed'`
+  status, which `kill_process` surfaces as an error instead of a false
+  "sent SIGTERM" success message.
+- `cli/commands.ts`'s `buildHelp` took a `CommandRegistry` parameter that
+  its one caller always filled with the same module-level `COMMANDS`
+  singleton — now closes over it directly instead.
 
 ### Changed
 - `grep` and `glob` are now both backed by ripgrep (via `@vscode/ripgrep`, a

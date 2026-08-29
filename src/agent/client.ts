@@ -31,8 +31,7 @@ export interface Client {
 export function isContextOverflowError(err: unknown): boolean {
   if (err instanceof OpenAI.APIError) {
     if (err.status === 413) return true
-    const code = (err as { code?: string }).code
-    if (code === 'context_length_exceeded') return true
+    if (err.code === 'context_length_exceeded') return true
     if (
       /context.length.exceeded|maximum context length|token limit|context window/i.test(
         err.message,

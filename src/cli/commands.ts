@@ -85,10 +85,11 @@ function listTasks(
 }
 
 // `/help` text derived from the registry so the listing can never drift from the
-// actual commands (no separate description map to keep in sync).
-function buildHelp(registry: CommandRegistry): string {
-  const lines = registry
-    .list()
+// actual commands (no separate description map to keep in sync). Closes over
+// the module-level COMMANDS singleton rather than taking a registry
+// parameter — its one caller below always passes that same singleton.
+function buildHelp(): string {
+  const lines = COMMANDS.list()
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((c) => {
       const aliasNote = c.aliases?.length
@@ -105,7 +106,7 @@ export function createCommands(): CommandRegistry {
     name: 'help',
     description: 'show this help',
     handler: (_s, _a, sink) => {
-      sink.write(buildHelp(COMMANDS) + '\n')
+      sink.write(buildHelp() + '\n')
       return 'ok'
     },
   })

@@ -86,12 +86,21 @@ class ProcessManager {
     return this.procs.get(handle)
   }
 
-  // Kill a process group; returns 'notfound' | 'exited' | 'signaled'.
-  kill(handle: string, sig: string): 'notfound' | 'exited' | 'signaled' {
+  // Kill a process group; returns 'notfound' | 'exited' | 'signaled' |
+  // 'failed'. `proc.kill()`'s own return value (whether the signal was
+  // actually sent — Node's child_process.kill() returns false if it wasn't,
+  // e.g. the process exited in the race between the check above and this
+  // call, or the signal was rejected) used to be discarded here, always
+  // reporting 'signaled' even when nothing was actually sent.
+  kill(
+    handle: string,
+    sig: string,
+  ): 'notfound' | 'exited' | 'signaled' | 'failed' {
     const proc = this.procs.get(handle)
     if (!proc) return 'notfound'
     if (proc.exited) return 'exited'
-    proc.kill(sig)
+    const sent = proc.kill(sig)
+    if (!sent) return proc.exited ? 'exited' : 'failed'
     return 'signaled'
   }
 
@@ -189,9 +198,11 @@ function killProcessTool(): ToolDefinition<{
       if (r === 'notfound') {
         throw new Error(`unknown process handle: ${args.handle}`)
       }
-      return r === 'exited'
-        ? `${args.handle} already exited`
-        : `sent ${sig} to ${args.handle}`
+      if (r === 'exited') return `${args.handle} already exited`
+      if (r === 'failed') {
+        throw new Error(`failed to send ${sig} to ${args.handle}`)
+      }
+      return `sent ${sig} to ${args.handle}`
     },
   }
 }

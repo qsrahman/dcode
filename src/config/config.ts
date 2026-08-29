@@ -64,6 +64,11 @@ function readConfigFile(abs: string): Partial<Config> {
   }
 }
 
+// Non-strict here is intentional, unlike readConfigFile's .strict() above:
+// `file`/`env` already passed through configSchema.strict()/known env-var
+// checks respectively, so by the time they reach this merge there's nothing
+// left to typo — a stray unknown key could only get here via a bug in this
+// module itself, which .strict() wouldn't meaningfully guard against anyway.
 export function mergeConfigs(
   file: Partial<Config>,
   env: Partial<Config>,

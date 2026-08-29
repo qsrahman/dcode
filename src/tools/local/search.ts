@@ -79,6 +79,12 @@ function toRootRelative(root: string, text: string): string {
   return relative(root, resolve(root, text))
 }
 
+// Shared by grep/glob: config.ignore is gitignore-syntax already, so ripgrep
+// understands each entry natively via -g '!pattern'.
+function pushIgnorePatterns(rgArgs: string[], ignore: string[]): void {
+  for (const pattern of ignore) rgArgs.push('-g', `!${pattern}`)
+}
+
 function grepTool(): ToolDefinition<{
   pattern: string
   path?: string
@@ -128,11 +134,7 @@ function grepTool(): ToolDefinition<{
       ]
       if (args.ignore_case) rgArgs.push('--ignore-case')
       if (args.context) rgArgs.push('--context', String(args.context))
-      // ctx.config.ignore is gitignore-syntax already — ripgrep understands
-      // it natively via -g '!pattern'.
-      for (const pattern of ctx.config.ignore) {
-        rgArgs.push('-g', `!${pattern}`)
-      }
+      pushIgnorePatterns(rgArgs, ctx.config.ignore)
       // An anchored -g pattern (e.g. a config.ignore entry like "/dist") is
       // matched relative to cwd, not to the search-target argument — so the
       // target must be relative (cwd is already ctx.root) or such patterns
@@ -222,9 +224,7 @@ function globTool(): ToolDefinition<{
         : [args.pattern]
       const rgArgs = ['--files', '--hidden', '-g', '!.git']
       for (const p of patterns) rgArgs.push('-g', p)
-      for (const pattern of ctx.config.ignore) {
-        rgArgs.push('-g', `!${pattern}`)
-      }
+      pushIgnorePatterns(rgArgs, ctx.config.ignore)
       // '.' rather than ctx.root: an anchored pattern like "sub/**" is
       // matched relative to cwd (already ctx.root), not to an absolute
       // target argument — passing the absolute path here silently drops
