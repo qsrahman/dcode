@@ -16,7 +16,12 @@ export function createCompleter(root: string) {
     }
     const parts = line.split(/\s+/)
     const token = parts.at(-1) ?? ''
-    if (token === '') return [[], token]
+    // An empty token (e.g. Tab right after a trailing space, or on a blank
+    // line) falls through to the same logic below rather than returning no
+    // completions: dir/base both resolve to '.'/'' , and every entry name
+    // starts with '' — so this naturally lists the current directory,
+    // matching normal shell Tab-completion behavior instead of going silent
+    // exactly when browsing would be most useful.
     const slash = token.lastIndexOf('/')
     const dir = slash >= 0 ? token.slice(0, slash) : '.'
     const base = slash >= 0 ? token.slice(slash + 1) : token

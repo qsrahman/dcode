@@ -170,9 +170,14 @@ API keys (`OPENAI_API_KEY`, `BRAVE_API_KEY`) are read from the environment
 (first), then the global config (`apiKey` / `brave` fields), then the schema
 default. For a global install, store them once without editing JSON
 or exporting them per shell: start `dcode` and run `/key set openai <key>`
-(and `/key set brave <key>` for web search). `/key` writes the key to
-`~/.config/dcode/dcode.json` with `0600` permissions and never prints it back;
-`/key list` shows which providers are set without revealing values.
+(and `/key set brave <key>` for web search). `/key` always writes to
+`~/.config/dcode/dcode.json` with `0600` permissions and never prints it back —
+even in a session started with `--config <path>`, which only changes where
+dcode *reads* its config from, not where `/key` *writes* to. A key set via
+`/key` during a `--config` session takes effect for that session (it updates
+`session.config` directly) but won't persist into `<path>` itself; the
+command's own output always names the actual file it wrote. `/key list`
+shows which providers are set without revealing values.
 
 See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 

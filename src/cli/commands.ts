@@ -140,10 +140,21 @@ export function createCommands(): CommandRegistry {
   })
   r.register({
     name: 'reset',
-    description: 'clear the conversation',
-    handler: (session, _a, sink) => {
+    description: 'clear the conversation (requires: /reset confirm)',
+    handler: (session, args, sink) => {
       // The system prompt lives in `instructions`, not in `history`, so a reset
-      // just drops the conversation entirely.
+      // just drops the conversation entirely. There's no undo for this (unlike
+      // /undo itself, which only drops the last exchange) — require an explicit
+      // confirm arg, the same non-interactive "refuse and explain" pattern
+      // /save uses for its own overwrite guard, rather than a fully silent,
+      // one-shot destructive command.
+      if (args.trim() !== 'confirm') {
+        const n = session.history.length
+        sink.write(
+          `this clears the entire conversation (${n} item${n === 1 ? '' : 's'}) and cannot be undone — run /save first to keep it, then /reset confirm\n`,
+        )
+        return 'ok'
+      }
       session.history = []
       sink.write('session reset\n')
       return 'ok'
@@ -174,6 +185,11 @@ export function createCommands(): CommandRegistry {
     name: 'compact',
     description: 'summarize the oldest conversation into a short summary',
     handler: async (session, _a, sink): Promise<HandleResult> => {
+      // Unlike streamed model turns, this is a single model call with no
+      // incremental output — without something printed first, a slow
+      // endpoint or a large history leaves the terminal looking frozen
+      // until the whole summary comes back.
+      sink.write('compacting…\n')
       await session.context.manual(
         session.client,
         session.config,

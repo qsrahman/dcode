@@ -452,6 +452,44 @@
     `validateApiKey` actually receives at runtime.
   - `util/log.test.ts`'s color assertion weakness — see above.
 
+### UI/UX
+- A single idle Ctrl-C (no turn in flight) used to be a completely silent
+  no-op — no feedback, no exit — which reads as "the terminal is frozen"
+  rather than "nothing to interrupt right now." The REPL now follows the
+  bash/Python/Node-`repl`-module convention: the first idle Ctrl-C shows a
+  hint (`(To exit, press Ctrl-C again or type /exit)`), a second one within
+  2 seconds exits. Ctrl-C during an in-flight turn still just aborts it, as
+  before.
+- Tab completion on an empty token (right after a trailing space, or on a
+  blank line) used to return no completions at all, even though this is
+  exactly when browsing the current directory would be most useful — a
+  leftover early-return that skipped straight past logic that already
+  handles an empty `base` correctly (every filename starts with `''`).
+  Removed the early return; Tab on an empty token now lists the current
+  directory, matching normal shell completion behavior.
+- `/reset` cleared the entire conversation immediately, with zero
+  confirmation and no way back (unlike `/undo`, which only drops the last
+  exchange). It now requires `/reset confirm`; a bare `/reset` explains
+  what it would do and suggests `/save` first — the same non-interactive
+  "refuse and explain" pattern `/save`'s own overwrite guard already uses,
+  rather than a silent one-shot destructive command. `/undo` is left
+  unguarded: its blast radius is already bounded to one exchange, and it's
+  the *recovery* command — requiring confirmation to use the undo tool
+  would be backwards.
+- `/compact` runs a real model call with no incremental output (unlike a
+  normal streamed turn); a slow endpoint or large history could leave the
+  terminal looking frozen until the whole summary comes back with no
+  indication anything was happening. It now prints `compacting…` first.
+- `/key` always writes to the global config (`~/.config/dcode/dcode.json`),
+  never to whatever `--config <path>` a session was launched with — that
+  flag only changes where config is *read* from at startup. The command's
+  own output already named the actual file it wrote, but this wasn't
+  documented anywhere a user would find it before being surprised. Added an
+  explicit note to both `README.md` and `AGENTS.md`.
+- `--no-color` broken on a real TTY was already fixed in an earlier commit
+  this session (`5b3b9bc`) — the highest-value item from the same review
+  pass.
+
 ### Dead Code
 - `tools/local/paths.ts`'s `fsError` was exported but never imported
   anywhere outside the module itself (only `withFsError`, in the same file,

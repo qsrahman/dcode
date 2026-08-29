@@ -46,4 +46,22 @@ describe('createCompleter', () => {
     expect(hits).toEqual([])
     expect(completed).toBe('../etc')
   })
+
+  // Regression: an empty token (Tab right after a trailing space, or on a
+  // blank line) used to short-circuit to no completions at all, even though
+  // this is exactly when browsing the current directory is most useful.
+  it('lists the current directory on an empty token instead of nothing', async () => {
+    await writeFile(join(root, 'foo.ts'), '')
+    await mkdir(join(root, 'sub'))
+    const [hits, completed] = await createCompleter(root)('read ')
+    expect(completed).toBe('')
+    expect(hits).toContain('foo.ts')
+    expect(hits).toContain('sub/')
+  })
+
+  it('lists the current directory when the whole line is empty', async () => {
+    await writeFile(join(root, 'foo.ts'), '')
+    const [hits] = await createCompleter(root)('')
+    expect(hits).toContain('foo.ts')
+  })
 })

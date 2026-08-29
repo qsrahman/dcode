@@ -162,11 +162,20 @@ describe('handleLine commands', () => {
     await handleLine(s, '/model', { sink })
     expect(out.join('')).toContain('model: gpt-5')
   })
-  it('/reset drops the conversation', async () => {
+  it('/reset without confirm refuses and leaves history untouched', async () => {
     const s = makeSession()
     s.history.push({ role: 'user', content: 'x' })
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/reset', { sink })).toBe('ok')
+    expect(s.history.length).toBe(1)
+    expect(out.join('')).toContain('cannot be undone')
+    expect(out.join('')).toContain('/reset confirm')
+  })
+  it('/reset confirm drops the conversation', async () => {
+    const s = makeSession()
+    s.history.push({ role: 'user', content: 'x' })
+    const { sink, out } = makeSink()
+    expect(await handleLine(s, '/reset confirm', { sink })).toBe('ok')
     expect(s.history.length).toBe(0)
     expect(out.join('')).toBe('session reset\n')
   })
@@ -397,6 +406,27 @@ describe('startRepl (smoke, mocked boundaries)', () => {
     await done
     expect(rl.closed).toBe(true)
     expect(captured()).toContain('echo:working')
+  })
+
+  // Regression: a single idle Ctrl-C used to be a completely silent no-op —
+  // no feedback, no exit — which reads as "the terminal is frozen" rather
+  // than "there's nothing to interrupt right now."
+  it('a single idle SIGINT does not exit', async () => {
+    const done = start()
+    const rl = lastFake()
+    rl.emit('SIGINT')
+    expect(rl.closed).toBe(false)
+    rl.emit('/exit')
+    await done
+  })
+
+  it('two idle SIGINTs in quick succession exit the REPL, matching the bash/Python convention', async () => {
+    const done = start()
+    const rl = lastFake()
+    rl.emit('SIGINT')
+    rl.emit('SIGINT')
+    await done
+    expect(rl.closed).toBe(true)
   })
 
   it('prints the hint once at startup, not after every turn', async () => {

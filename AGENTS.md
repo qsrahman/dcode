@@ -68,6 +68,14 @@ Config is resolved with precedence **CLI > env > global (`~/.config/dcode/dcode.
 `config/config.ts` holds the pure `mergeConfigs` (tested) plus thin `loadConfig`
 and `buildConfig` wrappers.
 
+`/key` (`cli/keys.ts`'s `setGlobalKey`/`unsetGlobalKey`) always writes to
+`globalConfigPath()`, never to whatever `--config <path>` a session was
+launched with — `--config` only changes where config is *read* from at
+startup. This is intentional (there's no per-`--config` secret store), but
+worth remembering when touching `/key`: it updates `session.config` in
+memory for the current session, so it still works there, but a later
+`--config <path>` run without the env var set won't see it.
+
 ## Testing
 
 - Tests in `tests/`, mirroring `src/` (`tests/cli/args.test.ts` -> `src/cli/args.ts`).

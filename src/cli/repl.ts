@@ -165,13 +165,32 @@ export async function startRepl(config: Config, logger: Logger): Promise<void> {
   // request directly — no separate stream-handle-tracking needed.
   let ac: AbortController | undefined
 
+  // A second idle SIGINT (no turn in flight) within this window exits,
+  // matching the convention most REPLs use (bash, Python, Node's own
+  // `repl` module) — a single idle Ctrl-C used to be a completely silent
+  // no-op, which reads as "the terminal is frozen" rather than "nothing to
+  // interrupt right now."
+  const IDLE_EXIT_WINDOW_MS = 2000
+  let idleSigintAt: number | undefined
+
   rl.on('SIGINT', () => {
     if (ac) {
       ac.abort()
       session.logger.warn('aborted')
-    } else {
-      rl.prompt()
+      idleSigintAt = undefined
+      return
     }
+    const now = Date.now()
+    if (
+      idleSigintAt !== undefined &&
+      now - idleSigintAt < IDLE_EXIT_WINDOW_MS
+    ) {
+      rl.close()
+      return
+    }
+    idleSigintAt = now
+    session.logger.warn('(To exit, press Ctrl-C again or type /exit)')
+    rl.prompt()
   })
 
   process.stdout.write(`${HINT}\n`)
