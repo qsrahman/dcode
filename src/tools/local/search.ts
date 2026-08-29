@@ -4,7 +4,6 @@ import { rgPath } from '@vscode/ripgrep'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
-import { walkDir, globToRegExp, createIgnore } from './traverse.ts'
 import { safeEnv } from './exec.ts'
 import { CHILD_MAX_BUFFER } from './constants.ts'
 
@@ -26,6 +25,35 @@ interface RgEvent {
     lines?: { text: string }
     line_number?: number
   }
+}
+
+// Shared by grep/glob: ripgrep's exit code convention (0 = found something,
+// 1 = ran fine with nothing found — neither is an error) doesn't fit
+// exec.ts's runExec (which throws on any nonzero exit), so both tools call
+// execa directly and share this result-checking helper instead.
+async function runRg(rgArgs: string[], ctx: ToolContext) {
+  const result = await execa(rgPath, rgArgs, {
+    cwd: ctx.root,
+    env: safeEnv(),
+    extendEnv: false,
+    timeout: ctx.config.toolTimeout,
+    maxBuffer: CHILD_MAX_BUFFER,
+    cancelSignal: ctx.signal,
+    reject: false,
+  })
+  if (result.exitCode !== 0 && result.exitCode !== 1) {
+    throw new Error(
+      result.stderr.trim() || `ripgrep exited with ${result.exitCode}`,
+    )
+  }
+  return result
+}
+
+// Normalize a path ripgrep reports (relative to cwd, or absolute if the
+// search target was absolute) to root-relative, regardless of which form it
+// came back in.
+function toRootRelative(root: string, text: string): string {
+  return relative(root, resolve(root, text))
 }
 
 function grepTool(): ToolDefinition<{
@@ -77,32 +105,26 @@ function grepTool(): ToolDefinition<{
       ]
       if (args.ignore_case) rgArgs.push('--ignore-case')
       if (args.context) rgArgs.push('--context', String(args.context))
-      // ctx.config.ignore is gitignore-syntax already (decision: matches the
-      // `ignore` package traverse.ts uses for glob) — ripgrep understands the
-      // same syntax natively via -g '!pattern'.
+      // ctx.config.ignore is gitignore-syntax already — ripgrep understands
+      // it natively via -g '!pattern'.
       for (const pattern of ctx.config.ignore) {
         rgArgs.push('-g', `!${pattern}`)
       }
-      rgArgs.push('--regexp', args.pattern, dir)
+      // An anchored -g pattern (e.g. a config.ignore entry like "/dist") is
+      // matched relative to cwd, not to the search-target argument — so the
+      // target must be relative (cwd is already ctx.root) or such patterns
+      // silently match nothing.
+      rgArgs.push('--regexp', args.pattern, relative(ctx.root, dir) || '.')
 
-      const result = await execa(rgPath, rgArgs, {
-        cwd: ctx.root,
-        env: safeEnv(),
-        extendEnv: false,
-        timeout: ctx.config.toolTimeout,
-        maxBuffer: CHILD_MAX_BUFFER,
-        cancelSignal: ctx.signal,
-        reject: false,
-      })
-      // Exit code 0 = matches found, 1 = ran fine with no matches — both are
-      // success. Anything else (bad regex, bad path, ...) is a real error.
-      if (result.exitCode !== 0 && result.exitCode !== 1) {
-        if (/regex parse error/i.test(result.stderr)) {
+      let result: Awaited<ReturnType<typeof runRg>>
+      try {
+        result = await runRg(rgArgs, ctx)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        if (/regex parse error/i.test(message)) {
           throw new Error(`invalid regular expression: ${args.pattern}`)
         }
-        throw new Error(
-          result.stderr.trim() || `ripgrep exited with ${result.exitCode}`,
-        )
+        throw err
       }
       const lines: string[] = []
       let matchCount = 0
@@ -142,7 +164,7 @@ function grepTool(): ToolDefinition<{
 }
 
 function formatRgLine(root: string, evt: RgEvent): string {
-  const rel = relative(root, resolve(root, evt.data!.path!.text))
+  const rel = toRootRelative(root, evt.data!.path!.text)
   const text = evt.data!.lines!.text.replace(/\n$/, '')
   return `${rel}:${evt.data!.line_number}: ${text}`
 }
@@ -154,7 +176,7 @@ function globTool(): ToolDefinition<{
   return {
     name: 'glob',
     description:
-      'List files matching glob pattern(s) under the working directory. Recursive; `**` matches any number of directories.',
+      'List files matching glob pattern(s) under the working directory (backed by ripgrep --files — gitignore-style globs: `**` matches any depth, and a bare pattern like `*.ts` with no `/` also matches at any depth, not just the top level; anchor with a leading `/` for root-only).',
     parameters: z.object({
       pattern: z
         .union([z.string(), z.array(z.string())])
@@ -175,13 +197,23 @@ function globTool(): ToolDefinition<{
       const patterns = Array.isArray(args.pattern)
         ? args.pattern
         : [args.pattern]
-      const res = patterns.map((p) => globToRegExp(p))
-      const ig = createIgnore(ctx.config.ignore)
-      const matches: string[] = []
-      for await (const { rel } of walkDir(ctx.root, ig)) {
-        if (res.some((re) => re.test(rel))) matches.push(rel)
+      const rgArgs = ['--files', '--hidden', '-g', '!.git']
+      for (const p of patterns) rgArgs.push('-g', p)
+      for (const pattern of ctx.config.ignore) {
+        rgArgs.push('-g', `!${pattern}`)
       }
-      matches.sort()
+      // '.' rather than ctx.root: an anchored pattern like "sub/**" is
+      // matched relative to cwd (already ctx.root), not to an absolute
+      // target argument — passing the absolute path here silently drops
+      // matches for any pattern containing a literal path segment.
+      rgArgs.push('.')
+
+      const result = await runRg(rgArgs, ctx)
+      const matches = result.stdout
+        .split('\n')
+        .filter(Boolean)
+        .map((p) => toRootRelative(ctx.root, p))
+        .sort()
       const limit = args.limit ?? GLOB_MAX
       const capped = matches.length > limit
       const shown = capped ? matches.slice(0, limit) : matches

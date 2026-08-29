@@ -78,10 +78,9 @@ src/
   tools/local/        # local tool set, split by concern:
     constants.ts      #   CHILD_MAX_BUFFER — shared child_process buffer ceiling
     paths.ts          #   resolvePath, fsError — path confinement (realpath-checked against symlink escapes)
-    traverse.ts       #   walkDir, globToRegExp, createIgnore — gitignore-syntax matching via the `ignore` package
     exec.ts           #   runExec, safeEnv — shared execa wrapper (timeout/cancelSignal/maxBuffer, env redaction) for run_shell/git
     fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
-    search.ts         #   grep (ripgrep, via @vscode/ripgrep's bundled binary), glob (walkDir-based) — find_symbol/find_references planned, P12
+    search.ts         #   grep, glob — both ripgrep-backed (@vscode/ripgrep's bundled binary, spawned directly, not via exec.ts); find_symbol/find_references planned, P12
     shell.ts          #   run_shell (via exec.ts's runExec)
     process.ts        #   run_process, read_process, kill_process — background, via execa (killDescendants: true)
     git.ts            #   git: scoped status/diff/log/show/add/commit/branch (via exec.ts's runExec)
@@ -880,16 +879,17 @@ confined to the working directory. Covered by `tests/tools/local.test.ts`.
 
 ## 20. P12 Specification (symbol search — find_symbol / find_references) — planned
 
-Adds LSP-lite symbol search over the working directory. v1 uses
-ripgrep-style heuristics (zero new dependencies, reuses the existing search
-traversal) rather than tree-sitter/LSP; a precise tree-sitter upgrade is a
-later option.
+Adds LSP-lite symbol search over the working directory. v1 uses ripgrep-style
+heuristics rather than tree-sitter/LSP; a precise tree-sitter upgrade is a
+later option. `grep`/`glob` are now actually ripgrep-backed (not just
+"ripgrep-style"; see §5), so this can reuse that plumbing directly instead of
+reimplementing a regex-over-files scan.
 
 ### 20.1 Scope
 - `find_symbol(name, kind?, path?)` — locate definition sites using a small
   per-language definition-regex map (e.g. `function\s+<name>`, `class\s+<name>`,
   `def\s+<name>`, `const\s+<name>\s*=`, `type\s+<name>\s*=`), keyed by file
-  extension. Reuses `walkDir` + `GREP_MAX_MATCHES`.
+  extension. Reuses `search.ts`'s `runRg` helper + `GREP_MAX_MATCHES`.
 - `find_references(name, kind?, path?)` — word-boundary (`\b<name>\b`) search
   across files of the same language family. Best-effort: cannot resolve
   scoping, so it may include shadowed/同名 symbols (stated in the tool

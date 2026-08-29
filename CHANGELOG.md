@@ -15,22 +15,25 @@
   shadowed by a stale environment variable.
 
 ### Changed
-- `grep` is now backed by ripgrep (via `@vscode/ripgrep`, a bundled platform
-  binary — no separate install required) instead of a hand-rolled
-  `walkDir` + JS-regex scan. This is a straight upgrade on every axis that
-  mattered: ripgrep is 5–13x faster, streams files instead of loading them
-  whole (`--max-filesize 5M` skips oversized files, silently — ripgrep doesn't
-  report these skips anywhere), and its regex engine is guaranteed
-  linear-time, so a pathological pattern can no longer hang the process the
-  way a backtracking JS regex could. The trade-off: patterns are now Rust
-  regex syntax (no lookaround/backreferences), and `grep` now depends on a
-  native binary rather than being pure JS — `git` was already this kind of
-  dependency, so it's not a new category of risk. `glob` is unchanged (still
-  `walkDir`-based).
-- `ignore` config patterns are now matched with real gitignore syntax (via the
-  `ignore` package for `glob`, and ripgrep's native `-g`/gitignore support for
-  `grep`) instead of exact directory-name matching, so both tools can prune
-  globs (`*.log`) and negation, not just bare names like `.git`.
+- `grep` and `glob` are now both backed by ripgrep (via `@vscode/ripgrep`, a
+  bundled platform binary — no separate install required) instead of a
+  hand-rolled `walkDir` + JS-regex/glob scan, which is now deleted
+  (`traverse.ts`). `grep`: ripgrep is 5–13x faster, streams files instead of
+  loading them whole (`--max-filesize 5M` skips oversized files, silently —
+  ripgrep doesn't report these skips anywhere), and its regex engine is
+  guaranteed linear-time, so a pathological pattern can no longer hang the
+  process the way a backtracking JS regex could; patterns are now Rust regex
+  syntax (no lookaround/backreferences). `glob`: patterns are now
+  gitignore-style globs via `rg --files -g` — a bare pattern like `*.ts` (no
+  `/`) now matches at any depth rather than only the top level, matching how
+  `.gitignore` itself works. `ctx.config.ignore` patterns map onto `-g
+  '!pattern'` for both tools. Both tools now depend on a native binary rather
+  than being pure JS — `git` was already this kind of dependency, so it's not
+  a new category of risk. (One sharp edge worth documenting: ripgrep matches
+  an anchored `-g` pattern like `sub/**` relative to `cwd`, not to the
+  search-target argument — both tools pass `.` as the target with `cwd:
+  ctx.root` already set, rather than an absolute path, specifically to avoid
+  that trap.)
 - `run_process`/`kill_process` now spawn via `execa` (`killDescendants: true`)
   instead of hand-rolled `child_process.spawn` + `process.kill(-pid, sig)`
   process-group bookkeeping — the same mechanism `run_shell`/`git` already use.

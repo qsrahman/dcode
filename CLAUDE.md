@@ -72,22 +72,27 @@ SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — an
 converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/`
 implements the full local tool set, split by concern, over shared
 `paths.ts` (`resolvePath`, `fsError` — path confinement, realpath-checked
-against symlink escapes) and `traverse.ts` (`walkDir`, `globToRegExp`,
-`createIgnore` — gitignore-syntax pruning via the `ignore` package) modules:
-`fs.ts` (`read_file`, `list_dir`, `stat`, `write_file`, `edit_file`,
-`move_file`, `copy_file`, `delete_file`, `make_dir`), `search.ts` (`grep`,
-`glob`), `shell.ts` (`run_shell`), `git.ts` (`git`), `process.ts`
-(`run_process`, `read_process`, `kill_process`), `todo.ts` (`todo`), `web.ts`
-(`web_search`, `web_fetch`). `shell.ts`/`git.ts`/`process.ts` all spawn
-through `exec.ts`'s shared `runExec`/`safeEnv` helpers, which wrap `execa`
-(`killDescendants: true` so a killed shell/process's own children die with
-it; env is rebuilt via `safeEnv()` rather than inherited, so secret-looking
-vars like `OPENAI_API_KEY` never reach a child process). `grep` (in
-`search.ts`) spawns `rgPath` from `@vscode/ripgrep` directly (not through
-`exec.ts` — ripgrep's exit code 1 means "ran fine, no matches", which doesn't
-fit `runExec`'s throw-on-nonzero contract), parses its `--json` event stream,
-and is the one tool with a native-binary dependency besides `git`; `glob`
-still uses `walkDir`/`globToRegExp`. `web_search`'s Brave
+against symlink escapes) module: `fs.ts` (`read_file`, `list_dir`, `stat`,
+`write_file`, `edit_file`, `move_file`, `copy_file`, `delete_file`,
+`make_dir`), `search.ts` (`grep`, `glob`), `shell.ts` (`run_shell`), `git.ts`
+(`git`), `process.ts` (`run_process`, `read_process`, `kill_process`),
+`todo.ts` (`todo`), `web.ts` (`web_search`, `web_fetch`). `shell.ts`/`git.ts`/
+`process.ts` all spawn through `exec.ts`'s shared `runExec`/`safeEnv`
+helpers, which wrap `execa` (`killDescendants: true` so a killed
+shell/process's own children die with it; env is rebuilt via `safeEnv()`
+rather than inherited, so secret-looking vars like `OPENAI_API_KEY` never
+reach a child process). `grep` and `glob` (both in `search.ts`) instead spawn
+`rgPath` from `@vscode/ripgrep` directly, not through `exec.ts` — ripgrep's
+exit code 1 means "ran fine, nothing found", which doesn't fit `runExec`'s
+throw-on-nonzero contract, so both share a local `runRg` helper with the same
+exit-code handling. `grep` parses ripgrep's `--json` event stream; `glob`
+parses its plain `--files -g <pattern>` output. Both pass `.` (not an
+absolute path) as the search target with `cwd: ctx.root` already set —
+ripgrep matches anchored `-g` globs relative to cwd, so an absolute target
+argument silently breaks patterns like `sub/**`. `git`/`grep`/`glob` are the
+tools with a native-binary dependency (the old pure-JS `traverse.ts`
+`walkDir`/`globToRegExp`/`createIgnore` implementation was deleted once both
+tools moved to ripgrep). `web_search`'s Brave
 key comes from `ctx.config.brave` only — `buildConfig` already resolves
 `BRAVE_API_KEY` (env) over the stored config file into it before any tool
 runs, so the tool itself doesn't re-read `process.env`. `createLocalTools()`
