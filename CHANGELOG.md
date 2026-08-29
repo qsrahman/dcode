@@ -94,6 +94,13 @@
   an unset baseURL *or* one whose hostname is `api.openai.com` as real
   OpenAI (sending `store: false`); any other custom/local endpoint still
   omits the param entirely unless `stateful` is explicitly enabled.
+- `setGlobalKey`/`unsetGlobalKey` (`cli/keys.ts`) passed `{ mode: 0o600 }` to
+  `writeFileSync`, but that option only applies when the file is newly
+  created — a pre-existing `dcode.json` left with looser permissions (an
+  editor, or an earlier permissive write) kept its old mode on every
+  subsequent key write, silently undermining the "keys are 0600" story. Now
+  `chmodSync(p, 0o600)` runs explicitly after every write, regardless of
+  whether the file already existed.
 - `ContextManager`'s compaction-failure counter (the one backing the 3-strike
   circuit breaker) incremented on every call to the shared private `compact`,
   including a manual `/compact` and a no-op auto-compaction. Three manual

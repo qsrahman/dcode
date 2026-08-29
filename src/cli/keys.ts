@@ -46,6 +46,11 @@ export function setGlobalKey(field: 'apiKey' | 'brave', value: string): void {
   const data = readGlobalRaw()
   data[field] = value
   writeFileSync(p, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 })
+  // `mode` on writeFileSync only applies when the file is newly created — an
+  // existing file (left over from an editor, or an earlier permissive write)
+  // keeps its old mode. chmod it explicitly so secrets can't stay readable by
+  // other local users just because the file already existed.
+  chmodSync(p, 0o600)
   chmodSync(dirname(p), 0o700)
 }
 
@@ -55,5 +60,10 @@ export function unsetGlobalKey(field: 'apiKey' | 'brave'): void {
   const data = readGlobalRaw()
   delete data[field]
   writeFileSync(p, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 })
+  // `mode` on writeFileSync only applies when the file is newly created — an
+  // existing file (left over from an editor, or an earlier permissive write)
+  // keeps its old mode. chmod it explicitly so secrets can't stay readable by
+  // other local users just because the file already existed.
+  chmodSync(p, 0o600)
   chmodSync(dirname(p), 0o700)
 }

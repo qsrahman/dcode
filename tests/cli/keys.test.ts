@@ -1,6 +1,13 @@
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { globalConfigPath } from '../../src/config/config.ts'
 import {
@@ -29,6 +36,20 @@ describe('key storage', () => {
     setGlobalKey('apiKey', 'sk-secret')
     const p = globalConfigPath()
     expect(existsSync(p)).toBe(true)
+    expect(statSync(p).mode & 0o777).toBe(0o600)
+    expect(JSON.parse(readFileSync(p, 'utf8')).apiKey).toBe('sk-secret')
+  })
+
+  it('tightens permissions on an existing, more permissive config file', () => {
+    // writeFileSync's `mode` option only applies when the file is newly
+    // created — simulate a config file left behind with lax permissions
+    // (an editor, or an earlier permissive write) and confirm the rewrite
+    // still locks it down rather than leaving the old mode in place.
+    const p = globalConfigPath()
+    mkdirSync(dirname(p), { recursive: true })
+    writeFileSync(p, JSON.stringify({ apiKey: 'old' }), { mode: 0o644 })
+    expect(statSync(p).mode & 0o777).toBe(0o644)
+    setGlobalKey('apiKey', 'sk-secret')
     expect(statSync(p).mode & 0o777).toBe(0o600)
     expect(JSON.parse(readFileSync(p, 'utf8')).apiKey).toBe('sk-secret')
   })
