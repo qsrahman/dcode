@@ -185,6 +185,22 @@
   instead, still snapping forward past tool items to avoid orphaning a
   `function_call`/`function_call_output` pair. This keeps up to `max + 1`
   items instead of exactly `max` — an intentional, documented trade-off.
+- `validateApiKey` (`cli/auth.ts`) had no request timeout, so a stalled
+  network could hang startup indefinitely, and it collapsed every non-401/403
+  outcome — including a caught network error or a timeout — into a single
+  `true`, which `main()` then relied on to decide whether a freshly prompted
+  key was safe to persist. `promptForApiKey`'s own comment claimed "a bad
+  paste isn't stored," but that only held for a confirmed 401/403; on a
+  network failure, an unverified key was written to the global config
+  exactly as if it had been confirmed working. `validateApiKey` now returns
+  a three-state `'valid' | 'invalid' | 'unknown'` (only a 2xx is `'valid'`;
+  only a 401/403 is `'invalid'`; everything else — network error, timeout,
+  or any other status — is `'unknown'`) and bounds the request with
+  `AbortSignal.timeout(10_000)`. `main()` still only blocks startup on
+  `'invalid'` (unchanged behavior for real/custom endpoints that don't
+  expose `/models`), but now logs a warning before persisting a freshly
+  prompted key when the check came back `'unknown'`, instead of silently
+  treating it as verified.
 
 ### Docs
 - `AGENTS.md`'s "Security model" section (added above, then revised once

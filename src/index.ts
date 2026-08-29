@@ -51,10 +51,12 @@ Flags:
 }
 
 // First-run key bootstrap for interactive (REPL) startup: if no API key is
-// available from env or config, prompt once. The key is only persisted after it
-// validates (see main), so a bad paste isn't stored. Visible input (no hidden
-// echo); only runs on a TTY so piped/one-shot use doesn't block. Returns the
-// entered key, or '' if skipped/empty.
+// available from env or config, prompt once. main() only refuses to persist
+// it on a confirmed 401/403; an indeterminate check (network error,
+// unsupported /models) still saves it, with a warning that it wasn't
+// actually verified. Visible input (no hidden echo); only runs on a TTY so
+// piped/one-shot use doesn't block. Returns the entered key, or '' if
+// skipped/empty.
 async function promptForApiKey(): Promise<string> {
   if (!process.stdin.isTTY) return ''
   process.stderr.write(
@@ -84,9 +86,11 @@ export async function main(): Promise<void> {
     const config = buildConfig(args)
     logger = createLogger(config)
     // First-run key bootstrap (REPL/interactive only): if no key is available
-    // from env or config, prompt once. The key is only persisted after it
-    // validates, so a typo can't get stuck in the global config. One-shot use
-    // (a prompt was given) keeps the hard failure — there's no TTY to prompt on.
+    // from env or config, prompt once. A key confirmed *invalid* (401/403)
+    // never gets stuck in the global config; an indeterminate check still
+    // persists it (see the validateApiKey call below), with a warning.
+    // One-shot use (a prompt was given) keeps the hard failure — there's no
+    // TTY to prompt on.
     let promptedKey = ''
     if (!args.prompt && !config.apiKey) {
       promptedKey = await promptForApiKey()
@@ -103,7 +107,8 @@ export async function main(): Promise<void> {
       )
       process.exit(1)
     }
-    if (!(await validateApiKey(config))) {
+    const keyStatus = await validateApiKey(config)
+    if (keyStatus === 'invalid') {
       const base = config.baseURL ?? 'https://api.openai.com/'
       process.stderr.write(
         `OPENAI_API_KEY is invalid (authentication failed) — dcode could not ` +
@@ -113,7 +118,14 @@ export async function main(): Promise<void> {
       )
       process.exit(1)
     }
-    // Persist a freshly prompted key now that it has validated.
+    if (keyStatus === 'unknown' && promptedKey) {
+      logger.warn(
+        "could not verify the key against %s (network error, timeout, or the endpoint doesn't expose /models) — saving it unverified. If it turns out to be wrong, run /key set openai <value> to replace it.",
+        config.baseURL ?? 'https://api.openai.com/',
+      )
+    }
+    // Persist a freshly prompted key — confirmed valid, or unverified (warned
+    // above); only a confirmed-invalid key (handled above) is never stored.
     if (promptedKey) setGlobalKey('apiKey', promptedKey)
     if (!args.prompt) {
       await startRepl(config, logger)
