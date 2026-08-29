@@ -115,6 +115,22 @@
   `beforeTurn`/`onOverflow` can tell a genuine no-op from a real compaction
   and skip both the counter and the `'compacted'` action/retry signal for it.
 
+- `run_process`'s tool description claimed "the process is killed when the
+  session is cancelled," but the spawned child was wired to the *launching
+  turn's* `ctx.signal` — and the REPL creates a fresh `AbortController` per
+  line, discarding the old one once a turn completes. So a background
+  process only died from Ctrl-C if it landed during the exact turn that
+  started it (a narrow race, since `run_process` returns almost instantly);
+  any later Ctrl-C aborted an unrelated, newer controller and did nothing to
+  it. In practice this meant background processes accumulated for the rest
+  of the session with no way to stop them short of `kill_process` or exiting
+  dcode entirely — while the tool told the model otherwise. `spawn()` no
+  longer takes a signal at all: a background process is meant to outlive the
+  turn that launched it (that's the point of `run_process` vs `run_shell`),
+  so tying it to any single turn's controller was never the right lifecycle
+  — it only stops via `kill_process` or when dcode itself exits, and the
+  description now says so accurately.
+
 ### Docs
 - `AGENTS.md` gained a "Security model" section documenting the accepted
   trust boundary: dcode grants the model real shell access on the user's

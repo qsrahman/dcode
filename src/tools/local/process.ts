@@ -27,15 +27,24 @@ interface ManagedProcess {
 // Spawned via execa with killDescendants: true, which runs the child in its own
 // process group and signals the whole group — so killing a dev server also
 // kills whatever it spawned, not just the immediate shell.
+//
+// Deliberately not wired to any per-turn ctx.signal: a background process is
+// meant to outlive the turn that launched it (that's the point of run_process
+// vs run_shell), and the REPL creates a fresh AbortController per line
+// anyway, so an old turn's signal would never fire again after that turn
+// ends — attaching it here would be a dead reference that execa keeps alive
+// for no benefit. A spawned process only stops via kill_process or when
+// dcode itself exits (see the `process.on('exit', ...)` below); the tool's
+// own description says so.
 class ProcessManager {
   private procs = new Map<string, ManagedProcess>()
   private seq = 0
 
-  spawn(command: string, cwd: string, signal?: AbortSignal): ManagedProcess {
+  spawn(command: string, cwd: string): ManagedProcess {
     this.evictExited()
     const handle = `proc-${++this.seq}`
     const subprocess = execa(command, [], {
-      ...baseExecOptions(cwd, signal),
+      ...baseExecOptions(cwd),
       shell: true,
       killDescendants: true,
       reject: false,
@@ -111,7 +120,7 @@ function runProcessTool(): ToolDefinition<{ command: string; cwd?: string }> {
     name: 'run_process',
     parallel: false,
     description:
-      'Start a long-running shell command in the background and return a handle. Use read_process to get its output and kill_process to stop it. The process is killed when the session is cancelled.',
+      'Start a long-running shell command in the background and return a handle. Use read_process to get its output and kill_process to stop it. The process keeps running after this turn ends (across turns, until stopped); it is killed automatically only when dcode itself exits.',
     parameters: z.object({
       command: z.string().describe('Shell command to execute'),
       cwd: z
@@ -121,7 +130,7 @@ function runProcessTool(): ToolDefinition<{ command: string; cwd?: string }> {
     }),
     async execute(args, ctx) {
       const cwd = args.cwd ? await resolvePath(ctx.root, args.cwd) : ctx.root
-      const proc = processManager.spawn(args.command, cwd, ctx.signal)
+      const proc = processManager.spawn(args.command, cwd)
       return `started ${proc.handle} (pid ${proc.pid}): ${args.command}`
     },
   }

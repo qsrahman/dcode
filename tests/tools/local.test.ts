@@ -736,6 +736,24 @@ describe('background process tools', () => {
     ).rejects.toThrow(/unknown process handle/)
   })
 
+  it('a background process outlives the turn that launched it, even if that turn is later aborted', async () => {
+    // run_process deliberately doesn't wire ctx.signal into the spawned
+    // child: it's meant to keep running across turns until kill_process (or
+    // process exit), not die when the launching turn's own AbortController
+    // fires — which in the REPL happens on a *later*, unrelated Ctrl-C
+    // anyway, since a fresh AbortController is created per line.
+    const ac = new AbortController()
+    const out = await tool('run_process').execute(
+      { command: 'node -e "setInterval(()=>{}, 1000)"' },
+      { ...ctx, signal: ac.signal },
+    )
+    const handle = out.match(/started (proc-\d+)/)?.[1]!
+    ac.abort()
+    await new Promise((r) => setTimeout(r, 200))
+    expect(processManager.get(handle)?.exited).toBe(false)
+    await tool('kill_process').execute({ handle }, ctx)
+  })
+
   it('evicts old exited processes once the map grows past the cap', async () => {
     const handles: string[] = []
     for (let i = 0; i < 50; i++) {
