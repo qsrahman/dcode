@@ -2,7 +2,7 @@ import { execa } from 'execa'
 import { z } from 'zod'
 import type { ToolDefinition } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
-import { safeEnv } from './exec.ts'
+import { baseExecOptions } from './exec.ts'
 
 // Bound how much output a background process can accumulate in memory; a runaway
 // logger shouldn't grow without limit (runTool's byte-truncation is a blunt
@@ -35,12 +35,9 @@ class ProcessManager {
     this.evictExited()
     const handle = `proc-${++this.seq}`
     const subprocess = execa(command, [], {
+      ...baseExecOptions(cwd, signal),
       shell: true,
-      cwd,
-      env: safeEnv(),
-      extendEnv: false,
       killDescendants: true,
-      cancelSignal: signal,
       reject: false,
     })
     const proc: ManagedProcess = {

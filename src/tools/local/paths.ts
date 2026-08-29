@@ -1,4 +1,4 @@
-import { realpath } from 'node:fs/promises'
+import { realpath, mkdir } from 'node:fs/promises'
 import { resolve, sep, dirname, basename, join } from 'node:path'
 
 // Canonicalize a path, tolerating a not-yet-existing leaf (e.g. write_file
@@ -52,4 +52,29 @@ function fsError(err: unknown, path: string): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-export { resolvePath, fsError }
+// Shared error-wrapping idiom: every fs.ts tool runs its fs call(s) through
+// fsError so failures are self-correcting rather than a raw ENOENT/EACCES.
+// `errPath` is what's reported to the model — usually the tool's own `path`
+// arg, not necessarily the same string passed to the underlying fs call
+// (e.g. a resolved absolute path). Wrapping an error we already threw
+// ourselves (no `.code`) is safe: fsError falls back to the original message
+// unchanged.
+async function withFsError<T>(
+  errPath: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    throw new Error(fsError(err, errPath))
+  }
+}
+
+// mkdir -p the parent of `path`, mirroring what `mv`/`cp` do for a
+// destination whose directory doesn't exist yet. Shared by write_file,
+// move_file, and copy_file, which all need exactly this.
+async function ensureParentDir(path: string, errPath: string): Promise<void> {
+  await withFsError(errPath, () => mkdir(dirname(path), { recursive: true }))
+}
+
+export { resolvePath, fsError, withFsError, ensureParentDir }

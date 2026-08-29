@@ -42,6 +42,15 @@
   no longer grows it without bound.
 
 ### Internal
+- `fs.ts`: extracted `withFsError`/`ensureParentDir` helpers (`paths.ts`) to
+  replace the try/catch-then-`fsError`-wrap idiom that every tool in the file
+  hand-rolled, and the identical `mkdir(dirname(dst)).catch(...)` block
+  duplicated across `write_file`/`move_file`/`copy_file`. No behavior change.
+- Extracted `baseExecOptions(cwd, signal)` (`exec.ts`) — `cwd`/`env`/
+  `extendEnv`/`cancelSignal` had been set up identically in three places
+  (`runExec`, `search.ts`'s `runRg`, and `process.ts`'s `ProcessManager.spawn`)
+  once `grep`/`glob` moved to ripgrep gave it a third occurrence. No behavior
+  change.
 - `run_shell`/`git` now run subprocesses via `execa` instead of raw
   `child_process.execFile`, replacing the hand-rolled timeout/signal/
   maxBuffer error normalization with execa's structured error fields

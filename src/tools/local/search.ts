@@ -4,7 +4,7 @@ import { rgPath } from '@vscode/ripgrep'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
-import { safeEnv } from './exec.ts'
+import { baseExecOptions } from './exec.ts'
 import { CHILD_MAX_BUFFER } from './constants.ts'
 
 // Cap grep output so a broad pattern over a large tree can't flood the model's
@@ -33,12 +33,9 @@ interface RgEvent {
 // execa directly and share this result-checking helper instead.
 async function runRg(rgArgs: string[], ctx: ToolContext) {
   const result = await execa(rgPath, rgArgs, {
-    cwd: ctx.root,
-    env: safeEnv(),
-    extendEnv: false,
+    ...baseExecOptions(ctx.root, ctx.signal),
     timeout: ctx.config.toolTimeout,
     maxBuffer: CHILD_MAX_BUFFER,
-    cancelSignal: ctx.signal,
     reject: false,
   })
   if (result.exitCode !== 0 && result.exitCode !== 1) {

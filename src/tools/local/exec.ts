@@ -16,8 +16,23 @@ export function safeEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-// Shared execa wrapper for run_shell/git: applies the tool timeout/signal/
-// buffer ceiling and formats success and failure the same way, surfacing
+// Options every execa call in tools/local/ needs, regardless of which binary
+// it spawns (git, a shell, ripgrep, a background process): scope it to the
+// working directory, strip secret-looking env vars, and let ctx.signal kill
+// it on Ctrl-C. `env` replaces process.env entirely (extendEnv: false)
+// rather than merging on top of it — otherwise the vars safeEnv() filtered
+// out would come right back in via the merge.
+export function baseExecOptions(cwd: string, signal?: AbortSignal) {
+  return {
+    cwd,
+    env: safeEnv(),
+    extendEnv: false,
+    cancelSignal: signal,
+  }
+}
+
+// Shared execa wrapper for run_shell/git: applies the tool timeout/buffer
+// ceiling and formats success and failure the same way, surfacing
 // stdout+stderr either way instead of losing them to error.message on failure.
 export async function runExec(
   cmd: string,
@@ -26,25 +41,20 @@ export async function runExec(
   opts: { shell?: boolean } = {},
 ): Promise<string> {
   try {
-    // `timeout` kills the child on expiry and `cancelSignal` kills it on
-    // ctx.signal firing — both terminate the process directly, so a timed-out
-    // or aborted tool call can't leave an orphaned child behind. killDescendants
-    // is required for that to actually be prompt in shell mode: a shell often
-    // doesn't forward SIGTERM to a running foreground child (e.g. `sleep`)
-    // until that child exits on its own, so without it execa would wait out
-    // the full forceKillAfterDelay (5s) before SIGKILLing the shell itself.
+    // `timeout` kills the child on expiry and `cancelSignal` (via
+    // baseExecOptions) kills it on ctx.signal firing — both terminate the
+    // process directly, so a timed-out or aborted tool call can't leave an
+    // orphaned child behind. killDescendants is required for that to
+    // actually be prompt in shell mode: a shell often doesn't forward
+    // SIGTERM to a running foreground child (e.g. `sleep`) until that child
+    // exits on its own, so without it execa would wait out the full
+    // forceKillAfterDelay (5s) before SIGKILLing the shell itself.
     const { stdout, stderr } = await execa(cmd, args, {
-      cwd: ctx.root,
+      ...baseExecOptions(ctx.root, ctx.signal),
       shell: opts.shell,
       killDescendants: true,
       timeout: ctx.config.toolTimeout,
       maxBuffer: CHILD_MAX_BUFFER,
-      cancelSignal: ctx.signal,
-      // env replaces process.env entirely (extendEnv: false) rather than
-      // merging on top of it — otherwise the vars safeEnv() filtered out
-      // would come right back in via the merge.
-      env: safeEnv(),
-      extendEnv: false,
       stripFinalNewline: false,
     })
     return `${stdout}${stderr}`.trim() || '(no output)'

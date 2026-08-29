@@ -11,11 +11,10 @@ import {
   copyFile,
   rm,
 } from 'node:fs/promises'
-import { dirname } from 'node:path'
 import type { Stats } from 'node:fs'
 import { z } from 'zod'
 import type { ToolDefinition } from '../../agent/types.ts'
-import { resolvePath, fsError } from './paths.ts'
+import { resolvePath, withFsError, ensureParentDir } from './paths.ts'
 
 // Cap directory listings so a huge directory can't flood the model's context
 // (runTool's byte-truncation is a blunt backstop, not a real limit).
@@ -69,45 +68,44 @@ function readFileTool(): ToolDefinition<{
       const limitBytes = paging
         ? Math.max(PAGE_READ_MAX_BYTES, ctx.config.maxToolOutputBytes)
         : ctx.config.maxToolOutputBytes
-      const handle = await open(file, 'r').catch((err) => {
-        throw new Error(fsError(err, args.path))
-      })
+      const handle = await withFsError(args.path, () => open(file, 'r'))
       try {
-        const { size } = await stat(file)
-        const buf = Buffer.alloc(Math.min(size, limitBytes))
-        const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
-        // A NUL byte means binary: dumping it as text is useless and risks the
-        // model acting on mojibake, so describe it instead (as web_fetch does).
-        if (buf.subarray(0, bytesRead).includes(0)) {
-          return `(binary ${args.path}, ${size} bytes; not shown)`
-        }
-        const text = buf.toString('utf8', 0, bytesRead)
-        const truncated = size > limitBytes
-        const lines = text.split('\n')
-        const offset = args.offset ?? 0
-        const window = args.limit
-          ? lines.slice(offset, offset + args.limit)
-          : lines.slice(offset)
-        if (window.length === 0) {
-          // Truncated + empty window means the requested offset falls beyond
-          // what was read, not beyond the file's actual end — say so instead
-          // of implying the file has fewer lines than it does.
-          if (truncated) {
-            throw new Error(
-              `offset ${offset} is beyond the ${limitBytes}-byte read window (file is ${size} bytes); narrow the offset or use grep to locate the section you need`,
-            )
+        return await withFsError(args.path, async () => {
+          const { size } = await stat(file)
+          const buf = Buffer.alloc(Math.min(size, limitBytes))
+          const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
+          // A NUL byte means binary: dumping it as text is useless and risks
+          // the model acting on mojibake, so describe it instead (as
+          // web_fetch does).
+          if (buf.subarray(0, bytesRead).includes(0)) {
+            return `(binary ${args.path}, ${size} bytes; not shown)`
           }
-          return '(no lines in range)'
-        }
-        const numbered = args.line_numbers ?? true
-        const body = window
-          .map((ln, i) => (numbered ? `${offset + i + 1}\t${ln}` : ln))
-          .join('\n')
-        return truncated
-          ? `${body}\n…(${size} bytes total; truncated at ${limitBytes})`
-          : body
-      } catch (err) {
-        throw new Error(fsError(err, args.path))
+          const text = buf.toString('utf8', 0, bytesRead)
+          const truncated = size > limitBytes
+          const lines = text.split('\n')
+          const offset = args.offset ?? 0
+          const window = args.limit
+            ? lines.slice(offset, offset + args.limit)
+            : lines.slice(offset)
+          if (window.length === 0) {
+            // Truncated + empty window means the requested offset falls
+            // beyond what was read, not beyond the file's actual end — say
+            // so instead of implying the file has fewer lines than it does.
+            if (truncated) {
+              throw new Error(
+                `offset ${offset} is beyond the ${limitBytes}-byte read window (file is ${size} bytes); narrow the offset or use grep to locate the section you need`,
+              )
+            }
+            return '(no lines in range)'
+          }
+          const numbered = args.line_numbers ?? true
+          const body = window
+            .map((ln, i) => (numbered ? `${offset + i + 1}\t${ln}` : ln))
+            .join('\n')
+          return truncated
+            ? `${body}\n…(${size} bytes total; truncated at ${limitBytes})`
+            : body
+        })
       } finally {
         await handle.close()
       }
@@ -128,7 +126,7 @@ function listDirTool(): ToolDefinition<{ path?: string }> {
     async execute(args, ctx) {
       const target = args.path ?? '.'
       const dir = await resolvePath(ctx.root, target)
-      try {
+      return withFsError(target, async () => {
         const entries = await readdir(dir, { withFileTypes: true })
         // Directories first, then alphabetical — predictable for the model.
         entries.sort(
@@ -147,9 +145,7 @@ function listDirTool(): ToolDefinition<{ path?: string }> {
         return capped
           ? `${body}\n… (showing first ${LIST_MAX} of ${entries.length}; narrow the path)`
           : body
-      } catch (err) {
-        throw new Error(fsError(err, target))
-      }
+      })
     },
   }
 }
@@ -168,12 +164,7 @@ function statTool(): ToolDefinition<{ path?: string }> {
     async execute(args, ctx) {
       const target = args.path ?? '.'
       const full = await resolvePath(ctx.root, target)
-      let info: Stats
-      try {
-        info = await stat(full)
-      } catch (err) {
-        throw new Error(fsError(err, target))
-      }
+      const info: Stats = await withFsError(target, () => stat(full))
       const parts = [
         `type: ${info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other'}`,
         `size: ${info.size} bytes`,
@@ -235,9 +226,7 @@ function writeFileTool(): ToolDefinition<{
     }),
     async execute(args, ctx) {
       const file = await resolvePath(ctx.root, args.path)
-      await mkdir(dirname(file), { recursive: true }).catch((err) => {
-        throw new Error(fsError(err, args.path))
-      })
+      await ensureParentDir(file, args.path)
       const existed = await stat(file)
         .then(() => true)
         .catch(() => false)
@@ -246,14 +235,12 @@ function writeFileTool(): ToolDefinition<{
           `file already exists: ${args.path} (pass overwrite: true to replace)`,
         )
       }
-      try {
-        await writeFile(file, args.content, {
+      await withFsError(args.path, () =>
+        writeFile(file, args.content, {
           encoding: 'utf8',
           flag: args.append ? 'a' : 'w',
-        })
-      } catch (err) {
-        throw new Error(fsError(err, args.path))
-      }
+        }),
+      )
       const bytes = Buffer.byteLength(args.content)
       if (args.append) return `appended ${bytes} bytes to ${args.path}`
       return existed
@@ -288,9 +275,7 @@ function editFileTool(): ToolDefinition<{
     }),
     async execute(args, ctx) {
       const file = await resolvePath(ctx.root, args.path)
-      const beforeBuf = await readFile(file).catch((err) => {
-        throw new Error(fsError(err, args.path))
-      })
+      const beforeBuf = await withFsError(args.path, () => readFile(file))
       // NUL byte ⇒ binary; editing it as text would corrupt the file, so refuse
       // rather than round-tripping mojibake through string ops.
       if (beforeBuf.includes(0)) {
@@ -311,11 +296,7 @@ function editFileTool(): ToolDefinition<{
       // `$&`/`` $` ``-style patterns in new_string and silently corrupt files
       // whose content legitimately contains them (shell scripts, Makefiles).
       const after = before.split(args.old_string).join(args.new_string)
-      try {
-        await writeFile(file, after, 'utf8')
-      } catch (err) {
-        throw new Error(fsError(err, args.path))
-      }
+      await withFsError(args.path, () => writeFile(file, after, 'utf8'))
       return `edited ${args.path}`
     },
   }
@@ -352,14 +333,8 @@ function moveFileTool(): ToolDefinition<{
       const dst = await resolvePath(ctx.root, args.destination)
       // rename(2) won't create the destination's parent, so mirror what the
       // shell `mv` does and mkdir -p it first.
-      await mkdir(dirname(dst), { recursive: true }).catch((err) => {
-        throw new Error(fsError(err, args.destination))
-      })
-      try {
-        await rename(src, dst)
-      } catch (err) {
-        throw new Error(fsError(err, args.destination))
-      }
+      await ensureParentDir(dst, args.destination)
+      await withFsError(args.destination, () => rename(src, dst))
       return `moved ${args.source} -> ${args.destination}`
     },
   }
@@ -381,14 +356,8 @@ function copyFileTool(): ToolDefinition<{
     async execute(args, ctx) {
       const src = await resolvePath(ctx.root, args.source)
       const dst = await resolvePath(ctx.root, args.destination)
-      await mkdir(dirname(dst), { recursive: true }).catch((err) => {
-        throw new Error(fsError(err, args.destination))
-      })
-      try {
-        await copyFile(src, dst)
-      } catch (err) {
-        throw new Error(fsError(err, args.destination))
-      }
+      await ensureParentDir(dst, args.destination)
+      await withFsError(args.destination, () => copyFile(src, dst))
       return `copied ${args.source} -> ${args.destination}`
     },
   }
@@ -419,11 +388,9 @@ function deleteFileTool(): ToolDefinition<{
       if (target === ctx.root) {
         throw new Error('refusing to delete the working directory root')
       }
-      try {
-        await rm(target, { recursive: args.recursive ?? false, force: false })
-      } catch (err) {
-        throw new Error(fsError(err, args.path))
-      }
+      await withFsError(args.path, () =>
+        rm(target, { recursive: args.recursive ?? false, force: false }),
+      )
       return `deleted ${args.path}`
     },
   }
@@ -440,11 +407,7 @@ function makeDirTool(): ToolDefinition<{ path: string }> {
     }),
     async execute(args, ctx) {
       const dir = await resolvePath(ctx.root, args.path)
-      try {
-        await mkdir(dir, { recursive: true })
-      } catch (err) {
-        throw new Error(fsError(err, args.path))
-      }
+      await withFsError(args.path, () => mkdir(dir, { recursive: true }))
       return `created directory ${args.path}`
     },
   }

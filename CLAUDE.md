@@ -72,16 +72,20 @@ SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — an
 converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/`
 implements the full local tool set, split by concern, over shared
 `paths.ts` (`resolvePath`, `fsError` — path confinement, realpath-checked
-against symlink escapes) module: `fs.ts` (`read_file`, `list_dir`, `stat`,
-`write_file`, `edit_file`, `move_file`, `copy_file`, `delete_file`,
-`make_dir`), `search.ts` (`grep`, `glob`), `shell.ts` (`run_shell`), `git.ts`
-(`git`), `process.ts` (`run_process`, `read_process`, `kill_process`),
-`todo.ts` (`todo`), `web.ts` (`web_search`, `web_fetch`). `shell.ts`/`git.ts`/
-`process.ts` all spawn through `exec.ts`'s shared `runExec`/`safeEnv`
-helpers, which wrap `execa` (`killDescendants: true` so a killed
-shell/process's own children die with it; env is rebuilt via `safeEnv()`
-rather than inherited, so secret-looking vars like `OPENAI_API_KEY` never
-reach a child process). `grep` and `glob` (both in `search.ts`) instead spawn
+against symlink escapes; `withFsError`/`ensureParentDir` — the fs.ts tools'
+shared error-wrapping and mkdir-parent idioms) module: `fs.ts` (`read_file`,
+`list_dir`, `stat`, `write_file`, `edit_file`, `move_file`, `copy_file`,
+`delete_file`, `make_dir`), `search.ts` (`grep`, `glob`), `shell.ts`
+(`run_shell`), `git.ts` (`git`), `process.ts` (`run_process`, `read_process`,
+`kill_process`), `todo.ts` (`todo`), `web.ts` (`web_search`, `web_fetch`).
+`shell.ts`/`git.ts`/`process.ts`/`search.ts` all spawn through `exec.ts`'s
+shared `baseExecOptions`/`safeEnv` (`cwd`/`env`/`extendEnv`/`cancelSignal`,
+common to every spawn in `tools/local/`) plus `runExec` on top for
+`shell.ts`/`git.ts` specifically, which wrap `execa` (`killDescendants: true`
+so a killed shell/process's own children die with it; env is rebuilt via
+`safeEnv()` rather than inherited, so secret-looking vars like
+`OPENAI_API_KEY` never reach a child process). `grep` and `glob` (both in
+`search.ts`) instead spawn
 `rgPath` from `@vscode/ripgrep` directly, not through `exec.ts` — ripgrep's
 exit code 1 means "ran fine, nothing found", which doesn't fit `runExec`'s
 throw-on-nonzero contract, so both share a local `runRg` helper with the same
