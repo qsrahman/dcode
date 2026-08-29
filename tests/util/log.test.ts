@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ansis from 'ansis'
 import { configSchema } from '../../src/config/schema.ts'
-import { createLogger } from '../../src/util/log.ts'
+import { createLogger, errorMessage } from '../../src/util/log.ts'
 
 function writeSpy() {
   return vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
@@ -57,5 +57,44 @@ describe('createLogger', () => {
     const log = createLogger(configSchema.parse({ verbose: true, color: true }))
     log.warn('hi')
     expect(ansis.strip(spy.mock.calls[0]![0] as string)).toContain('[warn] hi')
+  })
+
+  // The test above only checks the *stripped* text — it would pass
+  // identically even if color:true silently emitted no ANSI at all (e.g.
+  // if paintFor's branches were ever swapped). Assert the raw output
+  // actually differs from its stripped form, i.e. codes are genuinely
+  // present, not just "harmless if absent".
+  it('color:true actually emits ANSI codes, not just plain text that survives stripping', () => {
+    const spy = writeSpy()
+    const log = createLogger(configSchema.parse({ verbose: true, color: true }))
+    log.warn('hi')
+    const out = spy.mock.calls[0]![0] as string
+    expect(out).not.toBe(ansis.strip(out))
+    expect(out).toBe(`${ansis.yellow('[warn]')} hi\n`)
+  })
+})
+
+describe('errorMessage', () => {
+  it("returns an Error instance's own message", () => {
+    expect(errorMessage(new Error('boom'))).toBe('boom')
+  })
+
+  it("returns a subclassed Error instance's own message", () => {
+    class MyError extends Error {}
+    expect(errorMessage(new MyError('custom'))).toBe('custom')
+  })
+
+  it('stringifies a plain string as-is', () => {
+    expect(errorMessage('already a string')).toBe('already a string')
+  })
+
+  it('stringifies a non-Error object via String()', () => {
+    expect(errorMessage({ some: 'object' })).toBe('[object Object]')
+  })
+
+  it('stringifies other primitives via String()', () => {
+    expect(errorMessage(42)).toBe('42')
+    expect(errorMessage(null)).toBe('null')
+    expect(errorMessage(undefined)).toBe('undefined')
   })
 })

@@ -1,22 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { validateApiKey } from '../../src/cli/auth.ts'
-import type { Config } from '../../src/config/schema.ts'
+import { cfg } from '../helpers.ts'
 
-function baseConfig(overrides: Partial<Config> = {}): Config {
-  return {
-    apiKey: 'sk-test',
-    model: 'gpt-4o',
-    baseURL: undefined,
-    maxRetries: 2,
-    maxTokens: 16000,
-    maxHistoryItems: 30,
-    context: { enabled: false, maxChars: 24000, mode: 'auto' },
-    color: false,
-    verbose: false,
-    stateful: false,
-    tools: { write: true, edit: true, shell: true },
-    ...overrides,
-  } as Config
+// Built from the real configSchema (via the shared `cfg` helper), not a
+// hand-rolled object cast `as Config` — a stale/invented shape (e.g. fields
+// that don't exist on the real schema) would pass type-checking under a
+// cast but silently stop reflecting what validateApiKey actually receives
+// at runtime.
+function baseConfig(overrides: Parameters<typeof cfg>[0] = {}) {
+  return cfg({ apiKey: 'sk-test', model: 'gpt-4o', ...overrides })
 }
 
 describe('validateApiKey', () => {

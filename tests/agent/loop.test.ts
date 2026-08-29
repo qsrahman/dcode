@@ -95,6 +95,56 @@ describe('runAgent', () => {
     expect((outputs[0] as { output: string }).output).toBe('file contents')
   })
 
+  // End-to-end regression for the --no-color bug: markdown rendering
+  // (marked-terminal, via its own internal chalk import) and tool-status
+  // rendering (loop.ts's renderToolResult/renderToolOutput) each used to
+  // decide color independently of config.color, so --no-color only worked
+  // by accident (when NO_COLOR was set or output was piped). This runs a
+  // full turn — streamed markdown text with bold, a tool call, and verbose
+  // tool-output echoing — with color:false and asserts zero ANSI escape
+  // bytes anywhere in what was written, not just that stripping happens to
+  // produce the same text.
+  it('produces zero ANSI escape codes end-to-end when color is false', async () => {
+    let turn = 0
+    const client: Client = {
+      stream() {
+        const text = turn === 0 ? 'Some **bold** text' : 'turn 1'
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield text
+          },
+          finalResponse: async () => {
+            const output =
+              turn === 0
+                ? [
+                    messageItem(text),
+                    {
+                      type: 'function_call',
+                      call_id: 'c1',
+                      name: 'read_file',
+                      arguments: '{}',
+                    },
+                  ]
+                : [messageItem(text)]
+            turn++
+            return { output, output_text: text } as unknown as OpenAIResponse
+          },
+        }
+      },
+    }
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const chunks: string[] = []
+    await runAgent(client, cfg({ color: false, verbose: true }), history, {
+      sink: { write: (t) => void chunks.push(t) },
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([readTool]),
+    })
+    const out = chunks.join('')
+    expect(out).not.toMatch(/\x1b\[/)
+    expect(out).toContain('bold')
+    expect(out).toContain('read_file')
+  })
+
   it('caps iterations at maxToolIterations', async () => {
     const client: Client = {
       stream() {

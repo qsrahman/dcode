@@ -390,6 +390,68 @@
     slice once over `PROC_MAX_OUTPUT`) is bounded at 64 KiB and was already
     flagged as acceptable at that size in the same review.
 
+### Testing
+- `vitest.config.ts` now sets `FORCE_COLOR: '1'` for the whole test run.
+  ansis (like chalk) decides its own color support once, at module-load
+  time, from `process.env`/TTY detection — always false in this
+  non-interactive runner. Without forcing it, every `color:true` code path
+  was silently degrading to a no-op identity function that happens to
+  produce the same plain text as the real colorizer, so tests asserting
+  colored output were passing for the wrong reason (this is exactly what
+  surfaced two real test failures once fixed — see below). Setting the env
+  var in `vitest.config.ts` (applied before any test file's imports run,
+  unlike setting it from within a test — module-load-time decisions can't
+  be changed after the fact) makes those code paths actually exercise real
+  ANSI generation.
+  - Two existing tests broke once color was genuinely active and had to be
+    updated to `ansis.strip()` their assertions, matching the convention
+    every other colored-output test already follows (`agent/run.test.ts`,
+    `cli/repl.test.ts`).
+  - `util/log.test.ts`'s `color:true` case previously only asserted the
+    *stripped* text, which would pass identically whether or not real ANSI
+    was ever emitted. Added a second assertion that the raw output actually
+    differs from its stripped form, comparing byte-for-byte against
+    `ansis.yellow(...)` applied directly.
+- New tests covering behavior that was previously exercised only
+  indirectly or not at all:
+  - `agent/client.test.ts` expanded beyond the `store` param to cover
+    `max_output_tokens` (default and override), `tools`/`instructions`
+    passthrough (including omission when absent), abort-signal forwarding,
+    and the SDK event stream's delta filtering (`response.output_text.delta`
+    only) plus `finalResponse` delegation.
+  - `agent/run.test.ts`: a `runTurn` test with a fake `Client` whose
+    `finalResponse()` throws unless the async delta iterator was fully
+    drained first — pins down that `runTurn` honors the SDK's documented
+    "drain the stream before requesting the final response" contract,
+    since that can't be verified against the real SDK without a live call.
+  - `config/schema.test.ts` (new file): the `context.keepTokens < window -
+    reserved` `.refine()` (the guard that keeps compaction able to make
+    progress at all) and `.strict()` rejecting an unknown key, both at the
+    top level and nested inside `context` — the exact validation that
+    prevents a typo'd config from silently doing the wrong thing at
+    runtime.
+  - `agent/loop.test.ts`: an end-to-end `runAgent` test with `color:false`,
+    a tool call, and verbose tool-output echoing, asserting zero ANSI
+    escape bytes anywhere in what was written — the actual bug scenario
+    from the `--no-color` fix, run through the real code path rather than
+    only unit-testing the pieces in isolation.
+  - `agent/context/manager.test.ts`: `isContextOverflowError`'s three
+    branches (413 status, `error.code`, message regex) are now each
+    covered independently, plus a negative case that matches none of them.
+  - `tools/index.test.ts` (new file): a `createLocalTools` smoke test
+    asserting the exact expected set of registered tool names with no
+    duplicates — would catch a renamed/missing export or an accidental name
+    collision silently overwriting an earlier registration, neither of
+    which `pnpm typecheck` alone catches.
+- Two weak tests fixed:
+  - `cli/auth.test.ts`'s `baseConfig` was a hand-rolled object cast `as
+    Config` with a stale shape (`context: {enabled, maxChars, mode}`,
+    `tools: {write, edit, shell}` — neither matches the real schema, which
+    has no `tools` field at all). Rebuilt from the real `configSchema` via
+    the shared `cfg` helper, so the fixture can't silently drift from what
+    `validateApiKey` actually receives at runtime.
+  - `util/log.test.ts`'s color assertion weakness — see above.
+
 ### Dead Code
 - `tools/local/paths.ts`'s `fsError` was exported but never imported
   anywhere outside the module itself (only `withFsError`, in the same file,

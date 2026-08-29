@@ -55,6 +55,39 @@ describe('isContextOverflowError', () => {
   it('ignores ordinary errors', () => {
     expect(isContextOverflowError(new Error('boom'))).toBe(false)
   })
+
+  // The status/code/message-regex checks are three independent branches —
+  // each covered here in isolation (a plain 413 with neither a matching
+  // code nor message is covered by the test above).
+  it('detects via error.code alone, without a 413 status', () => {
+    const err = new OpenAI.APIError(
+      400,
+      { code: 'context_length_exceeded', message: 'nope' },
+      'nope',
+      undefined,
+    )
+    expect(isContextOverflowError(err)).toBe(true)
+  })
+
+  it('detects via a message-regex match alone, without 413 or a matching code', () => {
+    const err = new OpenAI.APIError(
+      400,
+      { message: 'token limit reached for this request' },
+      'token limit reached for this request',
+      undefined,
+    )
+    expect(isContextOverflowError(err)).toBe(true)
+  })
+
+  it('is false for an APIError that matches none of the three signals', () => {
+    const err = new OpenAI.APIError(
+      429,
+      { code: 'rate_limit_exceeded', message: 'slow down' },
+      'slow down',
+      undefined,
+    )
+    expect(isContextOverflowError(err)).toBe(false)
+  })
 })
 
 describe('ContextManager', () => {
