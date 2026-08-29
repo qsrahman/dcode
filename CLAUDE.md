@@ -57,12 +57,26 @@ streams deltas from the OpenAI Responses client to a `sink` for live
 rendering, then returns the SDK's own aggregated text (`Response.output_text`
 from `stream.finalResponse()`) plus the full response (so callers can inspect
 tool calls) — it does not reconstruct text from the deltas itself. `runTool`
-executes a single tool call with a timeout and output truncation.
+executes a single tool call with a timeout and output truncation. Turn
+cancellation is native, not hand-rolled: `runTurn` passes `opts.signal`
+straight into `client.stream()`'s request options, which the SDK's own
+`EventStream` wires into its internal `AbortController` — there is no
+separate `StreamRef`/`abort()` handle to track (removed; aborting `ctx.signal`
+now cancels the in-flight HTTP request directly, surfacing as
+`OpenAI.APIUserAbortError`).
 `agent/loop.ts` owns orchestration on top of those: `runAgent` drives the
 tool-calling loop (stream a turn, execute the model's tool calls — read-only
 calls are batched in parallel via `Promise.all`, mutating calls run
 sequentially in emission order — feed `function_call_output`s back, repeat up
-to `maxToolIterations`), and
+to `maxToolIterations`). Each turn's `response.output` is replayed into
+`history` via the SDK's own `toResponseInputItems()` (`openai/lib/responses/
+ResponseInputItems`), not a hand-reconstructed `{role, content}` pair —
+this preserves `reasoning` items, which reasoning models (the default
+`gpt-5.4-mini`, GPT-5 family) require replayed on every stateless turn
+(`store: false`) that continues a tool call. One SDK gap it doesn't cover:
+`function_call` items carry a `parsed_arguments` field the live API rejects
+on replay ("Unknown parameter"), so `loop.ts`'s `stripParsedArguments` strips
+it explicitly after normalization.
 `runOneShot` is a thin wrapper that builds `[system, user]` and delegates to
 `runAgent`. Tools live under `tools/`: `tools/registry.ts`'s `ToolRegistry` (built once
 per session; `toResponsesTools()` is memoized) registers `ToolDefinition<P>` objects — a

@@ -1,6 +1,22 @@
 ## [Unreleased]
 
 ### Fixed
+- `runAgent` reconstructed the next turn's input by hand — a synthesized
+  assistant-text message plus manually-rebuilt `function_call` items — which
+  silently dropped every other item type the model returned, including
+  `reasoning` items. OpenAI's docs require reasoning items to be replayed
+  alongside their function_call on every stateless (`store: false`) turn that
+  continues a tool call, for reasoning models (the GPT-5 family, o-series) —
+  which is dcode's default model and default `store` setting against real
+  OpenAI. Now uses the SDK's own `toResponseInputItems()` (from
+  `openai/lib/responses/ResponseInputItems`) to normalize `response.output`
+  into replayable items, which handles this correctly (and simplifies
+  `loop.ts`: one `history.push(...)` instead of two separate reconstruction
+  blocks). One thing the SDK helper doesn't handle: it doesn't strip
+  `parsed_arguments` from `function_call` items, and the real API rejects a
+  replayed item carrying it ("Unknown parameter") — confirmed live against
+  `gpt-5.4-mini`, since the field isn't in the SDK's own type for that item
+  and its normalizer doesn't know to remove it. Stripped explicitly.
 - `read_file`'s `offset`/`limit` paging only ever saw the first
   `maxToolOutputBytes` (32 KiB default) of a file; requesting a later page
   silently returned `(no lines in range)`, misreading as end-of-file. Paging
@@ -40,6 +56,18 @@
   The in-memory process-record map is also now capped (evicting the oldest
   already-exited entries), so a long session calling `run_process` repeatedly
   no longer grows it without bound.
+- Removed the hand-rolled `StreamRef`/`ModelStream.abort()` turn-cancellation
+  plumbing (threaded through `client.ts`, `run.ts`, `loop.ts`, `repl.ts`, and
+  `index.ts`). `client.responses.stream()` accepts a native `signal` in its
+  request options, which the SDK's own `EventStream` already wires into its
+  internal `AbortController` — the same `AbortSignal` the REPL/one-shot path
+  already creates per turn (and passes to tools as `ctx.signal`) is now passed
+  straight through instead of a second, redundant cancellation path. Verified
+  live: aborting mid-request now surfaces `OpenAI.APIUserAbortError` in
+  ~300ms. Abort detection in `repl.ts`/`index.ts` now checks for that error
+  type directly (alongside the existing `signal.aborted` check, which still
+  covers the loop's own `Error('aborted')` thrown between tool calls) instead
+  of relying solely on the signal flag.
 
 ### Internal
 - `fs.ts`: extracted `withFsError`/`ensureParentDir` helpers (`paths.ts`) to

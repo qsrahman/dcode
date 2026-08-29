@@ -4,12 +4,16 @@ import type { Config } from '../config/schema.ts'
 import { resolveRoot } from '../config/config.ts'
 import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
-import type { RunSink, StreamRef } from './run.ts'
+import type { RunSink } from './run.ts'
 import { runTurn, runTool } from './run.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import ansis from 'ansis'
-import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
+import type {
+  ResponseFunctionToolCall,
+  ResponseInputItem,
+} from 'openai/resources/responses/responses'
+import { toResponseInputItems } from 'openai/lib/responses/ResponseInputItems'
 import { ContextManager } from './context/manager.ts'
 
 // Agent loop: run turns, execute any tool calls the model makes, feed the
@@ -30,7 +34,6 @@ export async function runAgent(
     logger: Logger
     signal?: AbortSignal
     tools?: ToolRegistry
-    streamRef?: StreamRef
     context?: ContextManager
   },
 ): Promise<string> {
@@ -56,7 +59,7 @@ export async function runAgent(
       logger: opts.logger,
       tools: responses,
       instructions,
-      streamRef: opts.streamRef,
+      signal: opts.signal,
     })
   let finalText = ''
   let prevHadTools = false
@@ -95,26 +98,24 @@ export async function runAgent(
     }
     // Recalibrate the token estimate against the provider's real usage.
     opts.context?.observe(response.usage, history)
-    if (finalText.trim()) {
-      history.push({
-        role: 'assistant',
-        content: finalText,
-      })
-    }
+    // toResponseInputItems normalizes response.output into items safe to
+    // replay as the next turn's input, including reasoning items — required
+    // by reasoning models (the GPT-5 family, o-series) on every stateless
+    // turn (store: false, dcode's default against real OpenAI) that
+    // continues a tool call. A hand-rolled reconstruction that only kept
+    // function_call items silently dropped them.
+    //
+    // It doesn't strip `parsed_arguments` from function_call items, though —
+    // confirmed live: the API rejects a replayed function_call carrying it
+    // ("Unknown parameter: 'input[N].parsed_arguments'"). The field isn't
+    // even in the SDK's own ResponseFunctionToolCall type, so this is
+    // stripped explicitly rather than relying on the SDK's normalizer.
+    history.push(
+      ...toResponseInputItems(response.output ?? []).map(stripParsedArguments),
+    )
     const calls = (response.output ?? []).filter(
       (o): o is ResponseFunctionToolCall => o.type === 'function_call',
     )
-    for (const c of calls) {
-      // Store only the canonical input shape. The SDK's response object also
-      // carries `parsed_arguments` (and other server fields) that the API rejects
-      // when the item is replayed as `input` on the next turn.
-      history.push({
-        type: 'function_call',
-        call_id: c.call_id,
-        name: c.name,
-        arguments: c.arguments,
-      })
-    }
     if (calls.length === 0) break
     prevHadTools = true
     const results = await runCalls(calls, registry, ctx)
@@ -136,6 +137,21 @@ export async function runAgent(
   return finalText
 }
 
+// The Responses API rejects a function_call item replayed with a
+// `parsed_arguments` field ("Unknown parameter"), but toResponseInputItems
+// doesn't strip it — the field isn't part of the SDK's own
+// ResponseFunctionToolCall type, so its generic normalizer doesn't know to.
+function stripParsedArguments(item: ResponseInputItem): ResponseInputItem {
+  if (item.type !== 'function_call' || !('parsed_arguments' in item)) {
+    return item
+  }
+  const { parsed_arguments: _parsedArguments, ...rest } =
+    item as typeof item & {
+      parsed_arguments?: unknown
+    }
+  return rest as ResponseInputItem
+}
+
 // One-shot orchestration: a single user turn through the agent loop. Builds the
 // input (system + user) and delegates to runAgent. Returns the final text.
 export async function runOneShot(
@@ -147,7 +163,6 @@ export async function runOneShot(
     logger: Logger
     tools?: ToolRegistry
     signal?: AbortSignal
-    streamRef?: StreamRef
   },
 ): Promise<string> {
   const context = new ContextManager(config.context, opts.logger)

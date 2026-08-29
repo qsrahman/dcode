@@ -28,7 +28,6 @@ function summaryClient(summary: string): {
           yield summary
         },
         finalResponse: async () => ({}) as unknown as OpenAIResponse,
-        abort: () => {},
       }
     },
   }

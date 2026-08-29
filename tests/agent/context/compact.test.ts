@@ -17,7 +17,6 @@ function summaryClient(summary: string): Client {
           yield summary
         },
         finalResponse: async () => ({}) as unknown as OpenAIResponse,
-        abort: () => {},
       }
     },
   }
@@ -38,7 +37,6 @@ function capturingClient(summary: string): {
           yield summary
         },
         finalResponse: async () => ({}) as unknown as OpenAIResponse,
-        abort: () => {},
       }
     },
   }

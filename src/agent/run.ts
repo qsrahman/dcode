@@ -1,9 +1,4 @@
-import type {
-  Client,
-  ModelStream,
-  OpenAIResponse,
-  ResponseInput,
-} from './client.ts'
+import type { Client, OpenAIResponse, ResponseInput } from './client.ts'
 import type { Config } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 import { errorMessage } from '../util/log.ts'
@@ -14,8 +9,6 @@ import type {
   ToolResult,
 } from './types.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
-
-export type StreamRef = { current: ModelStream | null }
 
 export interface RunSink {
   write(text: string): void
@@ -36,12 +29,12 @@ export interface TurnOpts {
   logger: Logger
   tools?: ResponsesTool[]
   instructions?: string
-  streamRef?: StreamRef
+  signal?: AbortSignal
 }
 
 // Universal turn runner shared by one-shot and the REPL. Streams output to
-// `sink`; the model request is cancellable via the SDK-native stream abort
-// (callers set `streamRef.current` and invoke `abort()` on Ctrl-C, decision L).
+// `sink`; the model request is cancellable via `opts.signal`, which is passed
+// straight into the SDK's own request-level abort support (decision L).
 // Returns the SDK's own aggregated text (Response.output_text) plus the full
 // response (for tool calls) — the delta loop below exists only to render output
 // live, not to reconstruct the final text.
@@ -57,14 +50,12 @@ export async function runTurn(
   const stream = client.stream(input, {
     tools,
     instructions: opts.instructions,
+    signal: opts.signal,
   })
-  if (opts.streamRef) opts.streamRef.current = stream
   for await (const delta of stream) {
     sink.write(delta)
   }
   const response = await stream.finalResponse()
-  // Drop the finished stream so a stale abort can't reach it later.
-  if (opts.streamRef) opts.streamRef.current = null
   if (response.output_text) sink.write('\n')
   return { text: response.output_text, response }
 }

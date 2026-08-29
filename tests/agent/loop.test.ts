@@ -14,7 +14,7 @@ import {
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { ToolRegistry } from '../../src/tools/registry.ts'
 import { createLogger } from '../../src/util/log.ts'
-import { cfg } from '../helpers.ts'
+import { cfg, messageItem } from '../helpers.ts'
 
 function fakeClientWithCalls(calls: unknown[][]): Client {
   let turn = 0
@@ -26,11 +26,12 @@ function fakeClientWithCalls(calls: unknown[][]): Client {
           yield text
         },
         finalResponse: async () => {
-          const output = calls[turn] ?? []
+          // A message item alongside any function_call items, mirroring how
+          // the real API backs output_text — see helpers.ts's messageItem.
+          const output = [messageItem(text), ...(calls[turn] ?? [])]
           turn++
           return { output, output_text: text } as unknown as OpenAIResponse
         },
-        abort: () => {},
       }
     },
   }
@@ -62,7 +63,11 @@ describe('runAgent', () => {
       logger: createLogger(cfg()),
     })
     expect(text).toBe('turn 0')
-    expect(history.at(-1)).toEqual({ role: 'assistant', content: 'turn 0' })
+    // The assistant turn is now the SDK's own `message` output item (via
+    // toResponseInputItems), not a hand-reconstructed {role, content} pair.
+    const last = history.at(-1) as { type?: string; role?: string }
+    expect(last.type).toBe('message')
+    expect(last.role).toBe('assistant')
   })
 
   it('runs tools, feeds results back, and terminates', async () => {
@@ -109,7 +114,6 @@ describe('runAgent', () => {
               ],
               output_text: 'loop',
             }) as unknown as OpenAIResponse,
-          abort: () => {},
         }
       },
     }
@@ -124,15 +128,19 @@ describe('runAgent', () => {
     expect(outputs).toHaveLength(3)
   })
 
-  it('strips SDK-only fields (parsed_arguments) from stored function_call items', async () => {
+  // Reasoning models require reasoning items to be replayed alongside their
+  // corresponding function_call on every stateless (store: false) turn that
+  // continues a tool call — a hand-reconstructed history that only kept
+  // function_call items would silently drop them.
+  it('replays reasoning items alongside function_call items', async () => {
     const client = fakeClientWithCalls([
       [
+        { type: 'reasoning', id: 'r1', summary: [] },
         {
           type: 'function_call',
           call_id: 'c1',
           name: 'read_file',
           arguments: '{"path":"a"}',
-          parsed_arguments: { path: 'a' },
         },
       ],
       [],
@@ -142,11 +150,19 @@ describe('runAgent', () => {
       logger: createLogger(cfg()),
       tools: new ToolRegistry([readTool]),
     })
-    const stored = history.find(
+    const reasoning = history.find(
+      (h) => (h as { type?: string }).type === 'reasoning',
+    )
+    expect(reasoning).toBeDefined()
+    // The reasoning item must come before its function_call, matching the
+    // order the model actually emitted them in.
+    const reasoningIdx = history.findIndex(
+      (h) => (h as { type?: string }).type === 'reasoning',
+    )
+    const callIdx = history.findIndex(
       (h) => (h as { type?: string }).type === 'function_call',
-    ) as unknown as Record<string, unknown>
-    expect(stored).toBeDefined()
-    expect('parsed_arguments' in stored).toBe(false)
+    )
+    expect(reasoningIdx).toBeLessThan(callIdx)
   })
 
   it('runs mutating tools unconditionally', async () => {
@@ -348,7 +364,6 @@ describe('runAgent', () => {
           },
           finalResponse: async () =>
             ({ output: [], output_text: 'ok' }) as unknown as OpenAIResponse,
-          abort: () => {},
         }
       },
     }

@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline/promises'
 import ansis from 'ansis'
+import OpenAI from 'openai'
 import type { Config } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
 import type { ResponseInput } from '../agent/client.ts'
@@ -8,7 +9,7 @@ import { ContextManager } from '../agent/context/manager.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
 import { resolveRoot } from '../config/config.ts'
-import type { RunSink, StreamRef } from '../agent/run.ts'
+import type { RunSink } from '../agent/run.ts'
 import { type Logger, errorMessage } from '../util/log.ts'
 import {
   type Session,
@@ -55,7 +56,6 @@ function isToolItem(item: ResponseInput[number]): boolean {
 export interface LineOpts {
   sink?: RunSink
   signal?: AbortSignal
-  streamRef?: StreamRef
 }
 
 export async function handleLine(
@@ -90,14 +90,17 @@ export async function handleLine(
       logger: session.logger,
       signal: opts.signal,
       tools: session.tools,
-      streamRef: opts.streamRef,
       context: session.context,
     })
 
     sink.write('\n')
     trimHistory(session.history, session.config.maxHistoryItems)
   } catch (err) {
-    if (!opts.signal?.aborted) {
+    // Two distinct abort paths land here: the SDK throws APIUserAbortError
+    // when the model request itself is cancelled mid-stream; runAgent throws
+    // a plain Error('aborted') when the signal fires between tool calls
+    // (after a turn already completed). Both are expected, not failures.
+    if (!(err instanceof OpenAI.APIUserAbortError) && !opts.signal?.aborted) {
       session.logger.error(errorMessage(err))
     }
   }
@@ -120,13 +123,14 @@ export async function startRepl(config: Config, logger: Logger): Promise<void> {
   // The async-iterator loop already serializes turns (it awaits handleLine
   // before pulling the next line), so lines typed mid-turn are buffered by
   // readline and replayed in order — no manual pending queue needed.
+  // `ac.signal` is passed straight into client.stream()'s request options
+  // (see agent/client.ts), so aborting it cancels the in-flight model
+  // request directly — no separate stream-handle-tracking needed.
   let ac: AbortController | undefined
-  const streamRef: StreamRef = { current: null }
 
   rl.on('SIGINT', () => {
     if (ac) {
       ac.abort()
-      streamRef.current?.abort()
       session.logger.warn('aborted')
     } else {
       rl.prompt()
@@ -142,7 +146,6 @@ export async function startRepl(config: Config, logger: Logger): Promise<void> {
     const result = await handleLine(session, line, {
       sink: process.stdout,
       signal: ac.signal,
-      streamRef,
     })
 
     ac = undefined

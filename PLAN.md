@@ -100,6 +100,17 @@ src/
 5. Cap loop iterations (`maxToolIterations`, default 16); feed tool errors back
    so the model can self-correct.
 
+### Future: `reasoning: { summary: ... }` for streaming feedback
+
+dcode never requests `reasoning.summary` on the Responses API call
+(`client.ts`), so on a reasoning-heavy turn with a reasoning model (the
+default `gpt-5.4-mini`, or a stronger o-series/GPT-5 model configured by the
+user) the terminal can show zero streamed output for a while before final
+text or a tool call appears — it can look like a hang. Requesting reasoning
+summaries would stream `response.reasoning_summary_text.delta` events during
+that gap, giving the user incremental feedback. Not yet implemented — noted
+here as a candidate improvement, not scoped/designed.
+
 ### Permission model
 
 **Removed.** On the `experiment` branch the harness gate and the P5

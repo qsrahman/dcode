@@ -210,7 +210,11 @@ describe('handleLine prompt turn', () => {
     s.client = fakeClient('hi there')
     const { sink, out } = makeSink()
     expect(await handleLine(s, 'hello', { sink })).toBe('ok')
-    expect(s.history.at(-1)).toEqual({ role: 'assistant', content: 'hi there' })
+    // The assistant turn is now the SDK's own `message` output item (via
+    // toResponseInputItems), not a hand-reconstructed {role, content} pair.
+    const last = s.history.at(-1) as { type?: string; role?: string }
+    expect(last.type).toBe('message')
+    expect(last.role).toBe('assistant')
     expect(out.join('')).toBe('\nhi there\n\n')
   })
 })

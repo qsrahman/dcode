@@ -5,11 +5,26 @@ export function cfg(over: Partial<Config> = {}): Config {
   return configSchema.parse(over)
 }
 
+// Mirrors the real Responses API's invariant that `output_text` is derived
+// from a `message` item in `output` — runAgent now replays `output` directly
+// (via the SDK's toResponseInputItems) instead of separately reconstructing
+// an assistant message from `output_text`, so a fake whose `output` doesn't
+// actually contain the text would silently lose it from history.
+export function messageItem(text: string): unknown {
+  return {
+    type: 'message',
+    role: 'assistant',
+    status: 'completed',
+    content: [{ type: 'output_text', text, annotations: [] }],
+  }
+}
+
 export function fakeClient(
   text: string,
   split = false,
-  output: unknown[] = [],
+  output?: unknown[],
 ): Client {
+  const resolvedOutput = output ?? (text ? [messageItem(text)] : [])
   return {
     stream() {
       return {
@@ -22,8 +37,10 @@ export function fakeClient(
           }
         },
         finalResponse: async () =>
-          ({ output, output_text: text }) as unknown as OpenAIResponse,
-        abort: () => {},
+          ({
+            output: resolvedOutput,
+            output_text: text,
+          }) as unknown as OpenAIResponse,
       }
     },
   }

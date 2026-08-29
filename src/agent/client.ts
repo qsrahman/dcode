@@ -11,7 +11,6 @@ export type { ResponseInput, OpenAIResponse }
 
 export interface ModelStream extends AsyncIterable<string> {
   finalResponse(): Promise<OpenAIResponse>
-  abort(): void
 }
 
 export interface Client {
@@ -21,6 +20,7 @@ export interface Client {
       tools?: ResponsesTool[]
       maxOutputTokens?: number
       instructions?: string
+      signal?: AbortSignal
     },
   ): ModelStream
 }
@@ -69,7 +69,11 @@ export function createClient(config: Config): Client {
       // Only send statefulness when explicitly enabled.
       if (config.stateful) params.store = true
       else if (!config.baseURL) params.store = false
-      const s = client.responses.stream(params)
+      // Passing signal here (rather than a separate abort() method callers
+      // have to remember to invoke) lets the SDK's own EventStream wire it
+      // into its internal AbortController, so cancelling the turn's
+      // AbortSignal cancels the HTTP request too — no extra plumbing needed.
+      const s = client.responses.stream(params, { signal: opts?.signal })
       return {
         async *[Symbol.asyncIterator]() {
           for await (const event of s) {
@@ -79,7 +83,6 @@ export function createClient(config: Config): Client {
           }
         },
         finalResponse: () => s.finalResponse(),
-        abort: () => s.abort(),
       }
     },
   }

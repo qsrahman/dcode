@@ -1,5 +1,6 @@
 #!/usr/bin/env -S node
 
+import OpenAI from 'openai'
 import { parseCli } from './cli/args.ts'
 import { startRepl } from './cli/repl.ts'
 import { buildConfig } from './config/config.ts'
@@ -8,7 +9,6 @@ import { createClient } from './agent/client.ts'
 import { TaskStore } from './agent/tasks.ts'
 import { runOneShot } from './agent/loop.ts'
 import { createLocalTools } from './tools/index.ts'
-import type { StreamRef } from './agent/run.ts'
 import { createLogger, errorMessage } from './util/log.ts'
 import { getVersion } from './version.ts'
 import { fileURLToPath } from 'node:url'
@@ -123,11 +123,7 @@ export async function main(): Promise<void> {
     const tasks = new TaskStore()
     const tools = createLocalTools(tasks)
     const ac = new AbortController()
-    const streamRef: StreamRef = { current: null }
-    const onSigint = () => {
-      ac.abort()
-      streamRef.current?.abort()
-    }
+    const onSigint = () => ac.abort()
     process.on('SIGINT', onSigint)
     try {
       await runOneShot(client, config, args.prompt, {
@@ -135,10 +131,13 @@ export async function main(): Promise<void> {
         logger,
         tools,
         signal: ac.signal,
-        streamRef,
       })
     } catch (err) {
-      if (ac.signal.aborted) return
+      // Two distinct abort paths land here: the SDK throws APIUserAbortError
+      // when the model request itself is cancelled mid-stream; runAgent
+      // throws a plain Error('aborted') when the signal fires between tool
+      // calls (after a turn already completed).
+      if (err instanceof OpenAI.APIUserAbortError || ac.signal.aborted) return
       throw err
     } finally {
       process.off('SIGINT', onSigint)
