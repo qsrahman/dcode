@@ -36,17 +36,30 @@ export function createSession(config: Config, logger: Logger): Session {
   }
 }
 
-// Keep roughly the last `max` items. The cut point is advanced forward past any
-// tool items so the retained region always begins at a message boundary —
-// otherwise trimming could keep a function_call_output whose function_call was
-// dropped (or a function_call whose sibling output was dropped), which the
-// Responses API rejects as an orphaned tool call. Erring toward keeping fewer
-// items is fine; correctness beats hitting `max` exactly.
+// Keep roughly the last `max` items, plus item 0 unconditionally. The cut
+// point is advanced forward past any tool items so the retained region
+// always begins at a message boundary — otherwise trimming could keep a
+// function_call_output whose function_call was dropped (or a function_call
+// whose sibling output was dropped), which the Responses API rejects as an
+// orphaned tool call. Erring toward keeping fewer items is fine; correctness
+// beats hitting `max` exactly.
+//
+// Item 0 is protected because it's always either the session's very first
+// user message, or — after an automatic or manual compaction —
+// ContextManager's summary standing in for everything before it (compaction
+// always produces `[summary, ...tail]`, and both start with `role: 'user'`,
+// so there's nothing else in this array that could occupy index 0). Trimming
+// from index 0 like every other cut point would silently discard that
+// summary once the *item count* cap (independent of ContextManager's token
+// budget) is hit on a long session — erasing the model's only record of the
+// pre-compaction conversation, a far bigger loss than trimming any other
+// single item.
 export function trimHistory(history: ResponseInput, max: number): void {
-  if (history.length <= max) return
-  let keepFrom = history.length - max
+  if (history.length <= max || history.length <= 1) return
+  let keepFrom = Math.max(1, history.length - max)
   while (keepFrom < history.length && isToolItem(history[keepFrom]!)) keepFrom++
-  history.splice(0, keepFrom)
+  if (keepFrom <= 1) return
+  history.splice(1, keepFrom - 1)
 }
 
 function isToolItem(item: ResponseInput[number]): boolean {

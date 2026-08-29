@@ -49,7 +49,7 @@ describe('parseCommand', () => {
 })
 
 describe('trimHistory', () => {
-  it('keeps the last max items', () => {
+  it('keeps item 0 plus the last max items', () => {
     const h: ResponseInput = [
       { role: 'user', content: '1' },
       { role: 'assistant', content: '1' },
@@ -57,8 +57,11 @@ describe('trimHistory', () => {
       { role: 'assistant', content: '2' },
     ]
     trimHistory(h, 2)
-    expect(h.length).toBe(2)
-    expect(h[0]).toEqual({ role: 'user', content: '2' })
+    // Item 0 is protected (see below), so this keeps 1 + max = 3 items.
+    expect(h.length).toBe(3)
+    expect(h[0]).toEqual({ role: 'user', content: '1' })
+    expect(h[1]).toEqual({ role: 'user', content: '2' })
+    expect(h[2]).toEqual({ role: 'assistant', content: '2' })
   })
   it('is a no-op when within the cap', () => {
     const h: ResponseInput = [
@@ -82,6 +85,35 @@ describe('trimHistory', () => {
       expect((item as { type?: string }).type).not.toBe('function_call_output')
       expect((item as { type?: string }).type).not.toBe('function_call')
     }
+  })
+
+  // Regression: a naive front-cut is blind to what's at index 0. After a
+  // compaction (auto or /compact), history is `[summary, ...tail]` — the
+  // summary is the model's only record of everything before it. Trimming
+  // from index 0 like every other item, once the session runs long enough
+  // to hit the item-count cap again, would silently erase it.
+  it('never discards item 0, even when it is a compaction summary', () => {
+    const h: ResponseInput = [
+      { role: 'user', content: 'SUMMARY of everything before this point' },
+      ...Array.from({ length: 10 }, (_, i) => ({
+        role: 'user' as const,
+        content: `msg ${i}`,
+      })),
+    ]
+    trimHistory(h, 3)
+    expect(h[0]).toEqual({
+      role: 'user',
+      content: 'SUMMARY of everything before this point',
+    })
+    // Everything else is still capped to roughly `max`, just measured from
+    // index 1 instead of index 0.
+    expect(h.length).toBeLessThanOrEqual(4)
+  })
+
+  it('is still a no-op when only item 0 exists', () => {
+    const h: ResponseInput = [{ role: 'user', content: 'only' }]
+    trimHistory(h, 0)
+    expect(h).toEqual([{ role: 'user', content: 'only' }])
   })
 })
 

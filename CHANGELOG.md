@@ -170,6 +170,21 @@
   now produces zero ANSI escape bytes in either the streamed response or
   verbose tool-status output, while the same command without `--no-color`
   still colors normally.
+- `trimHistory` (`cli/repl.ts`, the REPL's `maxHistoryItems` safety net —
+  independent of `ContextManager`'s token-budget compaction) always cut from
+  index 0, with no awareness of what lived there. After an automatic or
+  manual compaction, history is `[summary, ...tail]`, and the summary at
+  index 0 is the model's only record of everything before it. On a long
+  enough session, once the item-count cap was hit *again* after a
+  compaction, that cut could silently discard the summary itself — a much
+  bigger loss than trimming any other single item, since it erases the only
+  trace of the pre-compaction conversation rather than just the oldest slice
+  of it. `trimHistory` now always protects item 0 (it's always either the
+  session's very first user message or a compaction summary, both `role:
+  'user'`, so nothing else could be there) and trims from index 1 onward
+  instead, still snapping forward past tool items to avoid orphaning a
+  `function_call`/`function_call_output` pair. This keeps up to `max + 1`
+  items instead of exactly `max` — an intentional, documented trade-off.
 
 ### Docs
 - `AGENTS.md`'s "Security model" section (added above, then revised once
