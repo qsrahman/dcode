@@ -36,6 +36,17 @@ interface ManagedProcess {
 // for no benefit. A spawned process only stops via kill_process or when
 // dcode itself exits (see the `process.on('exit', ...)` below); the tool's
 // own description says so.
+//
+// `processManager` below is a module-level singleton, not constructed per
+// session — deliberately, not an oversight. dcode is one process per
+// invocation (REPL or one-shot); there is no scenario in real usage where
+// two sessions share this module's state. The only place this singleton
+// nature is even visible is the test suite, where vitest can share module
+// state across files in the same worker — and only one test file
+// (tests/tools/local.test.ts) actually spawns processes through it, with
+// its own `afterEach(() => processManager.killAll())`. Making this
+// per-session would mean threading a ProcessManager instance through
+// ToolContext/createLocalTools for a problem that doesn't currently occur.
 class ProcessManager {
   private procs = new Map<string, ManagedProcess>()
   private seq = 0

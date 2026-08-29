@@ -282,6 +282,44 @@
   that the compaction instruction contains the extracted text without a
   stray `"type"` JSON key leaking through.
 
+### Architecture
+- `agent/client.ts`'s `store` param is now unconditionally
+  `params.store = config.stateful` — no more branching on whether the
+  configured endpoint "looks like" OpenAI. The removed branch omitted
+  `store` entirely for any non-OpenAI baseURL, on the assumption that
+  custom/local endpoints might reject an unrecognized field; that's a guess
+  dcode has no way to actually verify, and this project's own testing (a
+  real Ollama `/v1/responses` endpoint) showed it accepts an explicit
+  `store` field fine. If some stricter endpoint ever does reject it, that's
+  now a clear API error instead of a silent guess either way.
+- New `tools/local/http.ts`: the SSRF guard, redirect-following, and
+  timeout/signal handling that `web_fetch` had were extracted into a shared
+  `fetchSafely`/`readBounded` boundary, and `web_search`'s fetch to the
+  Brave API now goes through it too — closing a gap where `web_search` had
+  no real timeout at all (only `ctx.signal`, which only fires on user
+  Ctrl-C). The SSRF host check stays opt-in per call (`{checkHost: true}`):
+  `web_fetch`'s target is often model-chosen and sometimes sourced from
+  content read elsewhere, but `web_search` always hits the same fixed,
+  hardcoded Brave endpoint, which the check has nothing to protect against.
+- Two related "unify this into a single mechanism" suggestions from review
+  were evaluated and declined, with the reasoning now documented in code
+  rather than left as an open question:
+  - `cli/repl.ts`'s `trimHistory` stays separate from `agent/context/
+    manager.ts`'s `ContextManager` (a hard item-count safety net vs. a
+    token-budget-driven compaction policy solve different problems). The
+    specific hazard a merge would exist to prevent — a cut splitting a
+    required item pair — is now proven excluded by trimHistory's own
+    invariants (item 0 always protected; a cut can never separate a
+    `reasoning` item from its `function_call`, argued out and pinned down
+    with a new regression test) rather than merely assumed safe.
+  - `tools/local/process.ts`'s `processManager` stays a module-level
+    singleton rather than being constructed per session. dcode is one
+    process per invocation, so there's no real-usage scenario where two
+    sessions actually share this state; the only place the singleton is
+    even visible is the test suite (one file, with its own cleanup).
+    Threading an instance through `ToolContext`/`createLocalTools` would
+    add real plumbing for a problem that doesn't currently occur.
+
 ### Dead Code
 - `tools/local/paths.ts`'s `fsError` was exported but never imported
   anywhere outside the module itself (only `withFsError`, in the same file,

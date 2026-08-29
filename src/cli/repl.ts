@@ -66,6 +66,30 @@ function isToolItem(item: ResponseInput[number]): boolean {
   return item.type === 'function_call' || item.type === 'function_call_output'
 }
 
+// Why this doesn't also recognize `reasoning` items (which reasoning models
+// require replayed immediately before their triggering function_call — see
+// loop.ts): isToolItem's job is "never let the retained region *start* on
+// an item with a required partner elsewhere," and a `reasoning` item's
+// partner (its following function_call) is never at risk here. Landing
+// exactly on a `reasoning` item stops the skip-forward there (it isn't a
+// tool item), so the reasoning item and everything after it — including its
+// function_call and function_call_output — are kept together. Landing on
+// the function_call or function_call_output *is* recognized, and skips
+// forward past the whole contiguous run, discarding that turn's
+// reasoning+call+output together rather than ever leaving an orphaned half.
+// So no case actually splits a reasoning item from its function_call; adding
+// `reasoning` to isToolItem would only make the cut more aggressive (an
+// optional reasoning item preceding a plain, non-tool-call message would
+// get dropped too, since it'd no longer stop the skip there) for no
+// correctness benefit.
+//
+// This — plus the item-0 protection above — is also why trimHistory stays a
+// separate mechanism from ContextManager rather than being merged into it:
+// they solve different problems (a hard item-count safety net vs. a
+// token-budget-driven compaction policy), and the specific hazard a merge
+// would exist to prevent (a cut splitting a required item pair) is already
+// provably excluded by the two invariants above, not merely "usually fine."
+
 export interface LineOpts {
   sink?: RunSink
   signal?: AbortSignal

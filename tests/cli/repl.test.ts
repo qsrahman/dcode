@@ -87,6 +87,24 @@ describe('trimHistory', () => {
     }
   })
 
+  it('never separates a reasoning item from its function_call', () => {
+    const h: ResponseInput = [
+      { role: 'user', content: 'u1' },
+      { type: 'reasoning', id: 'r1', summary: [] },
+      { type: 'function_call', call_id: 'a', name: 'x', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'a', output: 'ok' },
+      { role: 'assistant', content: 'a1' },
+    ] as unknown as ResponseInput
+    trimHistory(h, 2)
+    const types = h.map((i) => (i as { type?: string; role?: string }).type)
+    // Either the reasoning item survives together with its function_call
+    // (both present), or the whole turn was dropped together (neither
+    // present) — never one without the other.
+    const hasReasoning = types.includes('reasoning')
+    const hasCall = types.includes('function_call')
+    expect(hasReasoning).toBe(hasCall)
+  })
+
   // Regression: a naive front-cut is blind to what's at index 0. After a
   // compaction (auto or /compact), history is `[summary, ...tail]` — the
   // summary is the model's only record of everything before it. Trimming

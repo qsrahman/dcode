@@ -43,19 +43,6 @@ export function isContextOverflowError(err: unknown): boolean {
   return false
 }
 
-// True when the request actually goes to OpenAI's own API — either no
-// baseURL override (the SDK's own default) or one explicitly pointed at
-// api.openai.com. An unparsable baseURL is treated as "not OpenAI" (same as
-// any other custom endpoint) rather than throwing.
-function isRealOpenAI(baseURL: string | undefined): boolean {
-  if (!baseURL) return true
-  try {
-    return new URL(baseURL).hostname === 'api.openai.com'
-  } catch {
-    return false
-  }
-}
-
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here
 // so the rest of the app can depend on the Client interface and stay
 // testable without network access.
@@ -76,16 +63,18 @@ export function createClient(config: Config): Client {
       }
       if (opts?.tools) params.tools = opts.tools
       if (opts?.instructions) params.instructions = opts.instructions
-      // Default to no server-side storage against real OpenAI: avoids its
-      // 30-day retention. `isRealOpenAI` — not merely "no baseURL configured"
-      // — matters because a user can point `baseURL` explicitly at
-      // api.openai.com (e.g. to pin an API version); keying off "baseURL is
-      // set" alone would silently omit `store` for that case too, letting
-      // OpenAI's server-side default (store: true) apply unintentionally.
-      // Other custom/local endpoints omit the param entirely (many don't
-      // support it) unless statefulness is explicitly requested.
-      if (config.stateful) params.store = true
-      else if (isRealOpenAI(config.baseURL)) params.store = false
+      // Explicit, unconditional: `store` is always exactly `config.stateful`
+      // (default false, so no server-side 30-day retention on real OpenAI
+      // unless the user opts in). Earlier this branched on whether the
+      // configured endpoint "looked like" OpenAI, omitting the param
+      // entirely for anything else on the guess that non-OpenAI endpoints
+      // might reject an unrecognized field — an assumption about endpoint
+      // behavior dcode has no way to actually verify, and one this project's
+      // own testing (a real Ollama /v1/responses endpoint) showed to be
+      // unnecessary: it accepts an explicit `store` field fine. If some
+      // stricter endpoint ever does reject it, that surfaces as a clear API
+      // error the user can act on — not a silent guess either way.
+      params.store = config.stateful
       // Passing signal here (rather than a separate abort() method callers
       // have to remember to invoke) lets the SDK's own EventStream wire it
       // into its internal AbortController, so cancelling the turn's

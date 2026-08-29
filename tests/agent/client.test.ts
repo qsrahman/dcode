@@ -34,20 +34,17 @@ describe('createClient store param', () => {
     return streamCalls[0]!.params.store
   }
 
-  it('sends store:false against real OpenAI when no baseURL is configured', () => {
+  // store is always exactly config.stateful, unconditionally — no branching
+  // on the configured endpoint. See the comment in client.ts for why an
+  // earlier endpoint-guessing branch was removed.
+  it('sends store:false (the default) when no baseURL is configured', () => {
     expect(streamOnce(cfg())).toBe(false)
   })
 
-  it('sends store:false when baseURL is explicitly api.openai.com', () => {
-    expect(streamOnce(cfg({ baseURL: 'https://api.openai.com/v1' }))).toBe(
+  it('sends store:false against a custom baseURL too (e.g. Ollama)', () => {
+    expect(streamOnce(cfg({ baseURL: 'http://localhost:11434/v1' }))).toBe(
       false,
     )
-  })
-
-  it('omits store for a non-OpenAI custom baseURL (e.g. Ollama)', () => {
-    expect(
-      streamOnce(cfg({ baseURL: 'http://localhost:11434/v1' })),
-    ).toBeUndefined()
   })
 
   it('sends store:true when stateful is enabled, regardless of baseURL', () => {

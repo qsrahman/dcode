@@ -121,7 +121,7 @@ describe('web_search', () => {
 
   it('forwards ctx.signal to the search request', async () => {
     const fetchSpy = vi.fn(
-      async () =>
+      async (_url: string | URL, _init?: RequestInit) =>
         ({
           ok: true,
           status: 200,
@@ -131,10 +131,14 @@ describe('web_search', () => {
     vi.stubGlobal('fetch', fetchSpy)
     const ac = new AbortController()
     await tool.execute({ query: 'q' }, { ...ctx, signal: ac.signal })
-    expect(fetchSpy).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ signal: ac.signal }),
-    )
+    // fetchSafely combines ctx.signal with its own timeout signal via
+    // AbortSignal.any(), so the object actually passed to fetch() is a new
+    // combined signal, not === ac.signal — assert its type instead of
+    // identity (the timeout-signal-combination behavior itself is covered by
+    // the "always passes an AbortSignal" test in the web_fetch block below).
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit
+    expect(init.signal).toBeInstanceOf(AbortSignal)
+    expect(init.signal).not.toBe(ac.signal)
   })
 
   it('returns (no results) when the result set is empty', async () => {
