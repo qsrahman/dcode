@@ -1,25 +1,32 @@
-import { readFile, stat } from 'node:fs/promises'
-import { relative } from 'node:path'
+import { relative, resolve } from 'node:path'
+import { execa } from 'execa'
+import { rgPath } from '@vscode/ripgrep'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 import { resolvePath } from './paths.ts'
 import { walkDir, globToRegExp, createIgnore } from './traverse.ts'
+import { safeEnv } from './exec.ts'
+import { CHILD_MAX_BUFFER } from './constants.ts'
 
 // Cap grep output so a broad pattern over a large tree can't flood the model's
 // context (runTool's byte-truncation is a blunt backstop, not a real limit).
 const GREP_MAX_MATCHES = 200
 // Cap glob results the same way.
 const GLOB_MAX = 1000
-// Skip files above this size instead of loading them whole: unlike read_file
-// (bounded to maxToolOutputBytes), grep had no size guard at all, so a large
-// log/dump anywhere under root could load it entirely into memory.
-const GREP_MAX_FILE_BYTES = 5 * 1024 * 1024
-// Skip testing the regex against any single line longer than this. A model-
-// supplied pattern can backtrack catastrophically on long input; since regex
-// execution is synchronous, a hung match blocks the whole process and the
-// tool-level timeout (which only races a promise) can't rescue it. Bounding
-// line length bounds the worst case.
-const GREP_MAX_LINE_CHARS = 10_000
+// Skip files above this size (ripgrep's own --max-filesize, not a JS read
+// cap): a large log/dump anywhere under root shouldn't dominate the search.
+// This is a silent skip — ripgrep doesn't report it anywhere (stdout or
+// stderr), so there's no clean way to surface a note to the model about it.
+const GREP_MAX_FILE_SIZE = '5M'
+
+interface RgEvent {
+  type: 'begin' | 'match' | 'context' | 'end' | 'summary'
+  data?: {
+    path?: { text: string }
+    lines?: { text: string }
+    line_number?: number
+  }
+}
 
 function grepTool(): ToolDefinition<{
   pattern: string
@@ -30,7 +37,7 @@ function grepTool(): ToolDefinition<{
   return {
     name: 'grep',
     description:
-      'Search file contents for a regular expression under the working directory.',
+      'Search file contents for a regular expression under the working directory (backed by ripgrep — Rust regex syntax: no lookaround/backreferences, but no catastrophic-backtracking risk either).',
     parameters: z.object({
       pattern: z.string().describe('Regular expression to search for'),
       path: z
@@ -55,75 +62,89 @@ function grepTool(): ToolDefinition<{
       },
       ctx: ToolContext,
     ) {
-      const target = args.path ?? '.'
-      let re: RegExp
-      try {
-        re = new RegExp(args.pattern, args.ignore_case ? 'gi' : 'g')
-      } catch {
-        throw new Error(`invalid regular expression: ${args.pattern}`)
+      const dir = await resolvePath(ctx.root, args.path ?? '.')
+      const rgArgs = [
+        '--json',
+        '--line-number',
+        '--color=never',
+        '--max-filesize',
+        GREP_MAX_FILE_SIZE,
+        // Reveal dotfiles/dotdirs (the old walkDir-based grep searched them
+        // too, unlike ripgrep's default); .git stays excluded regardless.
+        '--hidden',
+        '-g',
+        '!.git',
+      ]
+      if (args.ignore_case) rgArgs.push('--ignore-case')
+      if (args.context) rgArgs.push('--context', String(args.context))
+      // ctx.config.ignore is gitignore-syntax already (decision: matches the
+      // `ignore` package traverse.ts uses for glob) — ripgrep understands the
+      // same syntax natively via -g '!pattern'.
+      for (const pattern of ctx.config.ignore) {
+        rgArgs.push('-g', `!${pattern}`)
       }
-      const dir = await resolvePath(ctx.root, target)
-      const ig = createIgnore(ctx.config.ignore)
-      const ctxLines = args.context ?? 0
-      const matches: string[] = []
-      let capped = false
-      let skippedLarge = false
+      rgArgs.push('--regexp', args.pattern, dir)
+
+      const result = await execa(rgPath, rgArgs, {
+        cwd: ctx.root,
+        env: safeEnv(),
+        extendEnv: false,
+        timeout: ctx.config.toolTimeout,
+        maxBuffer: CHILD_MAX_BUFFER,
+        cancelSignal: ctx.signal,
+        reject: false,
+      })
+      // Exit code 0 = matches found, 1 = ran fine with no matches — both are
+      // success. Anything else (bad regex, bad path, ...) is a real error.
+      if (result.exitCode !== 0 && result.exitCode !== 1) {
+        if (/regex parse error/i.test(result.stderr)) {
+          throw new Error(`invalid regular expression: ${args.pattern}`)
+        }
+        throw new Error(
+          result.stderr.trim() || `ripgrep exited with ${result.exitCode}`,
+        )
+      }
+      const lines: string[] = []
       let matchCount = 0
-      outer: for await (const { full, entry } of walkDir(dir, ig)) {
-        if (!entry.isFile()) continue
-        let content: string
+      let capped = false
+      outer: for (const raw of result.stdout.split('\n')) {
+        if (!raw) continue
+        let evt: RgEvent
         try {
-          const { size } = await stat(full)
-          if (size > GREP_MAX_FILE_BYTES) {
-            skippedLarge = true
-            continue
-          }
-          const buf = await readFile(full)
-          // Skip binaries: a NUL byte in the leading chunk (git's heuristic)
-          // means UTF-8 decoding would yield garbage lines that pollute
-          // match output.
-          if (buf.subarray(0, 8000).includes(0)) continue
-          content = buf.toString('utf8')
+          evt = JSON.parse(raw)
         } catch {
           continue
         }
-        const rel = relative(ctx.root, full)
-        const lines = content.split('\n')
-        const hitIdx: number[] = []
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i]!
-          if (line.length > GREP_MAX_LINE_CHARS) continue
-          re.lastIndex = 0
-          if (re.test(line)) hitIdx.push(i)
+        switch (evt.type) {
+          case 'match':
+            if (matchCount >= GREP_MAX_MATCHES) {
+              capped = true
+              break outer
+            }
+            matchCount++
+            lines.push(formatRgLine(ctx.root, evt))
+            break
+          case 'context':
+            lines.push(formatRgLine(ctx.root, evt))
+            break
+          case 'end':
+            lines.push('')
+            break
         }
-        if (hitIdx.length === 0) continue
-        let lastPushed = -2
-        for (const m of hitIdx) {
-          if (matchCount >= GREP_MAX_MATCHES) {
-            capped = true
-            break outer
-          }
-          const lo = Math.max(0, m - ctxLines)
-          const hi = Math.min(lines.length - 1, m + ctxLines)
-          for (let i = lo; i <= hi; i++) {
-            if (i === lastPushed) continue
-            matches.push(`${rel}:${i + 1}: ${lines[i]!}`)
-            lastPushed = i
-          }
-          matchCount++
-        }
-        matches.push('')
       }
-      let out = matches.join('\n').trimEnd() || '(no matches)'
+      let out = lines.join('\n').trimEnd() || '(no matches)'
       if (capped) {
         out += `\n… (stopped at ${GREP_MAX_MATCHES} matches; narrow the pattern or path)`
-      }
-      if (skippedLarge) {
-        out += `\n… (some files larger than ${GREP_MAX_FILE_BYTES} bytes were skipped)`
       }
       return out
     },
   }
+}
+
+function formatRgLine(root: string, evt: RgEvent): string {
+  const rel = relative(root, resolve(root, evt.data!.path!.text))
+  const text = evt.data!.lines!.text.replace(/\n$/, '')
+  return `${rel}:${evt.data!.line_number}: ${text}`
 }
 
 function globTool(): ToolDefinition<{

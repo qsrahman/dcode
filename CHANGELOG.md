@@ -1,12 +1,6 @@
 ## [Unreleased]
 
 ### Fixed
-- `grep` no longer loads an entire file into memory unconditionally before
-  searching it (files above 5 MiB are now skipped, with a note) and no longer
-  tests a model-supplied regex against arbitrarily long lines (lines above
-  10,000 chars are skipped) — a pathological pattern backtracking against a
-  long line could previously hang the whole process, since regex execution is
-  synchronous and the tool-level timeout can't interrupt it.
 - `read_file`'s `offset`/`limit` paging only ever saw the first
   `maxToolOutputBytes` (32 KiB default) of a file; requesting a later page
   silently returned `(no lines in range)`, misreading as end-of-file. Paging
@@ -21,9 +15,22 @@
   shadowed by a stale environment variable.
 
 ### Changed
+- `grep` is now backed by ripgrep (via `@vscode/ripgrep`, a bundled platform
+  binary — no separate install required) instead of a hand-rolled
+  `walkDir` + JS-regex scan. This is a straight upgrade on every axis that
+  mattered: ripgrep is 5–13x faster, streams files instead of loading them
+  whole (`--max-filesize 5M` skips oversized files, silently — ripgrep doesn't
+  report these skips anywhere), and its regex engine is guaranteed
+  linear-time, so a pathological pattern can no longer hang the process the
+  way a backtracking JS regex could. The trade-off: patterns are now Rust
+  regex syntax (no lookaround/backreferences), and `grep` now depends on a
+  native binary rather than being pure JS — `git` was already this kind of
+  dependency, so it's not a new category of risk. `glob` is unchanged (still
+  `walkDir`-based).
 - `ignore` config patterns are now matched with real gitignore syntax (via the
-  `ignore` package) instead of exact directory-name matching, so `grep`/`glob`
-  can prune globs (`*.log`) and negation, not just bare names like `.git`.
+  `ignore` package for `glob`, and ripgrep's native `-g`/gitignore support for
+  `grep`) instead of exact directory-name matching, so both tools can prune
+  globs (`*.log`) and negation, not just bare names like `.git`.
 - `run_process`/`kill_process` now spawn via `execa` (`killDescendants: true`)
   instead of hand-rolled `child_process.spawn` + `process.kill(-pid, sig)`
   process-group bookkeeping — the same mechanism `run_shell`/`git` already use.

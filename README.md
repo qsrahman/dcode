@@ -88,7 +88,7 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 |------|---------|
 | `read_file` | Read a UTF-8 text file under the working directory. |
 | `list_dir` | List a directory under the working directory. |
-| `grep` | Search file contents for a regular expression. |
+| `grep` | Search file contents for a regular expression (ripgrep-backed). |
 | `stat` | Report type/size/mtime of a file or directory. |
 | `glob` | List files matching a glob pattern (`**` recursive). |
 | `write_file` | Create or overwrite a UTF-8 text file. |
@@ -111,12 +111,12 @@ variable (or `/key set brave <key>`); without it the tool returns an error
 instead of crashing, and an in-flight search is cancelled on Ctrl-C like every
 other tool. The recursive tools (`grep`, `glob`) skip paths matching `ignore`
 (default `.git`, `node_modules`; gitignore syntax, so globs like `*.log` and
-negation also work); `grep` also caps its output at 200 matches, skips files
-above 5 MiB, and skips matching against any single line above 10,000 characters
-(bounds the worst case if a pattern backtracks catastrophically on a long
-line). `read_file`'s `offset`/`limit` paging reads up to 8 MiB of a file to
-find the requested lines; an offset past that window errors instead of
-silently reading as end-of-file.
+negation also work). `grep` is backed by [ripgrep](https://github.com/BurntSushi/ripgrep)
+(bundled via `@vscode/ripgrep` — no separate install needed): patterns are
+Rust regex syntax (no lookaround/backreferences), matches are capped at 200,
+and files above 5 MiB are skipped. `read_file`'s `offset`/`limit` paging reads
+up to 8 MiB of a file to find the requested lines; an offset past that window
+errors instead of silently reading as end-of-file.
 Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
 (default 32 KiB), and tool errors are returned to the model so it can
 self-correct. In-flight tools (including `run_shell`) are cancelled on Ctrl-C.

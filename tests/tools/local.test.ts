@@ -174,22 +174,23 @@ describe('read-only tools', () => {
     expect(gl).not.toContain('debug.log')
   })
 
-  it('grep skips files above the size guard, with a note', async () => {
+  it('grep skips files above the size guard (ripgrep --max-filesize)', async () => {
     await writeFile(join(root, 'big.txt'), 'needle\n'.repeat(800_000))
     await writeFile(join(root, 'small.txt'), 'needle')
     const out = await tool('grep').execute({ pattern: 'needle' }, ctx)
     expect(out).toContain('small.txt')
     expect(out).not.toContain('big.txt')
-    expect(out).toMatch(/files larger than \d+ bytes were skipped/)
   })
 
-  // A pathological pattern could backtrack catastrophically on a long line and
-  // hang the process (regex execution is synchronous); bounding line length
-  // bounds the worst case instead.
-  it('grep skips matching against lines longer than the length guard', async () => {
-    await writeFile(join(root, 'a.txt'), 'x'.repeat(20_000) + 'needle')
+  // The JS implementation used to cap line length against catastrophic
+  // backtracking (regex execution was synchronous and could hang the whole
+  // process). ripgrep's regex engine is guaranteed linear-time, so that
+  // protection is now structural rather than a length cutoff — this searches
+  // a genuinely long line and expects it to just work.
+  it('grep searches a very long line without hanging', async () => {
+    await writeFile(join(root, 'a.txt'), 'x'.repeat(50_000) + 'needle')
     const out = await tool('grep').execute({ pattern: 'needle' }, ctx)
-    expect(out).toBe('(no matches)')
+    expect(out).toContain('a.txt:1:')
   })
 
   it('grep caps total matches with a note', async () => {

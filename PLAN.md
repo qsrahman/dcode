@@ -81,7 +81,7 @@ src/
     traverse.ts       #   walkDir, globToRegExp, createIgnore — gitignore-syntax matching via the `ignore` package
     exec.ts           #   runExec, safeEnv — shared execa wrapper (timeout/cancelSignal/maxBuffer, env redaction) for run_shell/git
     fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
-    search.ts         #   grep, glob (find_symbol/find_references planned, P12; not yet a file)
+    search.ts         #   grep (ripgrep, via @vscode/ripgrep's bundled binary), glob (walkDir-based) — find_symbol/find_references planned, P12
     shell.ts          #   run_shell (via exec.ts's runExec)
     process.ts        #   run_process, read_process, kill_process — background, via execa (killDescendants: true)
     git.ts            #   git: scoped status/diff/log/show/add/commit/branch (via exec.ts's runExec)
