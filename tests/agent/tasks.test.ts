@@ -44,4 +44,29 @@ describe('TaskStore', () => {
     const s = new TaskStore()
     expect(s.update('T99', { status: 'completed' })).toBeUndefined()
   })
+
+  // Regression: create/get/list/update used to return the store's own live
+  // Task objects. Mutating one directly (e.g. pushing onto blockedBy)
+  // silently corrupted the store without going through update() — the one
+  // place meant to change it.
+  it('returns copies, not live references, from create/get/list/update', () => {
+    const s = new TaskStore()
+    const created = s.create('work')
+    created.title = 'mutated'
+    created.blockedBy.push('T99')
+    expect(s.get(created.id)?.title).toBe('work')
+    expect(s.get(created.id)?.blockedBy).toEqual([])
+
+    const got = s.get(created.id)!
+    got.status = 'completed'
+    expect(s.get(created.id)?.status).toBe('pending')
+
+    const [listed] = s.list()
+    listed!.title = 'also mutated'
+    expect(s.get(created.id)?.title).toBe('work')
+
+    const updated = s.update(created.id, { status: 'in_progress' })!
+    updated.status = 'blocked'
+    expect(s.get(created.id)?.status).toBe('in_progress')
+  })
 })

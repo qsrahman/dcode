@@ -16,17 +16,27 @@ export class TaskStore {
 
   create(title: string, blockedBy: string[] = []): Task {
     const id = `T${++this.seq}`
-    const task: Task = { id, title, status: 'pending', blockedBy }
+    const task: Task = {
+      id,
+      title,
+      status: 'pending',
+      blockedBy: [...blockedBy],
+    }
     this.tasks.set(id, task)
-    return task
+    return copyTask(task)
   }
 
+  // create/get/list/update all return copies, never the store's own Task objects —
+  // a caller mutating a returned Task directly (e.g. pushing onto its
+  // blockedBy array) would silently corrupt the store's state without going
+  // through update(), bypassing the single place that's meant to change it.
   get(id: string): Task | undefined {
-    return this.tasks.get(id)
+    const task = this.tasks.get(id)
+    return task ? copyTask(task) : undefined
   }
 
   list(): Task[] {
-    return [...this.tasks.values()]
+    return [...this.tasks.values()].map(copyTask)
   }
 
   update(
@@ -39,6 +49,10 @@ export class TaskStore {
     if (patch.status !== undefined) task.status = patch.status
     if (patch.notes !== undefined) task.notes = patch.notes
     if (patch.blockedBy !== undefined) task.blockedBy = patch.blockedBy
-    return task
+    return copyTask(task)
   }
+}
+
+function copyTask(task: Task): Task {
+  return { ...task, blockedBy: [...task.blockedBy] }
 }

@@ -89,14 +89,17 @@ function listTasks(
 // the module-level COMMANDS singleton rather than taking a registry
 // parameter — its one caller below always passes that same singleton.
 function buildHelp(): string {
-  const lines = COMMANDS.list()
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map((c) => {
-      const aliasNote = c.aliases?.length
-        ? ` (alias: ${c.aliases.map((a) => `/${a}`).join(', ')})`
-        : ''
-      return `  /${c.name.padEnd(8)} ${c.description}${aliasNote}`
-    })
+  const defs = COMMANDS.list().sort((a, b) => a.name.localeCompare(b.name))
+  // Derived from the actual longest name rather than a fixed width, so a
+  // future command with a name longer than the old hardcoded 8 can't
+  // silently misalign every other line's description column.
+  const width = Math.max(...defs.map((c) => c.name.length))
+  const lines = defs.map((c) => {
+    const aliasNote = c.aliases?.length
+      ? ` (alias: ${c.aliases.map((a) => `/${a}`).join(', ')})`
+      : ''
+    return `  /${c.name.padEnd(width)} ${c.description}${aliasNote}`
+  })
   return ansis.dim(['Commands:', ...lines].join('\n'))
 }
 

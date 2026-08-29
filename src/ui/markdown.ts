@@ -89,12 +89,18 @@ function findSafeBoundary(text: string): number {
 
 // Incremental markdown-to-ANSI renderer for streamed model output. Buffers
 // deltas and only emits fully-formed, block-complete lines (via
-// findSafeBoundary) so a client never sees broken mid-render markdown —
-// e.g. a `**` that hasn't been closed yet, or a code fence rendered before
-// its closing ``` arrives. This mirrors the "newline-gated" streaming
-// pattern used by Codex CLI's Rust TUI (render only committed lines; the
-// unstable tail waits) rather than either printing raw deltas or buffering
-// the whole turn silently until it ends.
+// findSafeBoundary) so a client never sees a code fence rendered before its
+// closing ``` arrives — findSafeBoundary explicitly tracks fence parity for
+// that. It does *not* separately track inline markers like `**bold**`: an
+// unclosed `**` mid-paragraph is naturally held back too, but only because
+// the enclosing paragraph hasn't reached its own `\n\n` boundary yet, not
+// because of any dedicated inline-marker logic — and CommonMark emphasis
+// spans never cross a block boundary anyway, so once a block *is* judged
+// complete, any `**` within it is already exactly as balanced (or not) as
+// it will ever be. This mirrors the "newline-gated" streaming pattern used
+// by Codex CLI's Rust TUI (render only committed lines; the unstable tail
+// waits) rather than either printing raw deltas or buffering the whole turn
+// silently until it ends.
 export class MarkdownStreamRenderer {
   private buffer = ''
   private committedLineCount = 0

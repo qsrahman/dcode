@@ -320,6 +320,42 @@
     Threading an instance through `ToolContext`/`createLocalTools` would
     add real plumbing for a problem that doesn't currently occur.
 
+### Maintainability
+- `cli/keys.ts`'s `keyField` cast `PROVIDERS[provider] as 'apiKey' |
+  'brave'` was only safe because every caller happened to check
+  `isKnownProvider()` first — nothing enforced that. `PROVIDERS` is now
+  declared `as const` (not `Record<string, 'apiKey' | 'brave'>`), so `keyof
+  typeof PROVIDERS` is the exact `'openai' | 'brave'` union; `keyField` now
+  requires that narrowed type instead of a bare `string`, so indexing
+  `PROVIDERS` is checked by the compiler. The one remaining cast moved to
+  `KEY_PROVIDERS`'s own definition (`Object.keys(PROVIDERS) as (keyof typeof
+  PROVIDERS)[]`) — a cast over `Object.keys` of a closed, known-shape
+  literal (provably safe, just a TS signature limitation), not over an
+  arbitrary caller-supplied string.
+- `agent/tasks.ts`'s `TaskStore.create`/`get`/`list`/`update` returned the
+  store's own live `Task` objects. A caller mutating one directly (e.g.
+  pushing onto its `blockedBy` array) would silently corrupt the store's
+  state without going through `update()` — the one place meant to change
+  it. All four now return copies (a new `copyTask` helper, also copying
+  `blockedBy` so the array itself can't be mutated through a returned
+  reference either). No current caller actually did this, so no behavior
+  change — closing the footgun before something written later relies on it
+  by accident. New regression test covers all four methods.
+- `cli/commands.ts`'s `buildHelp` padded every command name to a hardcoded
+  `padEnd(8)`; a future command with a name longer than 8 characters would
+  silently misalign every other line's description column. Width is now
+  derived from the actual longest registered name.
+- `ui/markdown.ts`'s `MarkdownStreamRenderer` docstring claimed the
+  streaming renderer holds back "a `**` that hasn't been closed yet" the
+  same way it holds back an unclosed code fence — but `findSafeBoundary`
+  only tracks fence parity explicitly; there's no equivalent inline-marker
+  tracking. An unclosed `**` mid-paragraph is held back too, but only as a
+  side effect of the enclosing paragraph not having reached its own blank-
+  line boundary yet, and CommonMark emphasis spans can't cross a block
+  boundary anyway — so once a block is judged complete, its `**` balance is
+  already final either way. Reworded to describe the actual mechanism
+  instead of implying a second, dedicated one exists.
+
 ### Dead Code
 - `tools/local/paths.ts`'s `fsError` was exported but never imported
   anywhere outside the module itself (only `withFsError`, in the same file,

@@ -11,20 +11,31 @@ import { globalConfigPath } from '../config/config.ts'
 // Secrets live only in the per-user global config. A friendly provider name maps
 // to the config field that holds its key. The allowlist is deliberately small so
 // `/key` can't be used to write arbitrary config keys.
-const PROVIDERS: Record<string, 'apiKey' | 'brave'> = {
+//
+// `as const` (not `Record<string, 'apiKey' | 'brave'>`) so `keyof typeof
+// PROVIDERS` is the exact `'openai' | 'brave'` union — keyField below can
+// then require that narrowed type instead of a bare `string`, so indexing
+// PROVIDERS is checked by the compiler rather than relying on every caller
+// having already called isKnownProvider() first.
+const PROVIDERS = {
   openai: 'apiKey',
   brave: 'brave',
-}
+} as const
 
-export const KEY_PROVIDERS = Object.keys(PROVIDERS)
+// Object.keys() always widens to string[] regardless of the source object's
+// precise type (a TS signature limitation, not a runtime risk — this is
+// Object.keys of a closed, known-shape literal) — the one cast this module
+// needs is here, not on every keyField call.
+export const KEY_PROVIDERS = Object.keys(
+  PROVIDERS,
+) as (keyof typeof PROVIDERS)[]
 
 export function isKnownProvider(p: string): p is keyof typeof PROVIDERS {
   return Object.prototype.hasOwnProperty.call(PROVIDERS, p)
 }
 
-export function keyField(provider: string): 'apiKey' | 'brave' {
-  // Only called after isKnownProvider(); the cast is safe.
-  return PROVIDERS[provider] as 'apiKey' | 'brave'
+export function keyField(provider: keyof typeof PROVIDERS): 'apiKey' | 'brave' {
+  return PROVIDERS[provider]
 }
 
 function readGlobalRaw(): Record<string, unknown> {
