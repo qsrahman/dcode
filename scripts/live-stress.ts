@@ -14,9 +14,10 @@ import ansis from 'ansis'
 // global config, env, or CLI flags) and drives the real agent loop + tools over
 // THIS repository. Not part of the unit suite: run it explicitly with
 // `node scripts/live-stress.ts`. Exercises tool iteration, truncation, context
-// compaction (proactive + todo-aware), auto-approved writes, web search, and
-// concurrent runs, and verifies the UI/UX spacing of the rendered output
-// (exactly one well-formed line per tool call).
+// compaction (proactive + todo-aware), mutating writes, background processes,
+// ripgrep-backed grep/glob, web search, and concurrent runs, and verifies the
+// UI/UX spacing of the rendered output (exactly one well-formed line per tool
+// call).
 
 type Item = { type?: string; [k: string]: unknown }
 
@@ -59,6 +60,11 @@ const scenarios: Scenario[] = [
     name: 'web-search',
     prompt:
       'Use the web_search tool to look up the current Node.js LTS version and report the version number in one sentence.',
+  },
+  {
+    name: 'background-process',
+    prompt:
+      'Use run_process to run `echo dcode-bg-hello` in the background, wait a moment, then use read_process to fetch its output and report exactly what it printed.',
   },
 ]
 
