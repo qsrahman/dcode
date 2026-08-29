@@ -1,10 +1,17 @@
 import { marked } from 'marked'
 import { markedTerminal } from 'marked-terminal'
+import ansis from 'ansis'
 
-// marked-terminal/chalk auto-detect TTY/NO_COLOR the same way ansis already
-// does elsewhere (e.g. loop.ts's renderToolResult) — no config.color wiring
-// needed here; --no-color today only gates the logger, and this follows
-// that same existing precedent rather than adding a second mechanism.
+// marked-terminal styles via its own internal `chalk` import, whose color
+// level is decided once at module-load time from chalk's own TTY/env-var
+// detection — long before `--no-color`/`config.color` is even parsed from
+// argv in main(). There's no supported way to hand marked-terminal a color
+// flag after the fact (its options only let you override *which* function
+// renders each node type, not force plain output across the board), so
+// `--no-color` can't prevent marked-terminal from generating ANSI codes in
+// the first place. Instead, renderMarkdown/MarkdownStreamRenderer take an
+// explicit `color` flag and strip the codes via `ansis.strip()` afterward —
+// the same tool the test suite already uses for this exact operation.
 marked.use(markedTerminal())
 
 // Work around a real marked-terminal bug: its `text` renderer does
@@ -47,11 +54,15 @@ export function stripSpuriousAnsiOnlyLines(rendered: string): string {
     .join('\n')
 }
 
-// Render a complete markdown string to ANSI-styled text. marked-terminal's
-// renderer is synchronous (no async extensions are registered), so this
-// never returns a Promise.
-export function renderMarkdown(text: string): string {
-  return stripSpuriousAnsiOnlyLines(marked.parse(text, { async: false }))
+// Render a complete markdown string to ANSI-styled text (or, when `color` is
+// false, plain text with the ANSI codes stripped — see the note above on why
+// they can't simply be avoided). marked-terminal's renderer is synchronous
+// (no async extensions are registered), so this never returns a Promise.
+export function renderMarkdown(text: string, color = true): string {
+  const rendered = stripSpuriousAnsiOnlyLines(
+    marked.parse(text, { async: false }),
+  )
+  return color ? rendered : ansis.strip(rendered)
 }
 
 function countFences(s: string): number {
@@ -87,6 +98,13 @@ function findSafeBoundary(text: string): number {
 export class MarkdownStreamRenderer {
   private buffer = ''
   private committedLineCount = 0
+  // Mirrors config.color/--no-color; see renderMarkdown for why this has to
+  // be a post-render strip rather than preventing the codes upstream.
+  private color: boolean
+
+  constructor(color = true) {
+    this.color = color
+  }
 
   // Feed the next delta; returns newly-renderable lines (or '' if nothing
   // has crossed a safe boundary yet).
@@ -114,7 +132,7 @@ export class MarkdownStreamRenderer {
   // marked-terminal correctly handle constructs that depend on later
   // context within the same block (e.g. list continuation).
   private commit(source: string): string {
-    const lines = renderMarkdown(source).split('\n')
+    const lines = renderMarkdown(source, this.color).split('\n')
     // marked-terminal trails a block with one or more blank lines; strip all
     // of them (not just one) since the join below adds back exactly one.
     // Blank lines *between* blocks (mid-array) are real spacing and stay.

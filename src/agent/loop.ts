@@ -125,9 +125,13 @@ export async function runAgent(
         call_id: id,
         output: outcome.output,
       })
-      sink.write(`${renderToolResult(outcome.name, outcome.ok, outcome.ms)}\n`)
+      sink.write(
+        `${renderToolResult(outcome.name, outcome.ok, outcome.ms, config.color)}\n`,
+      )
       if (config.verbose)
-        sink.write(`${renderToolOutput(outcome.name, outcome.output)}\n`)
+        sink.write(
+          `${renderToolOutput(outcome.name, outcome.output, config.color)}\n`,
+        )
     }
     // Abort only after every call has a recorded output, so history stays
     // balanced (no function_call without its function_call_output) and the
@@ -234,33 +238,67 @@ async function runCalls(
   return results
 }
 
+type Paint = (s: string) => string
+
+// Build colorizers locally rather than relying on ansis's own auto-detected
+// `.enabled` state, for the same reason util/log.ts's paintFor does: ansis
+// decides TTY/NO_COLOR support once at import time, before --no-color is
+// even parsed from argv, so it can't be toggled after the fact — and
+// mutating the shared global `ansis.enabled` would leak across call sites
+// (and, in tests, across unrelated test files).
+function paintFor(color: boolean): {
+  green: Paint
+  red: Paint
+  cyan: Paint
+  dim: Paint
+} {
+  if (!color) {
+    const id: Paint = (s) => s
+    return { green: id, red: id, cyan: id, dim: id }
+  }
+  return {
+    green: ansis.green,
+    red: ansis.red,
+    cyan: ansis.cyan,
+    dim: ansis.dim,
+  }
+}
+
 export function renderToolResult(
   name: string,
   ok: boolean,
   ms: number,
+  color: boolean,
 ): string {
-  const status = ok ? ansis.green('✓') : ansis.red('✗')
+  const p = paintFor(color)
+  const status = ok ? p.green('✓') : p.red('✗')
   const secs = (ms / 1000).toFixed(1)
-  return `› ${ansis.cyan(name)}: ${status} ${ok ? 'done' : 'failed'} (${ansis.dim(secs + 's')})`
+  return `› ${p.cyan(name)}: ${status} ${ok ? 'done' : 'failed'} (${p.dim(secs + 's')})`
 }
 
 const RULE = '─'.repeat(40)
 
 // Color a unified-diff line so edits and `git diff` output are scannable in
 // verbose mode: hunk headers cyan, additions green, removals red.
-function colorDiffLine(line: string): string {
-  if (line.startsWith('@@')) return ansis.cyan(line)
-  if (line.startsWith('+')) return ansis.green(line)
-  if (line.startsWith('-')) return ansis.red(line)
+function colorDiffLine(line: string, p: ReturnType<typeof paintFor>): string {
+  if (line.startsWith('@@')) return p.cyan(line)
+  if (line.startsWith('+')) return p.green(line)
+  if (line.startsWith('-')) return p.red(line)
   return line
 }
 
 // Verbose mode echoes a tool's raw output between turns; dim fences mark it
 // as diagnostics so it doesn't read as more streamed model text. Diff-like
 // lines (from git diff or edit_file) are colored.
-export function renderToolOutput(name: string, output: string): string {
-  const body = output.split('\n').map(colorDiffLine).join('\n')
-  return [ansis.dim(`── ${name} output ${RULE}`), body, ansis.dim(RULE)].join(
-    '\n',
-  )
+export function renderToolOutput(
+  name: string,
+  output: string,
+  color: boolean,
+): string {
+  const p = paintFor(color)
+  const body = output
+    .split('\n')
+    .map((line) => colorDiffLine(line, p))
+    .join('\n')
+  return [p.dim(`── ${name} output ${RULE}`), body, p.dim(RULE)].join('\n')
 }

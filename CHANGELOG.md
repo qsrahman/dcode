@@ -151,6 +151,25 @@
   record that changes between the check and the real connection (DNS
   rebinding) could still slip through — documented as an accepted residual
   gap rather than a closed one.
+- `--no-color`/`config.color` didn't actually disable ANSI output on a real
+  TTY — it only worked when `NO_COLOR` was set or output was piped, because
+  neither markdown rendering nor tool-status rendering ever looked at
+  `config.color`. `marked-terminal` (via its own internal `chalk` import) and
+  `loop.ts`'s `renderToolResult`/`renderToolOutput` (via `ansis.*` called
+  directly) both decide their own color support from TTY/env-var detection —
+  a decision made once at module-load time, before `--no-color` is even
+  parsed from argv, so there was no way to hand either of them a color flag
+  after the fact. `renderMarkdown`/`MarkdownStreamRenderer` now take an
+  explicit `color` flag and strip ANSI codes via `ansis.strip()` when it's
+  false (wired from `config.color` in `runTurn`); `renderToolResult`/
+  `renderToolOutput` now take the same flag and build local paint functions
+  (identity when disabled) instead of calling `ansis.*` directly, the same
+  pattern `util/log.ts`'s `paintFor` already used and for the same reason —
+  a global `ansis.enabled` toggle can't be scoped per-call and would leak
+  across call sites. Verified live: `FORCE_COLOR=1 dcode --no-color "..."`
+  now produces zero ANSI escape bytes in either the streamed response or
+  verbose tool-status output, while the same command without `--no-color`
+  still colors normally.
 
 ### Docs
 - `AGENTS.md`'s "Security model" section (added above, then revised once

@@ -34,6 +34,18 @@ describe('renderMarkdown', () => {
     expect(out).toContain('bold')
     expect(out).not.toContain('**')
   })
+
+  // The bug this guards against: marked-terminal decides its own color
+  // level from chalk's TTY/env-var auto-detection at import time, well
+  // before --no-color/config.color is parsed — so on a real TTY it kept
+  // emitting ANSI regardless of --no-color. renderMarkdown(text, false) must
+  // strip every code it produces, not just avoid adding new ones.
+  it('emits no ANSI codes at all when color is false', () => {
+    const out = renderMarkdown('# Title\n\nSome **bold** text.\n', false)
+    expect(out).toBe(ansis.strip(out))
+    expect(out).toContain('Title')
+    expect(out).toContain('bold')
+  })
 })
 
 // Regression: marked-terminal@7.3.0's fixNestedLists() matches indentation
@@ -149,5 +161,13 @@ describe('MarkdownStreamRenderer', () => {
     const plain = ansis.strip(out)
     expect(plain).toContain('Second turn text')
     expect(plain).not.toContain('First turn text')
+  })
+
+  it('emits no ANSI codes when constructed with color: false', () => {
+    const md = new MarkdownStreamRenderer(false)
+    let out = md.push('Some **bold** text.\n\n')
+    out += md.finalize()
+    expect(out).toBe(ansis.strip(out))
+    expect(out).toContain('bold')
   })
 })

@@ -56,7 +56,7 @@ export async function runTurn(
     instructions: opts.instructions,
     signal: opts.signal,
   })
-  const md = new MarkdownStreamRenderer()
+  const md = new MarkdownStreamRenderer(config.color)
   for await (const delta of stream) {
     const out = md.push(delta)
     if (out) sink.write(out)

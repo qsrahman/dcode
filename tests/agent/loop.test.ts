@@ -421,26 +421,47 @@ describe('runAgent', () => {
 
 describe('tool result rendering', () => {
   it('shows a check for success and a cross for failure', () => {
-    expect(ansis.strip(renderToolResult('read_file', true, 0))).toBe(
+    expect(ansis.strip(renderToolResult('read_file', true, 0, true))).toBe(
       '› read_file: ✓ done (0.0s)',
     )
-    expect(ansis.strip(renderToolResult('grep', false, 1200))).toBe(
+    expect(ansis.strip(renderToolResult('grep', false, 1200, true))).toBe(
       '› grep: ✗ failed (1.2s)',
     )
   })
 
   it('fences the raw output between rules naming the tool', () => {
-    const stripped = ansis.strip(renderToolOutput('grep', 'a\nb'))
+    const stripped = ansis.strip(renderToolOutput('grep', 'a\nb', true))
     expect(stripped).toContain('── grep output ─')
     expect(stripped).toContain('\na\nb\n')
   })
 
   it('colors diff lines (additions green, removals red, headers cyan)', () => {
-    const out = renderToolOutput('edit_file', '@@ -1 +1 @@\n-old\n+new')
+    const out = renderToolOutput('edit_file', '@@ -1 +1 @@\n-old\n+new', true)
     expect(ansis.strip(out)).toContain('@@ -1 +1 @@')
     expect(ansis.strip(out)).toContain('-old')
     expect(ansis.strip(out)).toContain('+new')
     expect(out).toContain(ansis.green('+new'))
     expect(out).toContain(ansis.red('-old'))
+  })
+
+  // The bug this guards against: --no-color only worked when NO_COLOR was
+  // set or output was piped, because renderToolResult/renderToolOutput used
+  // to call ansis.* directly, whose own TTY auto-detection ignores
+  // config.color entirely. color:false must produce zero ANSI codes,
+  // regardless of ansis's own enabled state.
+  it('emits no ANSI codes at all when color is false', () => {
+    const result = renderToolResult('read_file', true, 0, false)
+    expect(result).toBe(ansis.strip(result))
+    expect(result).toBe('› read_file: ✓ done (0.0s)')
+
+    const output = renderToolOutput(
+      'edit_file',
+      '@@ -1 +1 @@\n-old\n+new',
+      false,
+    )
+    expect(output).toBe(ansis.strip(output))
+    expect(output).toContain('@@ -1 +1 @@')
+    expect(output).toContain('-old')
+    expect(output).toContain('+new')
   })
 })
