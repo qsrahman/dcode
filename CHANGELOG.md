@@ -83,6 +83,17 @@
   file precedence into `ctx.config.brave` before any tool runs. It now trusts
   `ctx.config.brave` alone, so a key set at runtime via `/key set brave` isn't
   shadowed by a stale environment variable.
+- `createClient` decided whether to send `store: false` (opting out of
+  OpenAI's 30-day server-side retention) by checking whether `baseURL` was
+  configured at all, not whether the endpoint was actually OpenAI. A user
+  who explicitly points `baseURL` at `api.openai.com` (e.g. to pin an API
+  version) hit neither branch — `store` was omitted entirely, so OpenAI's
+  own server-side default (`store: true`) applied unintentionally, silently
+  contradicting the documented "off by default" behavior. Replaced the
+  `!config.baseURL` check with `isRealOpenAI(config.baseURL)`, which treats
+  an unset baseURL *or* one whose hostname is `api.openai.com` as real
+  OpenAI (sending `store: false`); any other custom/local endpoint still
+  omits the param entirely unless `stateful` is explicitly enabled.
 - `ContextManager`'s compaction-failure counter (the one backing the 3-strike
   circuit breaker) incremented on every call to the shared private `compact`,
   including a manual `/compact` and a no-op auto-compaction. Three manual
