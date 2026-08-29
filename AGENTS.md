@@ -95,13 +95,24 @@ dcode grants the model your own shell access on your own machine (`run_shell`,
 `run_process`) by design — there is no approval/sandboxing layer (P5 was
 cancelled; see the top-level CLAUDE.md). Anything reachable from your machine —
 localhost services, your local network, cloud metadata endpoints if you're on a
-cloud VM — is already in scope through those tools. `web_fetch`/`web_search`
-deliberately have no additional host/IP restriction on top of that: a guard
-there alone wouldn't meaningfully reduce risk while `run_shell` remains
-unrestricted, so this is a conscious choice, not an oversight. If that trust
-boundary ever needs to shrink (e.g. a future sandboxed mode), it has to shrink
-for `run_shell`/`run_process` first — restricting `web_fetch` on its own
-wouldn't accomplish anything.
+cloud VM — is already in scope through those tools, and that isn't changing.
+
+`web_fetch` is a narrower case than `run_shell`, though: its target URL is
+often not something the user typed directly — it can come from `web_search`
+results or a previously-fetched page, so the model can be steered into
+fetching an internal address without the user ever intending it. Unlike
+`run_shell` (which requires the model to construct a command the user
+implicitly accepts as full shell access each session), this is cheap to guard
+against without materially changing dcode's trust model, so `web_fetch`
+resolves the target host and rejects loopback/RFC1918/link-local/cloud-
+metadata addresses before connecting (`tools/local/web.ts`'s `assertPublicHost`),
+re-validating on every redirect hop. This is a resolve-then-check guard, not
+connection-level pinning — a host whose DNS record changes between the check
+and the actual request (DNS rebinding) could still slip through — but it
+blocks the common cases (a literal internal/metadata IP, `localhost`, a
+redirect into one) for near-zero cost. `run_shell`/`run_process` remain
+intentionally unrestricted; if that boundary ever needs to shrink, it has to
+shrink there, not in `web_fetch`.
 
 ## Phase workflow
 

@@ -1,4 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// web_fetch resolves hostnames via node:dns/promises before connecting (SSRF
+// guard). Mock it so tests stay deterministic/offline by default — real DNS
+// lookups have no place in a unit test — while still letting individual
+// tests override the resolved address to exercise the guard itself.
+const lookupMock = vi.hoisted(() =>
+  vi.fn(async (_hostname: string, _opts?: unknown) => [
+    { address: '93.184.216.34', family: 4 },
+  ]),
+)
+vi.mock('node:dns/promises', () => ({
+  lookup: lookupMock,
+}))
+
 import {
   webTools,
   webFetchTool,
@@ -63,6 +77,7 @@ function mockFetch(body: unknown, ok = true, status = 200): void {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  lookupMock.mockClear()
 })
 
 describe('web_search', () => {
@@ -237,5 +252,109 @@ describe('web_fetch', () => {
     await expect(
       fetchTool.execute({ url: 'https://example.com' }, ctx),
     ).rejects.toThrow('web fetch request failed: ECONNREFUSED')
+  })
+
+  describe('SSRF guard', () => {
+    it('rejects a literal loopback address without a DNS lookup', async () => {
+      const fetchSpy = vi.fn()
+      vi.stubGlobal('fetch', fetchSpy)
+      await expect(
+        fetchTool.execute({ url: 'http://127.0.0.1/admin' }, ctx),
+      ).rejects.toThrow(/private\/internal address/)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(lookupMock).not.toHaveBeenCalled()
+    })
+
+    it('rejects the cloud metadata address', async () => {
+      const fetchSpy = vi.fn()
+      vi.stubGlobal('fetch', fetchSpy)
+      await expect(
+        fetchTool.execute(
+          { url: 'http://169.254.169.254/latest/meta-data/' },
+          ctx,
+        ),
+      ).rejects.toThrow(/private\/internal address/)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('rejects a hostname that resolves to a private address', async () => {
+      lookupMock.mockResolvedValueOnce([{ address: '10.0.0.5', family: 4 }])
+      const fetchSpy = vi.fn()
+      vi.stubGlobal('fetch', fetchSpy)
+      await expect(
+        fetchTool.execute({ url: 'https://internal.example' }, ctx),
+      ).rejects.toThrow(/private\/internal address/)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    })
+
+    it('re-validates redirect targets and rejects a redirect into a private address', async () => {
+      const fetchSpy = vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 302,
+            headers: {
+              get: (k: string) =>
+                k.toLowerCase() === 'location'
+                  ? 'http://127.0.0.1/secret'
+                  : null,
+            },
+            text: async () => '',
+          }) as unknown as Response,
+      )
+      vi.stubGlobal('fetch', fetchSpy)
+      await expect(
+        fetchTool.execute({ url: 'https://example.com/redirect' }, ctx),
+      ).rejects.toThrow(/private\/internal address/)
+      // The second (private) hop is never actually requested.
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('always passes an AbortSignal to fetch, even without ctx.signal', async () => {
+      const fetchSpy = vi.fn(
+        async (_url: string | URL, _init?: RequestInit) =>
+          ({
+            ok: true,
+            status: 200,
+            headers: { get: () => 'text/plain' },
+            text: async () => 'ok',
+          }) as unknown as Response,
+      )
+      vi.stubGlobal('fetch', fetchSpy)
+      await fetchTool.execute({ url: 'https://example.com' }, ctx)
+      expect(fetchSpy.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+    })
+  })
+
+  it('truncates a response body larger than the buffer cap', async () => {
+    const bigLength = 6 * 1024 * 1024 // > the 5 MiB web_fetch buffer cap
+    const bytes = new TextEncoder().encode('a'.repeat(bigLength))
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const chunkSize = 1024 * 1024
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          controller.enqueue(bytes.subarray(i, i + chunkSize))
+        }
+        controller.close()
+      },
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            headers: {
+              get: (k: string) =>
+                k.toLowerCase() === 'content-type' ? 'text/plain' : null,
+            },
+            body: stream,
+          }) as unknown as Response,
+      ),
+    )
+    const out = await fetchTool.execute({ url: 'https://example.com/big' }, ctx)
+    expect(out.length).toBeLessThan(bigLength)
+    expect(out).toContain('truncated')
   })
 })

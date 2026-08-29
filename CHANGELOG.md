@@ -130,17 +130,38 @@
   so tying it to any single turn's controller was never the right lifecycle
   — it only stops via `kill_process` or when dcode itself exits, and the
   description now says so accurately.
+- `web_fetch` had no restriction on the target host, no real request timeout,
+  and no cap on how much of a response it would buffer. Its URL is often not
+  something the user typed directly — it can come from `web_search` results
+  or a previously-fetched page — so the model could be steered into fetching
+  `http://169.254.169.254/...` (cloud metadata) or another internal address,
+  and a redirect from an otherwise-safe URL could land on one too. The `ctx.
+  signal` passed to `fetch()` only fires on user Ctrl-C; `runTool`'s own
+  timeout just abandons the promise without cancelling the underlying socket,
+  so a slow/hung response kept running (and could keep buffering into
+  memory, unbounded) well after the tool reported "timed out". Fixed all
+  three: `web_fetch` now resolves the target host (and every redirect hop,
+  followed manually rather than automatically) and rejects loopback/
+  RFC1918/link-local/cloud-metadata addresses before connecting; the fetch's
+  signal is now `AbortSignal.any([ctx.signal, AbortSignal.timeout(ctx.config.
+  toolTimeout)])`, so a timeout actually cancels the request; and the
+  response body is read as a capped stream (5 MiB) instead of `res.text()`,
+  so an oversized response is cut off rather than fully buffered first. The
+  host guard is a resolve-then-check, not connection-level pinning — a DNS
+  record that changes between the check and the real connection (DNS
+  rebinding) could still slip through — documented as an accepted residual
+  gap rather than a closed one.
 
 ### Docs
-- `AGENTS.md` gained a "Security model" section documenting the accepted
-  trust boundary: dcode grants the model real shell access on the user's
-  machine by design, so `web_fetch`/`web_search` deliberately carry no
-  additional host/IP restriction on top of that — restricting them alone
-  wouldn't reduce risk while `run_shell` remains unrestricted. Also documents
-  why `grep`/`glob` spawn `rgPath` directly instead of going through
-  `exec.ts`'s `runExec` (ripgrep's exit-code convention doesn't fit
-  `runExec`'s throw-on-nonzero contract), so it isn't "fixed" into
-  inconsistency by a future contributor.
+- `AGENTS.md`'s "Security model" section (added above, then revised once
+  `web_fetch` gained its own guard) documents the trust boundary: dcode
+  grants the model real shell access on the user's machine by design
+  (`run_shell`/`run_process`, unrestricted, intentionally), while `web_fetch`
+  gets a private-address guard because its target is often not something the
+  user typed directly. Also documents why `grep`/`glob` spawn `rgPath`
+  directly instead of going through `exec.ts`'s `runExec` (ripgrep's
+  exit-code convention doesn't fit `runExec`'s throw-on-nonzero contract), so
+  it isn't "fixed" into inconsistency by a future contributor.
 
 ### Changed
 - `grep` and `glob` are now both backed by ripgrep (via `@vscode/ripgrep`, a
