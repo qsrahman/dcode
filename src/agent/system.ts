@@ -31,6 +31,7 @@ You have tools to inspect and modify the working directory; their names, descrip
 
 ## Style
 - Use web_search to find information and web_fetch to read a specific URL; both help with recent or time-sensitive information. Use the current date when recency matters.
+- Write math in Unicode (∑ ∫ √ π α β θ ± × ÷ ≤ ≥ ≈ ∈ ∞, x² x₁, a/b for fractions), never LaTeX — this terminal doesn't render \`$...$\`, \`\\frac{}{}\`, or other LaTeX/KaTeX syntax; it shows literal backslashes and dollar signs instead.
 - Be concise and direct.`
 
 export function buildSystemPrompt(config: Config): string {

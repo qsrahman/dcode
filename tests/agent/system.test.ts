@@ -53,4 +53,11 @@ describe('buildSystemPrompt', () => {
     expect(prompt).not.toContain('read-only')
     expect(prompt).not.toContain('cannot modify files')
   })
+
+  // The terminal can't render LaTeX/KaTeX ($...$, \frac{}{}), so the model
+  // is told to write math in Unicode instead.
+  it('tells the model to write math in Unicode, not LaTeX', () => {
+    expect(prompt).toContain('Unicode')
+    expect(prompt).toContain('LaTeX')
+  })
 })

@@ -42,6 +42,17 @@
   separator line is always the empty string, so this can't collide with
   intentional spacing (verified against loose lists and multi-paragraph
   text).
+- System prompt now tells the model to write math in Unicode (∑ ∫ √ π α β
+  ± × ÷ ≤ ≥ ≈ ∈ ∞, x², a/b for fractions) instead of LaTeX. There's no way
+  to typeset LaTeX in a terminal — no graphics protocol dcode can rely on
+  cross-platform, and CommonMark (what `marked` parses) has no native math
+  syntax to even detect `$...$`/`\frac{}{}` before deciding what to do with
+  it — so raw LaTeX just showed up as literal backslashes and dollar signs.
+  This is the same workaround the wider terminal-agent ecosystem has
+  converged on (e.g. the `claude-math` plugin for Claude Code/Codex CLI);
+  Claude Code itself still has this as an open, unresolved issue. Verified
+  live: asking for the quadratic formula now renders `x = (-b ± √(b² -
+  4ac)) / (2a)` instead of LaTeX commands.
 
 ### Fixed
 - `runAgent` reconstructed the next turn's input by hand — a synthesized
