@@ -1,5 +1,26 @@
 ## [Unreleased]
 
+### Added
+- Assistant output is now rendered as styled markdown in the terminal
+  (headings, bold/italic, lists, syntax-highlighted code blocks) instead of
+  raw text with literal `**`/`#`/backtick characters — via `marked` +
+  `marked-terminal` (the same library OpenAI's own Codex CLI uses). New
+  `src/ui/markdown.ts`: `renderMarkdown()` for a complete string, and
+  `MarkdownStreamRenderer` for live streaming — it buffers deltas and only
+  emits fully-formed lines once their block boundary is unambiguous (a
+  blank line for prose, a closing fence for code), so a partial `**` or an
+  unclosed code fence is never shown broken mid-stream. This mirrors the
+  "newline-gated" pattern Codex CLI's Rust TUI converged on (their own PR:
+  *"We wait until we have an entire newline, then format it with markdown
+  and stream in to the UI"*), scoped down to prose/list gating plus
+  fence-holdback — not their full table-holdback/reference-link handling.
+  `runTurn` (`src/agent/run.ts`) is the only integration point; nothing else
+  in the agent loop changes (`response.output_text` is still the SDK's own
+  aggregated text used for history/return). `marked-terminal` ships no
+  TypeScript types and `@types/marked-terminal` on npm is stale/mismatched
+  (6.1.1, `marked >=6 <12`), so a small local ambient declaration
+  (`src/types/marked-terminal.d.ts`) covers just what dcode calls instead.
+
 ### Fixed
 - `runAgent` reconstructed the next turn's input by hand — a synthesized
   assistant-text message plus manually-rebuilt `function_call` items — which

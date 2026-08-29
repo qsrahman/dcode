@@ -77,6 +77,10 @@ dcode                                                # REPL
  and the last whitespace-delimited token is completed as a file path under the
  working directory. In `--verbose` mode, tool-status lines are colorized and any
  diff output (e.g. `git diff`) is shown with colored additions/removals.
+ Assistant responses are rendered as styled markdown while streaming
+ (headings, bold/italic, lists, syntax-highlighted code blocks) — a code
+ block or other block-level construct isn't shown until it's complete, so
+ partial markdown syntax is never visible mid-stream.
 
 ### Tools
 

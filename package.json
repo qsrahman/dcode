@@ -31,6 +31,8 @@
     "@vscode/ripgrep": "^1.18.0",
     "ansis": "^4.3.1",
     "execa": "^10.0.1",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
     "node-html-markdown": "^2.0.0",
     "openai": "^7.4.0",
     "zod": "^4.4.3"

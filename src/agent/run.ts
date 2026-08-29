@@ -9,6 +9,7 @@ import type {
   ToolResult,
 } from './types.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
+import { MarkdownStreamRenderer } from '../ui/markdown.ts'
 
 export interface RunSink {
   write(text: string): void
@@ -36,8 +37,11 @@ export interface TurnOpts {
 // `sink`; the model request is cancellable via `opts.signal`, which is passed
 // straight into the SDK's own request-level abort support (decision L).
 // Returns the SDK's own aggregated text (Response.output_text) plus the full
-// response (for tool calls) — the delta loop below exists only to render output
-// live, not to reconstruct the final text.
+// response (for tool calls) — `response.output_text` is the SDK's own
+// aggregated text, not reconstructed from the deltas. Deltas are rendered as
+// markdown live via MarkdownStreamRenderer, which only emits block-complete
+// lines (see ui/markdown.ts) so a client never sees broken mid-render
+// markdown (an unclosed `**`, a code fence rendered before it closes).
 export async function runTurn(
   client: Client,
   config: Config,
@@ -52,11 +56,14 @@ export async function runTurn(
     instructions: opts.instructions,
     signal: opts.signal,
   })
+  const md = new MarkdownStreamRenderer()
   for await (const delta of stream) {
-    sink.write(delta)
+    const out = md.push(delta)
+    if (out) sink.write(out)
   }
   const response = await stream.finalResponse()
-  if (response.output_text) sink.write('\n')
+  const tail = md.finalize()
+  if (tail) sink.write(tail)
   return { text: response.output_text, response }
 }
 

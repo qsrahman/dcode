@@ -53,10 +53,15 @@ AGENTS.md's phase workflow).
 ## Architecture
 
 `agent/run.ts` holds the low-level per-turn/per-tool primitives: `runTurn`
-streams deltas from the OpenAI Responses client to a `sink` for live
-rendering, then returns the SDK's own aggregated text (`Response.output_text`
-from `stream.finalResponse()`) plus the full response (so callers can inspect
-tool calls) — it does not reconstruct text from the deltas itself. `runTool`
+streams deltas from the OpenAI Responses client through a
+`MarkdownStreamRenderer` (`ui/markdown.ts`) to a `sink` for live, styled
+rendering — the renderer buffers deltas and only emits fully-formed lines
+once their block boundary is safe (a blank line for prose, a closing fence
+for code), so partial markdown syntax is never shown broken mid-stream —
+then returns the SDK's own aggregated text (`Response.output_text` from
+`stream.finalResponse()`) plus the full response (so callers can inspect
+tool calls) — it does not reconstruct text from the deltas itself; only what's
+*displayed* goes through the renderer. `runTool`
 executes a single tool call with a timeout and output truncation. Turn
 cancellation is native, not hand-rolled: `runTurn` passes `opts.signal`
 straight into `client.stream()`'s request options, which the SDK's own

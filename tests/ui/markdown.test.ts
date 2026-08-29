@@ -1,0 +1,99 @@
+import { describe, expect, it } from 'vitest'
+import ansis from 'ansis'
+import {
+  renderMarkdown,
+  MarkdownStreamRenderer,
+} from '../../src/ui/markdown.ts'
+
+describe('renderMarkdown', () => {
+  it('strips markdown syntax from bold text (marked-terminal keeps a leading # on headings as a plain-text hierarchy cue)', () => {
+    const out = ansis.strip(renderMarkdown('# Title\n\nSome **bold** text.\n'))
+    expect(out).toContain('Title')
+    expect(out).toContain('bold')
+    expect(out).not.toContain('**')
+  })
+})
+
+describe('MarkdownStreamRenderer', () => {
+  it('round-trips plain, unformatted text delivered in small chunks', () => {
+    const md = new MarkdownStreamRenderer()
+    const text = 'hello there, this is plain text with no markdown.'
+    let out = ''
+    for (let i = 0; i < text.length; i += 3) {
+      out += md.push(text.slice(i, i + 3))
+    }
+    out += md.finalize()
+    expect(ansis.strip(out).trim()).toBe(text)
+  })
+
+  // The core streaming guarantee: a fenced code block must never be rendered
+  // (even partially) before its closing fence arrives, since intermediate
+  // renders of an unclosed fence would be visually broken.
+  it('holds back a fenced code block until it closes', () => {
+    const md = new MarkdownStreamRenderer()
+    const before = 'Here is some code:\n\n'
+    const fenceOpen = '```js\n'
+    const codeLines = 'const x = 1;\nconsole.log(x);\n'
+    const fenceClose = '```\n\n'
+    const after = 'That was the code.\n\n'
+
+    let committed = ''
+    // Feed everything up to (but not including) the closing fence, one
+    // character at a time — the code block's content must never surface.
+    const upToClose = before + fenceOpen + codeLines
+    for (const ch of upToClose) {
+      committed += md.push(ch)
+    }
+    const strippedSoFar = ansis.strip(committed)
+    expect(strippedSoFar).toContain('Here is some code')
+    expect(strippedSoFar).not.toContain('const x')
+    expect(strippedSoFar).not.toContain('console.log')
+
+    // Closing the fence (plus the following blank line that ends the block)
+    // should now release the code block's content.
+    committed += md.push(fenceClose)
+    committed += md.push(after)
+    committed += md.finalize()
+    const full = ansis.strip(committed)
+    expect(full).toContain('const x')
+    expect(full).toContain('console.log')
+    expect(full).toContain('That was the code')
+  })
+
+  it('finalize flushes a trailing paragraph with no closing blank line', () => {
+    const md = new MarkdownStreamRenderer()
+    let out = md.push('An unterminated paragraph with no trailing blank line')
+    expect(out).toBe('')
+    out += md.finalize()
+    expect(ansis.strip(out)).toContain(
+      'An unterminated paragraph with no trailing blank line',
+    )
+  })
+
+  it('never emits the same line twice across multiple push calls', () => {
+    const md = new MarkdownStreamRenderer()
+    const parts = [
+      'First paragraph.\n\n',
+      'Second paragraph.\n\n',
+      'Third paragraph.\n\n',
+    ]
+    let out = ''
+    for (const p of parts) out += md.push(p)
+    out += md.finalize()
+    const plain = ansis.strip(out)
+    expect(plain.match(/First paragraph\./g)).toHaveLength(1)
+    expect(plain.match(/Second paragraph\./g)).toHaveLength(1)
+    expect(plain.match(/Third paragraph\./g)).toHaveLength(1)
+  })
+
+  it('reuses the instance cleanly across turns after finalize', () => {
+    const md = new MarkdownStreamRenderer()
+    md.push('First turn text.\n\n')
+    md.finalize()
+    let out = md.push('Second turn text.\n\n')
+    out += md.finalize()
+    const plain = ansis.strip(out)
+    expect(plain).toContain('Second turn text')
+    expect(plain).not.toContain('First turn text')
+  })
+})

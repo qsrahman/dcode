@@ -87,8 +87,28 @@ src/
     todo.ts           #   todo (single tool over TaskStore: add/list/update/done)
     web.ts            #   web_search (Brave; key from ctx.config.brave only), web_fetch
   tools/mcp/manager.ts  # connect servers, cache tools, callTool (P6, not yet built)
+  ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
+  types/marked-terminal.d.ts # local ambient types (marked-terminal ships none; @types/marked-terminal on npm is stale/mismatched)
   util/log.ts           # diagnostics -> stderr (never console.log)
 ```
+
+### Markdown rendering
+
+Model output is markdown; `runTurn` (`agent/run.ts`) pipes streamed deltas
+through `ui/markdown.ts`'s `MarkdownStreamRenderer` before writing to the
+sink, instead of writing raw deltas. The renderer buffers text and only
+renders+emits a block once its boundary is unambiguous — a blank line for
+prose/headings/lists, a closing ` ``` ` for code fences — so a client never
+sees a partial `**` or a code block rendered before it closes. This is a
+scaled-down version of the "newline-gated" pattern both Codex CLI's Rust TUI
+and independent streaming-markdown libraries converge on; unlike Codex,
+dcode doesn't hold back tables or handle retroactive reference-link
+resolution. Rendering itself is `marked` + `marked-terminal` (same library
+OpenAI's own Codex CLI TypeScript implementation uses) — color/no-color
+follows `marked-terminal`/`chalk`'s own TTY/`NO_COLOR` auto-detection, same
+as `ansis` elsewhere in the codebase; `--no-color` isn't separately wired
+into it (matching the existing precedent that `--no-color` only forces the
+logger today).
 
 ### Agent loop
 
