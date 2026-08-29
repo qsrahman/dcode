@@ -356,6 +356,40 @@
   already final either way. Reworded to describe the actual mechanism
   instead of implying a second, dedicated one exists.
 
+### Performance
+- `agent/context/manager.ts`'s `onOverflow` went straight to compaction — a
+  full, paid extra model call — on every context-window overflow, even when
+  a free, local prune would have recovered enough space on its own. This
+  mattered most right after `beforeTurn` had already compacted the same
+  turn proactively (crossing the soft threshold) only for the request to
+  still overflow the hard limit: that's a second paid compaction call
+  back-to-back, immediately after the first. `onOverflow` now tries
+  `pruneHistory` first, same as `beforeTurn` already does, only falling
+  back to compaction if pruning didn't change anything. A successful prune
+  doesn't count toward the circuit breaker (it's real progress, not a
+  failed recovery attempt) — only a compaction attempt does, same as
+  before. New test confirms a prunable overflow recovers with zero
+  compaction calls.
+
+  Two other performance points from the same review pass were evaluated and
+  not changed:
+  - `web.ts`'s unbounded `res.text()` was already fixed in an earlier commit
+    this session (`readBounded`, a capped stream read).
+  - `manager.ts` computing `predict()`/`estimateHistory` a few times per
+    turn (proactive check, post-prune re-check, the loop's debug log, and
+    `observe()`) is real but not worth caching: `estimateHistory` is a
+    cheap linear scan over string lengths — microseconds even repeated
+    several times — against a per-turn cost dominated by network latency to
+    the model (hundreds of milliseconds to seconds). The one call that's
+    genuinely redundant (the loop's debug-log call, recomputing what
+    `beforeTurn` already computed one line earlier) could only be removed
+    by changing `beforeTurn`'s public return shape, which every existing
+    test asserts against directly — not a good trade for a microseconds-
+    level saving.
+  - `process.ts`'s background-process output buffer (`onData` append +
+    slice once over `PROC_MAX_OUTPUT`) is bounded at 64 KiB and was already
+    flagged as acceptable at that size in the same review.
+
 ### Dead Code
 - `tools/local/paths.ts`'s `fsError` was exported but never imported
   anywhere outside the module itself (only `withFsError`, in the same file,

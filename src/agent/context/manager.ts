@@ -107,15 +107,30 @@ export class ContextManager {
   }
 
   // Called when a request failed because the context window was exceeded.
-  // Compacts (if the breaker allows) and returns true so the loop retries the
-  // request once; returns false when recovery is exhausted — including when
-  // compaction was a no-op, since retrying would just overflow identically.
+  // Recovers (if the breaker allows) and returns true so the loop retries
+  // the request once; returns false when recovery is exhausted — including
+  // when neither pruning nor compaction changed anything, since retrying
+  // would just overflow identically.
+  //
+  // Tries pruning before compacting, same as beforeTurn does — this matters
+  // most right here: beforeTurn may have *already* compacted this exact
+  // turn proactively (crossing the soft threshold) only for the request to
+  // still overflow the hard limit (a miscalibrated estimate, or simply not
+  // enough headroom). A second compaction back-to-back is a full extra paid
+  // model call; pruning is free and local, and often recovers enough space
+  // on its own without needing one. A successful prune doesn't count toward
+  // the circuit breaker (it's real progress, not a failed recovery
+  // attempt) — only a compaction attempt does, same as before.
   async onOverflow(
     client: Client,
     config: Config,
     history: ResponseInput,
   ): Promise<boolean> {
     if (this.failures >= CIRCUIT_BREAKER) return false
+    if (this.cfg.prune && pruneHistory(history) > 0) {
+      this.logger.debug('context: pruned old tool outputs (after overflow)')
+      return true
+    }
     if (!(await this.compact(client, config, history))) return false
     this.failures++
     return true
