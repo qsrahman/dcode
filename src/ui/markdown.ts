@@ -27,11 +27,31 @@ marked.use({
   },
 })
 
+// Second known marked-terminal bug (github.com/mikaelbr/marked-terminal
+// issue #376): `fixNestedLists()` matches indentation boundaries with a
+// `\S` (non-whitespace) regex, which also matches the trailing `m` of an
+// ANSI reset code (`\x1b[0m`) as if it were real content — inserting a
+// spurious blank line between nested list items whenever their text carries
+// any styling. Only became reachable once the `text` fix above made list
+// items render inline styling at all. Not overridable via the extension
+// system (`fixNestedLists` is an internal helper, not a renderer method),
+// so this strips the resulting artifact post-render instead: a line that
+// is non-empty but contains nothing except whitespace and ANSI escapes. A
+// genuine blank separator line from marked-terminal is always the empty
+// string, so this can't collide with intentional spacing.
+const ANSI_RE = /\x1b\[[0-9;]*m/g
+export function stripSpuriousAnsiOnlyLines(rendered: string): string {
+  return rendered
+    .split('\n')
+    .filter((line) => line === '' || line.replace(ANSI_RE, '').trim() !== '')
+    .join('\n')
+}
+
 // Render a complete markdown string to ANSI-styled text. marked-terminal's
 // renderer is synchronous (no async extensions are registered), so this
 // never returns a Promise.
 export function renderMarkdown(text: string): string {
-  return marked.parse(text, { async: false })
+  return stripSpuriousAnsiOnlyLines(marked.parse(text, { async: false }))
 }
 
 function countFences(s: string): number {

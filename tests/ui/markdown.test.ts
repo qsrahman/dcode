@@ -3,6 +3,7 @@ import ansis from 'ansis'
 import {
   renderMarkdown,
   MarkdownStreamRenderer,
+  stripSpuriousAnsiOnlyLines,
 } from '../../src/ui/markdown.ts'
 
 describe('renderMarkdown', () => {
@@ -32,6 +33,38 @@ describe('renderMarkdown', () => {
     const out = ansis.strip(renderMarkdown('> A quote with **bold** text.\n'))
     expect(out).toContain('bold')
     expect(out).not.toContain('**')
+  })
+})
+
+// Regression: marked-terminal@7.3.0's fixNestedLists() matches indentation
+// boundaries with a `\S` (non-whitespace) regex, which also matches the
+// trailing `m` of an ANSI reset code (`\x1b[0m`) — inserting a spurious
+// blank line between nested list items whenever their text carries any
+// styling (github.com/mikaelbr/marked-terminal issue #376). Tested directly
+// against the helper (not through a real colorized render) since chalk's
+// color-support detection is decided once at import time and won't respond
+// to forcing color from within a test.
+describe('stripSpuriousAnsiOnlyLines', () => {
+  const ESC = '\x1b'
+
+  it('removes a line containing only whitespace and ANSI escapes', () => {
+    const input = `line one\n  ${ESC}[0m\nline two`
+    const out = stripSpuriousAnsiOnlyLines(input)
+    expect(out.split('\n')).not.toContain(`  ${ESC}[0m`)
+    expect(out).toContain('line one')
+    expect(out).toContain('line two')
+  })
+
+  it('preserves genuine blank lines (the empty string)', () => {
+    const input = `line one\n\nline two`
+    const out = stripSpuriousAnsiOnlyLines(input)
+    expect(out.split('\n')).toContain('')
+    expect(out).toBe(input)
+  })
+
+  it('keeps a line that has visible content alongside ANSI codes', () => {
+    const input = `${ESC}[1mbold${ESC}[22m text`
+    expect(stripSpuriousAnsiOnlyLines(input)).toBe(input)
   })
 })
 

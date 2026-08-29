@@ -28,7 +28,20 @@
   literally (confirmed directly against the library's source). Fixed with a
   `marked.use({renderer: {text}})` override in `ui/markdown.ts` — the same
   kind of fix Codex CLI carries as a package patch for other issues in the
-  same renderer.
+  same renderer. A second, related `marked-terminal` bug (upstream issue
+  [#376](https://github.com/mikaelbr/marked-terminal/issues/376)) only
+  became reachable once list items could carry styling at all: its
+  `fixNestedLists()` helper matches indentation boundaries with a `\S`
+  (non-whitespace) regex, which also matches the trailing `m` of an ANSI
+  reset code (`\x1b[0m`) as if it were real content, inserting a spurious
+  blank line between nested list items whenever their text is styled. Not
+  overridable via the extension system (`fixNestedLists` is an internal
+  helper, not a renderer method), so `renderMarkdown()` strips the
+  resulting artifact post-render instead — a line that's non-empty but
+  contains nothing but whitespace and ANSI escapes; a genuine blank
+  separator line is always the empty string, so this can't collide with
+  intentional spacing (verified against loose lists and multi-paragraph
+  text).
 
 ### Fixed
 - `runAgent` reconstructed the next turn's input by hand — a synthesized
