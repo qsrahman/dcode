@@ -264,6 +264,26 @@
   its one caller always filled with the same module-level `COMMANDS`
   singleton — now closes over it directly instead.
 
+### Dead Code
+- `tools/local/paths.ts`'s `fsError` was exported but never imported
+  anywhere outside the module itself (only `withFsError`, in the same file,
+  calls it) — dropped from the export list.
+- `cli/commands.ts`'s `createCommands()`/`COMMANDS` split (the factory is
+  exported for test-only isolated registries; production always resolves
+  against the one module-level `COMMANDS` singleton via `dispatch`) is kept
+  as-is, not consolidated — it's intentional, not an oversight: there's
+  currently no notion of a per-session command set to inject, so there's
+  nothing for `dispatch` to take a registry parameter for yet. Documented
+  with a comment instead of restructured, since introducing that parameter
+  now would be unused surface area for a feature nothing asks for.
+- `agent/context/tokens.ts`'s `estimateTokens` stays exported, despite being
+  used internally only by `estimateItem` today: it has its own direct,
+  boundary-focused unit tests (empty string, exactly-4-chars, exactly-5-
+  chars) that only work with it exported, and un-exporting it would just
+  move that same coverage behind `estimateItem`/`estimateHistory` — losing
+  directness for no reduction in actual surface area, since the function
+  isn't going anywhere either way.
+
 ### Changed
 - `grep` and `glob` are now both backed by ripgrep (via `@vscode/ripgrep`, a
   bundled platform binary — no separate install required) instead of a

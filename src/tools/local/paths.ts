@@ -77,4 +77,4 @@ async function ensureParentDir(path: string, errPath: string): Promise<void> {
   await withFsError(errPath, () => mkdir(dirname(path), { recursive: true }))
 }
 
-export { resolvePath, fsError, withFsError, ensureParentDir }
+export { resolvePath, withFsError, ensureParentDir }

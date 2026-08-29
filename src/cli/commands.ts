@@ -354,6 +354,15 @@ export function createCommands(): CommandRegistry {
   return r
 }
 
+// `createCommands()` is exported so tests can build their own isolated
+// registry (no shared mutable Map across test files) and inspect it
+// directly via .get()/.list()/.names(). Production only ever uses this one
+// instance, though: `dispatch`/`buildHelp`/`SLASH_COMMANDS` below all
+// resolve against the module-level COMMANDS singleton, not whatever
+// registry a caller happens to hold — there's currently no notion of a
+// per-session command set, so there's nothing to inject. If that ever
+// changes (e.g. per-session custom commands), `dispatch` would need a
+// registry parameter instead of closing over COMMANDS.
 const COMMANDS = createCommands()
 export const SLASH_COMMANDS = COMMANDS.names()
 
