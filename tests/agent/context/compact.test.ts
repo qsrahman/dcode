@@ -68,14 +68,15 @@ describe('compactHistory', () => {
     )
     // summary message + recent tail (the system prompt lives in `instructions`,
     // not in history)
+    expect(out).not.toBeNull()
     expect(out).toHaveLength(2)
-    expect((out[0] as { role: string }).role).toBe('user')
-    expect((out[0] as { content: string }).content).toBe('SUMMARY')
+    expect((out![0] as { role: string }).role).toBe('user')
+    expect((out![0] as { content: string }).content).toBe('SUMMARY')
     // most recent user message retained verbatim
-    expect((out[1] as { content: string }).content).toBe('second request')
+    expect((out![1] as { content: string }).content).toBe('second request')
   })
 
-  it('returns the history unchanged when there is nothing to summarize', async () => {
+  it('returns null when there is nothing to summarize', async () => {
     const config = cfg({
       context: {
         auto: true,
@@ -93,7 +94,7 @@ describe('compactHistory', () => {
       history,
       createLogger(config),
     )
-    expect(out).toBe(history)
+    expect(out).toBeNull()
   })
 
   it('appends the authoritative task list to the summary instruction', async () => {

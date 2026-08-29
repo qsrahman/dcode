@@ -104,10 +104,16 @@
 - `ContextManager`'s compaction-failure counter (the one backing the 3-strike
   circuit breaker) incremented on every call to the shared private `compact`,
   including a manual `/compact` and a no-op auto-compaction. Three manual
-  `/compact` invocations could silently trip the breaker and disable
-  automatic context management for the rest of the session, for reasons
-  unrelated to any real overflow. The counter is now only incremented on the
-  automatic paths (`beforeTurn`/`onOverflow`); `manual()` no longer touches it.
+  `/compact` invocations, or three proactive compactions that each found
+  nothing to summarize (the whole history already fit within `keepTokens`),
+  could silently trip the breaker and disable automatic context management
+  for the rest of the session — for reasons unrelated to any real overflow —
+  while `beforeTurn` still logged a false `context: compacted`. Fixed in two
+  parts: `manual()` no longer touches the counter at all (a user-initiated
+  `/compact` was never a failure signal), and `compactHistory` now returns
+  `null` instead of `history` unchanged when there's nothing to summarize, so
+  `beforeTurn`/`onOverflow` can tell a genuine no-op from a real compaction
+  and skip both the counter and the `'compacted'` action/retry signal for it.
 
 ### Docs
 - `AGENTS.md` gained a "Security model" section documenting the accepted

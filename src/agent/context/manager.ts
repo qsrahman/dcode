@@ -58,11 +58,16 @@ export class ContextManager {
     return Math.round(estimateHistory(history) * this.ratio)
   }
 
+  // Returns whether a compaction actually happened. `compactHistory` returns
+  // `null` when there was nothing to summarize (the whole history already
+  // fits within `keepTokens`) — callers use this to distinguish real
+  // recovery progress from a no-op, e.g. so a no-op doesn't count against the
+  // circuit breaker or get logged as `context: compacted`.
   private async compact(
     client: Client,
     config: Config,
     history: ResponseInput,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const next = await compactHistory(
       client,
       config,
@@ -70,9 +75,9 @@ export class ContextManager {
       this.logger,
       this.tasks?.list(),
     )
-    // Replace in place via splice (not `length = 0` + `push`) so a no-op
-    // compaction that returns `history` itself can't alias and wipe it.
+    if (next === null) return false
     history.splice(0, history.length, ...next)
+    return true
   }
 
   // Called before each model request. Returns what (if anything) it did so the
@@ -96,21 +101,22 @@ export class ContextManager {
       this.logger.debug('context: pruned old tool outputs')
       if (this.predict(history) < soft) return 'pruned'
     }
-    await this.compact(client, config, history)
+    if (!(await this.compact(client, config, history))) return 'none'
     this.failures++
     return 'compacted'
   }
 
   // Called when a request failed because the context window was exceeded.
   // Compacts (if the breaker allows) and returns true so the loop retries the
-  // request once; returns false when recovery is exhausted.
+  // request once; returns false when recovery is exhausted — including when
+  // compaction was a no-op, since retrying would just overflow identically.
   async onOverflow(
     client: Client,
     config: Config,
     history: ResponseInput,
   ): Promise<boolean> {
     if (this.failures >= CIRCUIT_BREAKER) return false
-    await this.compact(client, config, history)
+    if (!(await this.compact(client, config, history))) return false
     this.failures++
     return true
   }

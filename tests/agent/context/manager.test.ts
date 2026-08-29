@@ -166,6 +166,69 @@ describe('ContextManager', () => {
     expect(await m.beforeTurn(client, config, bigHistory())).toBe('compacted')
   })
 
+  it('beforeTurn reports none, not compacted, when there is nothing to summarize', async () => {
+    // keepTokens covers the whole (small) history, but compactAt is low
+    // enough that predict() still crosses the soft threshold — beforeTurn
+    // attempts compaction, but compactHistory has nothing to summarize.
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 1000,
+        reserved: 0,
+        keepTokens: 500,
+        prune: true,
+        compactAt: 0.01,
+      },
+    }) as Config
+    const { client, calls } = summaryClient('SUMMARY')
+    const m = new ContextManager(config.context, createLogger(config))
+    const action = await m.beforeTurn(client, config, bigHistory())
+    expect(action).toBe('none')
+    expect(calls()).toBe(0) // no wasted summarization call
+  })
+
+  it('a no-op compaction does not count toward the circuit breaker', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 1000,
+        reserved: 0,
+        keepTokens: 500,
+        prune: true,
+        compactAt: 0.01,
+      },
+    }) as Config
+    const { client } = summaryClient('SUMMARY')
+    const m = new ContextManager(config.context, createLogger(config))
+    const actions: string[] = []
+    for (let i = 0; i < 5; i++) {
+      actions.push(await m.beforeTurn(client, config, bigHistory()))
+    }
+    // Every call is a no-op (never 'compacted'), and none of them trip the
+    // breaker — a later real compaction must still be able to proceed.
+    expect(actions).toEqual(['none', 'none', 'none', 'none', 'none'])
+  })
+
+  it('onOverflow returns false, not true, when compaction is a no-op', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 1000,
+        reserved: 0,
+        keepTokens: 500,
+        prune: true,
+        compactAt: 0.01,
+      },
+    }) as Config
+    const { client } = summaryClient('SUMMARY')
+    const m = new ContextManager(config.context, createLogger(config))
+    const history = bigHistory()
+    // Retrying after a no-op compaction would just overflow identically, so
+    // this must not tell the loop to retry.
+    expect(await m.onOverflow(client, config, history)).toBe(false)
+    expect(await m.onOverflow(client, config, history)).toBe(false)
+  })
+
   it('includes the task list in the compaction instruction when a store is set', async () => {
     const config = cfg({
       context: {

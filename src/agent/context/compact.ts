@@ -120,8 +120,11 @@ function formatTasks(tasks: Task[]): string {
 }
 
 // Summarize the oldest part of the conversation into a single message, retaining
-// a recent tail verbatim. Returns the new history (summary + tail). The summary
-// is produced by a separate model call (tools disabled, capped output) and then
+// a recent tail verbatim. Returns the new history (summary + tail), or `null`
+// when there was nothing to summarize (the whole history already fits within
+// `keepTokens`) — callers use `null` to distinguish a genuine no-op from a real
+// compaction, e.g. so it doesn't count as recovery progress. The summary is
+// produced by a separate model call (tools disabled, capped output) and then
 // discarded from the live request — only its text survives. The durable system
 // prompt is carried separately via the Responses API `instructions` field, so it
 // is not part of `history` and is not re-injected here. `tasks`, when supplied,
@@ -132,11 +135,11 @@ export async function compactHistory(
   history: ResponseInput,
   logger: Logger,
   tasks?: Task[],
-): Promise<ResponseInput> {
+): Promise<ResponseInput | null> {
   const keepTokens = config.context.keepTokens
   const { tail, summarized } = takeTail(history, keepTokens)
   const toSummarize = history.slice(0, summarized)
-  if (toSummarize.length === 0) return history
+  if (toSummarize.length === 0) return null
 
   let instruction = `${COMPACTION_INSTRUCTION}\n\n${serializeHistory(toSummarize)}`
   if (tasks && tasks.length > 0) instruction += formatTasks(tasks)
