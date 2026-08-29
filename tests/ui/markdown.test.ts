@@ -12,6 +12,27 @@ describe('renderMarkdown', () => {
     expect(out).toContain('bold')
     expect(out).not.toContain('**')
   })
+
+  // Regression: marked-terminal@7.3.0's `text` renderer returns the raw,
+  // unparsed source string for a block-level text token instead of
+  // rendering its nested inline tokens — and a *tight* list item's content
+  // is represented as exactly this kind of token, so **bold**/*italic*/
+  // `code` inside list items rendered completely literally. Fixed with a
+  // `marked.use({renderer: {text}})` override in ui/markdown.ts.
+  it('renders inline markdown inside list items, not literally', () => {
+    const out = ansis.strip(
+      renderMarkdown('- **one**: first item\n- **two**: second item\n'),
+    )
+    expect(out).toContain('one')
+    expect(out).toContain('two')
+    expect(out).not.toContain('**')
+  })
+
+  it('renders inline markdown inside a blockquote', () => {
+    const out = ansis.strip(renderMarkdown('> A quote with **bold** text.\n'))
+    expect(out).toContain('bold')
+    expect(out).not.toContain('**')
+  })
 })
 
 describe('MarkdownStreamRenderer', () => {

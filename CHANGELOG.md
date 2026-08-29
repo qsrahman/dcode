@@ -20,6 +20,15 @@
   TypeScript types and `@types/marked-terminal` on npm is stale/mismatched
   (6.1.1, `marked >=6 <12`), so a small local ambient declaration
   (`src/types/marked-terminal.d.ts`) covers just what dcode calls instead.
+  Also worked around a real bug in `marked-terminal@7.3.0` itself: its
+  `text` renderer returns the raw, unparsed source string for a block-level
+  text token instead of rendering its nested inline tokens — and a *tight*
+  list item's content is represented as exactly this kind of token, so any
+  `**bold**`/`*italic*`/`` `code` `` inside a list item rendered completely
+  literally (confirmed directly against the library's source). Fixed with a
+  `marked.use({renderer: {text}})` override in `ui/markdown.ts` — the same
+  kind of fix Codex CLI carries as a package patch for other issues in the
+  same renderer.
 
 ### Fixed
 - `runAgent` reconstructed the next turn's input by hand — a synthesized

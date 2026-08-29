@@ -7,6 +7,26 @@ import { markedTerminal } from 'marked-terminal'
 // that same existing precedent rather than adding a second mechanism.
 marked.use(markedTerminal())
 
+// Work around a real marked-terminal bug: its `text` renderer does
+// `text = text.text` for a block-level text token — the raw, unparsed
+// source string — instead of recursively rendering the token's nested
+// inline tokens. A *tight* list item's content is represented as exactly
+// this kind of block-level text token, so any inline markdown inside a
+// list item (**bold**, *italic*, `code`) was rendered completely literally.
+// Confirmed directly against marked-terminal@7.3.0's source
+// (Renderer.prototype.text); registering a later extension here overrides
+// it, same net effect as the patch Codex CLI carries for the same package.
+marked.use({
+  renderer: {
+    text(token) {
+      if ('tokens' in token && token.tokens?.length) {
+        return this.parser.parseInline(token.tokens)
+      }
+      return 'text' in token ? token.text : String(token)
+    },
+  },
+})
+
 // Render a complete markdown string to ANSI-styled text. marked-terminal's
 // renderer is synchronous (no async extensions are registered), so this
 // never returns a Promise.
