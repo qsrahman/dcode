@@ -1,5 +1,4 @@
-import ansis from 'ansis'
-import { format } from 'node:util'
+import { styleText, format } from 'node:util'
 import type { Config } from '../config/schema.ts'
 
 export interface Logger {
@@ -14,17 +13,17 @@ export function errorMessage(err: unknown): string {
 
 type Paint = (s: string) => string
 
-// Build colorizers locally so we never mutate the global `ansis.enabled`
-// (which would leak across tests). When color is off, every paint is identity.
+// Build colorizers locally so we never mutate the global state (which would
+// leak across tests). When color is off, every paint is identity.
 function paintFor(color: boolean): Record<keyof Logger, Paint> {
   if (!color) {
     const id = (s: string) => s
     return { debug: id, warn: id, error: id }
   }
   return {
-    debug: (s) => ansis.dim(s),
-    warn: (s) => ansis.yellow(s),
-    error: (s) => ansis.red(s),
+    debug: (s) => styleText('dim', s),
+    warn: (s) => styleText('yellow', s),
+    error: (s) => styleText('red', s),
   }
 }
 

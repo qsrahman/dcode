@@ -1,6 +1,6 @@
 import { marked } from 'marked'
 import { markedTerminal } from 'marked-terminal'
-import ansis from 'ansis'
+import { stripVTControlCharacters } from 'node:util'
 
 // marked-terminal styles via its own internal `chalk` import, whose color
 // level is decided once at module-load time from chalk's own TTY/env-var
@@ -10,7 +10,7 @@ import ansis from 'ansis'
 // renders each node type, not force plain output across the board), so
 // `--no-color` can't prevent marked-terminal from generating ANSI codes in
 // the first place. Instead, renderMarkdown/MarkdownStreamRenderer take an
-// explicit `color` flag and strip the codes via `ansis.strip()` afterward —
+// explicit `color` flag and strip the codes via `stripVTControlCharacters()` afterward —
 // the same tool the test suite already uses for this exact operation.
 marked.use(markedTerminal())
 
@@ -62,7 +62,7 @@ export function renderMarkdown(text: string, color = true): string {
   const rendered = stripSpuriousAnsiOnlyLines(
     marked.parse(text, { async: false }),
   )
-  return color ? rendered : ansis.strip(rendered)
+  return color ? rendered : stripVTControlCharacters(rendered)
 }
 
 function countFences(s: string): number {

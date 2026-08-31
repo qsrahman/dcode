@@ -8,7 +8,7 @@ import { TaskStore } from '../src/agent/tasks.ts'
 import { ContextManager } from '../src/agent/context/manager.ts'
 import { CapturingSink } from '../src/agent/run.ts'
 import { createLogger, errorMessage } from '../src/util/log.ts'
-import ansis from 'ansis'
+import { stripVTControlCharacters } from 'node:util'
 
 // Live end-to-end stress test. Talks to the real model (configured via the
 // global config, env, or CLI flags) and drives the real agent loop + tools over
@@ -72,7 +72,7 @@ const scenarios: Scenario[] = [
 // line-separated status line. Catches missing/duplicated renders and any
 // regression in the per-tool output spacing.
 function checkUiSpacing(name: string, out: string, toolOutputs: number): void {
-  const clean = ansis.strip(out)
+  const clean = stripVTControlCharacters(out)
   const toolLines = clean.split('\n').filter((l) => l.startsWith('› '))
   if (toolLines.length !== toolOutputs) {
     throw new Error(

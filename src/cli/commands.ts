@@ -1,4 +1,4 @@
-import ansis from 'ansis'
+import { styleText } from 'node:util'
 import type { Config } from '../config/schema.ts'
 import type { Client, ResponseInput } from '../agent/client.ts'
 import type { RunSink } from '../agent/run.ts'
@@ -100,7 +100,7 @@ function buildHelp(): string {
       : ''
     return `  /${c.name.padEnd(width)} ${c.description}${aliasNote}`
   })
-  return ansis.dim(['Commands:', ...lines].join('\n'))
+  return styleText('dim', ['Commands:', ...lines].join('\n'))
 }
 
 export function createCommands(): CommandRegistry {

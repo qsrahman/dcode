@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import ansis from 'ansis'
+import { stripVTControlCharacters } from 'node:util'
 import { runTurn } from '../../src/agent/run.ts'
 import { runOneShot } from '../../src/agent/loop.ts'
 import { createLogger } from '../../src/util/log.ts'
@@ -24,10 +24,10 @@ describe('runOneShot', () => {
       },
     )
     expect(text).toBe('hello world')
-    // The streamed output is rendered as markdown (ansis.strip since plain
+    // The streamed output is rendered as markdown (stripVTControlCharacters since plain
     // text has no styling to apply, but MarkdownStreamRenderer still wraps
     // it in marked-terminal's own reset codes).
-    expect(ansis.strip(sink.join(''))).toBe('hello world\n')
+    expect(stripVTControlCharacters(sink.join(''))).toBe('hello world\n')
   })
 })
 

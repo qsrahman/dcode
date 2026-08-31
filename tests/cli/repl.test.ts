@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import ansis from 'ansis'
+import { stripVTControlCharacters } from 'node:util'
 import * as readline from 'node:readline/promises'
 import {
   existsSync,
@@ -275,7 +275,7 @@ describe('handleLine prompt turn', () => {
     const last = s.history.at(-1) as { type?: string; role?: string }
     expect(last.type).toBe('message')
     expect(last.role).toBe('assistant')
-    expect(ansis.strip(out.join(''))).toBe('\nhi there\n\n')
+    expect(stripVTControlCharacters(out.join(''))).toBe('\nhi there\n\n')
   })
 })
 

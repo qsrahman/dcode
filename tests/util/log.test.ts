@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import ansis from 'ansis'
+import { styleText, stripVTControlCharacters } from 'node:util'
 import { configSchema } from '../../src/config/schema.ts'
 import { createLogger, errorMessage } from '../../src/util/log.ts'
 
@@ -22,7 +22,7 @@ describe('createLogger', () => {
     const log = createLogger(configSchema.parse({ verbose: true }))
     log.debug('hello', 42)
     expect(spy).toHaveBeenCalledTimes(1)
-    expect(ansis.strip(spy.mock.calls[0]![0] as string)).toContain(
+    expect(stripVTControlCharacters(spy.mock.calls[0]![0] as string)).toContain(
       '[debug] hello 42',
     )
   })
@@ -33,10 +33,10 @@ describe('createLogger', () => {
     log.warn('careful')
     log.error('boom')
     expect(spy).toHaveBeenCalledTimes(2)
-    expect(ansis.strip(spy.mock.calls[0]![0] as string)).toContain(
+    expect(stripVTControlCharacters(spy.mock.calls[0]![0] as string)).toContain(
       '[warn] careful',
     )
-    expect(ansis.strip(spy.mock.calls[1]![0] as string)).toContain(
+    expect(stripVTControlCharacters(spy.mock.calls[1]![0] as string)).toContain(
       '[error] boom',
     )
   })
@@ -56,7 +56,9 @@ describe('createLogger', () => {
     const spy = writeSpy()
     const log = createLogger(configSchema.parse({ verbose: true, color: true }))
     log.warn('hi')
-    expect(ansis.strip(spy.mock.calls[0]![0] as string)).toContain('[warn] hi')
+    expect(stripVTControlCharacters(spy.mock.calls[0]![0] as string)).toContain(
+      '[warn] hi',
+    )
   })
 
   // The test above only checks the *stripped* text — it would pass
@@ -69,8 +71,8 @@ describe('createLogger', () => {
     const log = createLogger(configSchema.parse({ verbose: true, color: true }))
     log.warn('hi')
     const out = spy.mock.calls[0]![0] as string
-    expect(out).not.toBe(ansis.strip(out))
-    expect(out).toBe(`${ansis.yellow('[warn]')} hi\n`)
+    expect(out).not.toBe(stripVTControlCharacters(out))
+    expect(out).toBe(`${styleText('yellow', '[warn]')} hi\n`)
   })
 })
 

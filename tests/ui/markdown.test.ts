@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import ansis from 'ansis'
+import { stripVTControlCharacters } from 'node:util'
 import {
   renderMarkdown,
   MarkdownStreamRenderer,
@@ -8,7 +8,9 @@ import {
 
 describe('renderMarkdown', () => {
   it('strips markdown syntax from bold text (marked-terminal keeps a leading # on headings as a plain-text hierarchy cue)', () => {
-    const out = ansis.strip(renderMarkdown('# Title\n\nSome **bold** text.\n'))
+    const out = stripVTControlCharacters(
+      renderMarkdown('# Title\n\nSome **bold** text.\n'),
+    )
     expect(out).toContain('Title')
     expect(out).toContain('bold')
     expect(out).not.toContain('**')
@@ -21,7 +23,7 @@ describe('renderMarkdown', () => {
   // `code` inside list items rendered completely literally. Fixed with a
   // `marked.use({renderer: {text}})` override in ui/markdown.ts.
   it('renders inline markdown inside list items, not literally', () => {
-    const out = ansis.strip(
+    const out = stripVTControlCharacters(
       renderMarkdown('- **one**: first item\n- **two**: second item\n'),
     )
     expect(out).toContain('one')
@@ -30,7 +32,9 @@ describe('renderMarkdown', () => {
   })
 
   it('renders inline markdown inside a blockquote', () => {
-    const out = ansis.strip(renderMarkdown('> A quote with **bold** text.\n'))
+    const out = stripVTControlCharacters(
+      renderMarkdown('> A quote with **bold** text.\n'),
+    )
     expect(out).toContain('bold')
     expect(out).not.toContain('**')
   })
@@ -42,7 +46,7 @@ describe('renderMarkdown', () => {
   // strip every code it produces, not just avoid adding new ones.
   it('emits no ANSI codes at all when color is false', () => {
     const out = renderMarkdown('# Title\n\nSome **bold** text.\n', false)
-    expect(out).toBe(ansis.strip(out))
+    expect(out).toBe(stripVTControlCharacters(out))
     expect(out).toContain('Title')
     expect(out).toContain('bold')
   })
@@ -89,7 +93,7 @@ describe('MarkdownStreamRenderer', () => {
       out += md.push(text.slice(i, i + 3))
     }
     out += md.finalize()
-    expect(ansis.strip(out).trim()).toBe(text)
+    expect(stripVTControlCharacters(out).trim()).toBe(text)
   })
 
   // The core streaming guarantee: a fenced code block must never be rendered
@@ -110,7 +114,7 @@ describe('MarkdownStreamRenderer', () => {
     for (const ch of upToClose) {
       committed += md.push(ch)
     }
-    const strippedSoFar = ansis.strip(committed)
+    const strippedSoFar = stripVTControlCharacters(committed)
     expect(strippedSoFar).toContain('Here is some code')
     expect(strippedSoFar).not.toContain('const x')
     expect(strippedSoFar).not.toContain('console.log')
@@ -120,7 +124,7 @@ describe('MarkdownStreamRenderer', () => {
     committed += md.push(fenceClose)
     committed += md.push(after)
     committed += md.finalize()
-    const full = ansis.strip(committed)
+    const full = stripVTControlCharacters(committed)
     expect(full).toContain('const x')
     expect(full).toContain('console.log')
     expect(full).toContain('That was the code')
@@ -131,7 +135,7 @@ describe('MarkdownStreamRenderer', () => {
     let out = md.push('An unterminated paragraph with no trailing blank line')
     expect(out).toBe('')
     out += md.finalize()
-    expect(ansis.strip(out)).toContain(
+    expect(stripVTControlCharacters(out)).toContain(
       'An unterminated paragraph with no trailing blank line',
     )
   })
@@ -146,7 +150,7 @@ describe('MarkdownStreamRenderer', () => {
     let out = ''
     for (const p of parts) out += md.push(p)
     out += md.finalize()
-    const plain = ansis.strip(out)
+    const plain = stripVTControlCharacters(out)
     expect(plain.match(/First paragraph\./g)).toHaveLength(1)
     expect(plain.match(/Second paragraph\./g)).toHaveLength(1)
     expect(plain.match(/Third paragraph\./g)).toHaveLength(1)
@@ -158,7 +162,7 @@ describe('MarkdownStreamRenderer', () => {
     md.finalize()
     let out = md.push('Second turn text.\n\n')
     out += md.finalize()
-    const plain = ansis.strip(out)
+    const plain = stripVTControlCharacters(out)
     expect(plain).toContain('Second turn text')
     expect(plain).not.toContain('First turn text')
   })
@@ -167,7 +171,7 @@ describe('MarkdownStreamRenderer', () => {
     const md = new MarkdownStreamRenderer(false)
     let out = md.push('Some **bold** text.\n\n')
     out += md.finalize()
-    expect(out).toBe(ansis.strip(out))
+    expect(out).toBe(stripVTControlCharacters(out))
     expect(out).toContain('bold')
   })
 })

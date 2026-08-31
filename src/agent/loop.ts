@@ -8,7 +8,7 @@ import type { RunSink } from './run.ts'
 import { runTurn, runTool } from './run.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
-import ansis from 'ansis'
+import { styleText } from 'node:util'
 import type {
   ResponseFunctionToolCall,
   ResponseInputItem,
@@ -240,12 +240,10 @@ async function runCalls(
 
 type Paint = (s: string) => string
 
-// Build colorizers locally rather than relying on ansis's own auto-detected
-// `.enabled` state, for the same reason util/log.ts's paintFor does: ansis
-// decides TTY/NO_COLOR support once at import time, before --no-color is
-// even parsed from argv, so it can't be toggled after the fact — and
-// mutating the shared global `ansis.enabled` would leak across call sites
-// (and, in tests, across unrelated test files).
+// Build colorizers locally rather than relying on auto-detected color
+// support, for the same reason util/log.ts's paintFor does: color support
+// is decided once at process startup, before --no-color is parsed from argv,
+// so it can't be toggled after the fact.
 function paintFor(color: boolean): {
   green: Paint
   red: Paint
@@ -257,10 +255,10 @@ function paintFor(color: boolean): {
     return { green: id, red: id, cyan: id, dim: id }
   }
   return {
-    green: ansis.green,
-    red: ansis.red,
-    cyan: ansis.cyan,
-    dim: ansis.dim,
+    green: (s) => styleText('green', s),
+    red: (s) => styleText('red', s),
+    cyan: (s) => styleText('cyan', s),
+    dim: (s) => styleText('dim', s),
   }
 }
 

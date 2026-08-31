@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline/promises'
-import ansis from 'ansis'
+import { styleText } from 'node:util'
 import OpenAI from 'openai'
 import type { Config } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
@@ -20,7 +20,7 @@ import {
 import { createCompleter } from './completer.ts'
 
 const HINT = 'Ask anything, /help for commands...'
-const PROMPT = ansis.cyan('> ')
+const PROMPT = styleText('cyan', '> ')
 
 export function createSession(config: Config, logger: Logger): Session {
   const tasks = new TaskStore()
