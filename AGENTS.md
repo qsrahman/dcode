@@ -12,6 +12,11 @@ How to build and extend **dcode**. Read this before changing code.
 - Type-only imports use `import type` (`verbatimModuleSyntax` is on).
 - **No `enum` / runtime `namespace` / parameter properties / `import x = require()`**
   — Node's strip-only mode rejects them. Use `const` objects + union types.
+- **Don't hand-roll functions, types/interfaces if a built-in or an already-
+  included library/package provides the same capability.** Check `node:*`
+  builtins, the OpenAI SDK (`openai`), `zod`, `execa`, `marked`, etc. before
+  writing a utility. If the runtime or a dependency already covers the need,
+  use it — even if the hand-rolled version is slightly simpler in isolation.
 
 ## Scripts
 
