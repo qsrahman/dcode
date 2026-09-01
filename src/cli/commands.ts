@@ -3,6 +3,7 @@ import type { Config } from '../config/schema.ts'
 import type { Client, ResponseInput } from '../agent/client.ts'
 import type { RunSink } from '../agent/run.ts'
 import type { Logger } from '../util/log.ts'
+import type { ResponseItemFields } from '../agent/types.ts'
 import type { ToolRegistry } from '../tools/registry.ts'
 import { CommandRegistry } from './registry.ts'
 import type { ContextManager } from '../agent/context/manager.ts'
@@ -42,14 +43,7 @@ const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
 function historyToMarkdown(history: ResponseInput): string {
   const parts: string[] = []
   for (const item of history) {
-    const it = item as {
-      type: string
-      role?: string
-      content?: unknown
-      name?: string
-      arguments?: string
-      output?: string
-    }
+    const it = item as ResponseItemFields
     if (it.type === 'function_call') {
       parts.push(
         `## tool call: ${it.name}\n\n\`\`\`json\n${it.arguments}\n\`\`\`\n`,
@@ -247,7 +241,7 @@ export function createCommands(): CommandRegistry {
     handler: (session, _a, sink) => {
       const h = session.history
       const lastUser = h.findLastIndex(
-        (it) => (it as { role?: string }).role === 'user',
+        (it) => (it as ResponseItemFields).role === 'user',
       )
       if (lastUser === -1) {
         sink.write('nothing to undo\n')

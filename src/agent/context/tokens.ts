@@ -1,4 +1,5 @@
 import type { ResponseInput } from '../client.ts'
+import type { ResponseItemFields } from '../types.ts'
 
 // Token estimation is deliberately cheap: a ~4-chars/token heuristic over the
 // serialized request. The manager calibrates this heuristic against the real
@@ -32,12 +33,7 @@ export function contentToText(content: unknown): string {
 }
 
 function itemText(item: ResponseInput[number]): string {
-  const it = item as {
-    type?: string
-    content?: unknown
-    arguments?: string
-    output?: unknown
-  }
+  const it = item as ResponseItemFields
   if (it.type === 'function_call') return it.arguments ?? ''
   if (it.type === 'function_call_output') {
     return typeof it.output === 'string' ? it.output : ''

@@ -36,3 +36,16 @@ export interface ToolResult {
   ok: boolean
   ms: number
 }
+
+// Structural view of the fields accessed on ResponseInputItem / ResponseOutputItem
+// across the codebase. The SDK's discriminated union is precise but verbose to
+// cast at every access site; this narrow shape covers what we actually read.
+export interface ResponseItemFields {
+  type?: string
+  role?: string
+  content?: unknown
+  name?: string
+  call_id?: string
+  arguments?: string
+  output?: unknown
+}

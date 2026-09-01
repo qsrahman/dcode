@@ -149,6 +149,6 @@ export async function readBounded(
     }
     chunks.push(value)
   }
-  const text = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8')
+  const text = Buffer.concat(chunks).toString('utf8')
   return { text, truncated }
 }

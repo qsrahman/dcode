@@ -31,7 +31,7 @@ export const KEY_PROVIDERS = Object.keys(
 ) as (keyof typeof PROVIDERS)[]
 
 export function isKnownProvider(p: string): p is keyof typeof PROVIDERS {
-  return Object.prototype.hasOwnProperty.call(PROVIDERS, p)
+  return p in PROVIDERS
 }
 
 export function keyField(provider: keyof typeof PROVIDERS): 'apiKey' | 'brave' {
@@ -52,17 +52,9 @@ function readGlobalRaw(): Record<string, unknown> {
 // (0o600) and the directory is locked to 0o700 so keys never become world- or
 // group-readable. Other global-config fields are preserved.
 export function setGlobalKey(field: 'apiKey' | 'brave', value: string): void {
-  const p = globalConfigPath()
-  mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
   const data = readGlobalRaw()
   data[field] = value
-  writeFileSync(p, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 })
-  // `mode` on writeFileSync only applies when the file is newly created — an
-  // existing file (left over from an editor, or an earlier permissive write)
-  // keeps its old mode. chmod it explicitly so secrets can't stay readable by
-  // other local users just because the file already existed.
-  chmodSync(p, 0o600)
-  chmodSync(dirname(p), 0o700)
+  writeGlobalConfig(data)
 }
 
 export function unsetGlobalKey(field: 'apiKey' | 'brave'): void {
@@ -70,11 +62,18 @@ export function unsetGlobalKey(field: 'apiKey' | 'brave'): void {
   if (!existsSync(p)) return
   const data = readGlobalRaw()
   delete data[field]
+  writeGlobalConfig(data)
+}
+
+// Shared write path: serialize + chmod the config file and its parent directory
+// so secrets never become world- or group-readable. `mode` on writeFileSync
+// only applies when the file is newly created — an existing file (left over
+// from an editor, or an earlier permissive write) keeps its old mode. chmod it
+// explicitly so the permissions are always correct.
+function writeGlobalConfig(data: Record<string, unknown>): void {
+  const p = globalConfigPath()
+  mkdirSync(dirname(p), { recursive: true, mode: 0o700 })
   writeFileSync(p, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 })
-  // `mode` on writeFileSync only applies when the file is newly created — an
-  // existing file (left over from an editor, or an earlier permissive write)
-  // keeps its old mode. chmod it explicitly so secrets can't stay readable by
-  // other local users just because the file already existed.
   chmodSync(p, 0o600)
   chmodSync(dirname(p), 0o700)
 }

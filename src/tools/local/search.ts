@@ -3,6 +3,7 @@ import { execa } from 'execa'
 import { rgPath } from '@vscode/ripgrep'
 import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
+import { errorMessage } from '../../util/log.ts'
 import { resolvePath } from './paths.ts'
 import { baseExecOptions } from './exec.ts'
 import { CHILD_MAX_BUFFER } from './constants.ts'
@@ -145,7 +146,7 @@ function grepTool(): ToolDefinition<{
       try {
         result = await runRg(rgArgs, ctx)
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = errorMessage(err)
         if (/regex parse error/i.test(message)) {
           throw new Error(`invalid regular expression: ${args.pattern}`)
         }

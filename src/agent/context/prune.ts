@@ -1,4 +1,5 @@
 import type { ResponseInput } from '../client.ts'
+import type { ResponseItemFields } from '../types.ts'
 
 export interface PruneOpts {
   // How many of the most recent tool-call *turns* to keep verbatim — all
@@ -42,7 +43,7 @@ export function pruneHistory(
   const marker = opts.marker ?? '[output truncated]'
   const outputPositions: number[] = []
   for (let i = 0; i < history.length; i++) {
-    const it = history[i] as { type?: string }
+    const it = history[i] as ResponseItemFields
     if (it.type === 'function_call_output') outputPositions.push(i)
   }
   const runs = groupIntoRuns(outputPositions)
@@ -54,7 +55,7 @@ export function pruneHistory(
   let pruned = 0
   for (let i = 0; i < history.length; i++) {
     if (protectedSet.has(i)) continue
-    const it = history[i] as { type?: string; output?: unknown }
+    const it = history[i] as ResponseItemFields
     if (it.type === 'function_call_output' && typeof it.output === 'string') {
       const n = it.output.length
       if (n > marker.length) {

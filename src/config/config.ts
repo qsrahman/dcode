@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { ParsedArgs } from '../cli/args.ts'
 import { configSchema, type Config } from './schema.ts'
+import { errorMessage } from '../util/log.ts'
 
 export function resolveRoot(config: Pick<Config, 'root'>): string {
   return config.root ?? process.cwd()
@@ -48,9 +49,7 @@ function readConfigFile(abs: string): Partial<Config> {
   try {
     json = JSON.parse(raw)
   } catch (err) {
-    throw new Error(
-      `Invalid JSON in ${abs}: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    throw new Error(`Invalid JSON in ${abs}: ${errorMessage(err)}`)
   }
   try {
     // .strict() catches typo'd keys (including inside `context`) — every field
@@ -58,9 +57,7 @@ function readConfigFile(abs: string): Partial<Config> {
     // rather than silently ignored.
     return configSchema.strict().parse(json)
   } catch (err) {
-    throw new Error(
-      `Failed to load config ${abs}: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    throw new Error(`Failed to load config ${abs}: ${errorMessage(err)}`)
   }
 }
 

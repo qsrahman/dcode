@@ -1,5 +1,6 @@
 import { realpath, mkdir } from 'node:fs/promises'
 import { resolve, sep, dirname, basename, join } from 'node:path'
+import { errorMessage } from '../../util/log.ts'
 
 // Canonicalize a path, tolerating a not-yet-existing leaf (e.g. write_file
 // creating a file): realpath resolves every symlink but requires the path to
@@ -49,7 +50,7 @@ function fsError(err: unknown, path: string): string {
     if (code === 'ENOTDIR') return `not a directory: ${path}`
     if (code === 'EACCES') return `permission denied: ${path}`
   }
-  return err instanceof Error ? err.message : String(err)
+  return errorMessage(err)
 }
 
 // Shared error-wrapping idiom: every fs.ts tool runs its fs call(s) through

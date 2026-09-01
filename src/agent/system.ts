@@ -36,7 +36,6 @@ You have tools to inspect and modify the working directory; their names, descrip
 
 export function buildSystemPrompt(config: Config): string {
   const root = resolveRoot(config)
-  const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const today = new Date().toISOString().slice(0, 10)
   return `${BASE_SYSTEM_PROMPT}\n\nWorking directory: ${root}\nCurrent date: ${today}`
 }

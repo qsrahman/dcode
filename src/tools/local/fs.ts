@@ -284,7 +284,7 @@ function editFileTool(): ToolDefinition<{
         )
       }
       const before = beforeBuf.toString('utf8')
-      const count = countOccurrences(before, args.old_string)
+      const count = before.split(args.old_string).length - 1
       if (count === 0) throw new Error(`old_string not found in ${args.path}`)
       if (count > 1 && !args.replace_all) {
         throw new Error(
@@ -300,17 +300,6 @@ function editFileTool(): ToolDefinition<{
       return `edited ${args.path}`
     },
   }
-}
-
-function countOccurrences(haystack: string, needle: string): number {
-  if (needle === '') return 0
-  let count = 0
-  let i = haystack.indexOf(needle)
-  while (i !== -1) {
-    count++
-    i = haystack.indexOf(needle, i + needle.length)
-  }
-  return count
 }
 
 function moveFileTool(): ToolDefinition<{

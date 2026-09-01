@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { NodeHtmlMarkdown } from 'node-html-markdown'
 import type { ToolDefinition } from '../../agent/types.ts'
 import { fetchSafely, readBounded } from './http.ts'
+import { errorMessage } from '../../util/log.ts'
 
 const htmlMarkdown = new NodeHtmlMarkdown()
 
@@ -76,9 +77,7 @@ function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
           ctx,
         )
       } catch (err) {
-        throw new Error(
-          `web search request failed: ${err instanceof Error ? err.message : String(err)}`,
-        )
+        throw new Error(`web search request failed: ${errorMessage(err)}`)
       }
       if (!res.ok) {
         throw new Error(`Brave API returned ${res.status}`)
@@ -127,9 +126,7 @@ export function webFetchTool(): ToolDefinition<{ url: string }> {
           { checkHost: true },
         )
       } catch (err) {
-        throw new Error(
-          `web fetch request failed: ${err instanceof Error ? err.message : String(err)}`,
-        )
+        throw new Error(`web fetch request failed: ${errorMessage(err)}`)
       }
       if (!res.ok) {
         throw new Error(`web fetch failed: HTTP ${res.status}`)

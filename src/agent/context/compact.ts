@@ -3,6 +3,7 @@ import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
 import { errorMessage } from '../../util/log.ts'
 import type { Task } from '../tasks.ts'
+import type { ResponseItemFields } from '../types.ts'
 import { estimateItem, contentToText } from './tokens.ts'
 
 const SUMMARY_CAP = 4096
@@ -45,7 +46,7 @@ function takeTail(
     start = i
   }
   while (start > 0) {
-    const it = body[start] as { role?: string }
+    const it = body[start] as ResponseItemFields
     if (it.role === 'user') break
     start--
   }
@@ -55,15 +56,7 @@ function takeTail(
 function serializeHistory(items: ResponseInput): string {
   const blocks: string[] = []
   for (const it of items) {
-    const item = it as {
-      type?: string
-      role?: string
-      name?: string
-      call_id?: string
-      content?: unknown
-      arguments?: string
-      output?: unknown
-    }
+    const item = it as ResponseItemFields
     if (item.type === 'function_call') {
       blocks.push(
         `[assistant called ${item.name} (${item.call_id})]\n${item.arguments ?? ''}`,
