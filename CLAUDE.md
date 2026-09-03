@@ -90,13 +90,28 @@ this preserves `reasoning` items, which reasoning models (the default
 `function_call` items carry a `parsed_arguments` field the live API rejects
 on replay ("Unknown parameter"), so `loop.ts`'s `stripParsedArguments` strips
 it explicitly after normalization.
+The loop is orchestration only: terminal rendering of tool calls
+(`renderToolResult`/`renderToolOutput`) lives in `ui/tools.ts`, beside
+`ui/markdown.ts`, and both get their colorizers from `util/color.ts`'s
+`paintFor(color)` — the single place `styleText` is applied, shared with
+`util/log.ts`. `paintFor` takes an explicit flag rather than letting Node
+auto-detect, for two reasons: colour support is resolved at startup, before
+`--no-color` is parsed out of argv, and the answer describes stdout rather
+than whichever sink the caller writes to. Exhausting `maxToolIterations`
+with tool calls still pending logs a warning naming the setting, since the
+loop would otherwise return the last turn's text — nothing at all, for a
+pure tool-call turn.
 `runOneShot` is a thin wrapper that builds `[system, user]` and delegates to
 `runAgent`. Tools live under `tools/`: `tools/registry.ts`'s `ToolRegistry` (built once
 per session; `toResponsesTools()` is memoized) registers `ToolDefinition<P>` objects — a
 generic with zod-typed params and a type-safe `execute(args: P, ctx)`;
 it is named `ToolDefinition` rather than `Tool` to avoid colliding with the
 SDK's own `Tool` type, which every import site aliases as `ResponsesTool` — and
-converts them to Responses JSON Schema via `z.toJSONSchema`. `tools/local/`
+converts them to Responses JSON Schema via `z.toJSONSchema`. Tools are built
+through `registry.ts`'s `defineTool`, which *infers* the argument type from
+the zod schema; don't hand-write a `ToolDefinition<{...}>` annotation beside
+the schema (the two drift, and the tools that skipped the annotation ended up
+casting `args as {...}`, which no longer type-checks against a schema change). `tools/local/`
 implements the full local tool set, split by concern, over shared
 `paths.ts` (`resolvePath`, `fsError` — path confinement, realpath-checked
 against symlink escapes; `withFsError`/`ensureParentDir` — the fs.ts tools'
@@ -109,16 +124,19 @@ shared error-wrapping and mkdir-parent idioms) module: `fs.ts` (`read_file`,
 shared `fetchSafely`/`readBounded` network boundary.
 `exec.ts`/`process.ts`/`search.ts` all spawn through `exec.ts`'s
 shared `baseExecOptions`/`safeEnv` (`cwd`/`env`/`extendEnv`/`cancelSignal`,
-common to every spawn in `tools/local/`) plus `runExec` on top for
+common to every spawn in `tools/local/`) plus a local `runShell` on top for
 `run_shell` specifically, which wraps `execa` (`killDescendants: true`
 so a killed shell/process's own children die with it; env is rebuilt via
 `safeEnv()` rather than inherited, so secret-looking vars like
 `OPENAI_API_KEY` never reach a child process). `grep` and `glob` (both in
 `search.ts`) instead spawn
 `rgPath` from `@vscode/ripgrep` directly, not through `exec.ts` — ripgrep's
-exit code 1 means "ran fine, nothing found", which doesn't fit `runExec`'s
-throw-on-nonzero contract, so both share a local `runRg` helper with the same
-exit-code handling. `grep` parses ripgrep's `--json` event stream — whose
+exit code 1 means "ran fine, nothing found", which doesn't fit a
+throw-on-nonzero contract, so both share a local `runRg` helper with the
+right exit-code handling. Their `-g` argument order is load-bearing:
+`config.ignore` patterns must be appended *after* the caller's own patterns,
+because ripgrep resolves competing globs last-match-wins and a request for
+`**/*` would otherwise re-include everything they excluded. `grep` parses ripgrep's `--json` event stream — whose
 strings come back as either `{text}` or, for data that isn't valid UTF-8,
 `{bytes}` (base64), so `rgText` decodes both rather than assuming `text`;
 `glob` parses its plain `--files -g <pattern>` output. Both pass `.` (not an
@@ -140,11 +158,18 @@ registry by reference.
 Sub-agents: `agent/subagent.ts` defines the agent types (`general`,
 `explore`) as a tool-name allow-list plus a system prompt, and
 `tools/local/task.ts`'s `task` tool runs a nested `runAgent` with a
-`ToolRegistry` filtered to that list, a silent sink (only the final text is
+`ToolRegistry` filtered to that policy, a silent sink (only the final text is
 returned to the parent), compaction disabled, and `ctx.depth + 1` — `MAX_DEPTH
-= 1`, so sub-agents can't spawn sub-agents. The allow-list is matched against
-real registered tool names, so a typo there silently removes a tool rather
-than erroring. `todowrite` is the one tool *not* passed through by reference:
+= 1`, so sub-agents can't spawn sub-agents. A type's tools are a `ToolPolicy`,
+not a literal list: `explore` uses `{allow: [...]}` because read-only is a
+guarantee it must keep even when new tools appear, `general` uses
+`{deny: ['task']}` so "everything except task" holds by construction rather
+than as a copy of the registry that rots. Policy names are matched against
+real registered tool names, so a typo silently does nothing —
+`createLocalTools` therefore throws on any policy name nobody registers, and
+the tool's description is generated from the resolved sets rather than
+hand-written beside them (that copy is how it came to advertise a
+`list_directory` tool that doesn't exist). `todowrite` is the one tool *not* passed through by reference:
 it's rebound to a fresh per-sub-agent `TaskStore`, since `TaskStore.replace`
 overwrites the whole list and would otherwise wipe the parent's plan (which
 `compact.ts` injects into compaction summaries as the authoritative task

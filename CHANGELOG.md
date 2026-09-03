@@ -272,16 +272,90 @@
     given how `loop.ts` constructs history) and the last `protectTurns` runs
     are protected as a unit.
 
+### Refactored
+- Tools are now built with `tools/registry.ts`'s `defineTool`, which infers a
+  tool's argument type from its zod schema. Previously every tool spelled its
+  parameter shape twice — as an explicit `ToolDefinition<{...}>` annotation
+  *and* as the schema — with nothing keeping the two in sync; `grep`/`glob`
+  carried a third copy inline on `execute`, and the tools that skipped the
+  annotation (`task`, `ask_user`) fell back to `P = unknown` and cast
+  `args as {...}`, an unchecked cast that cannot fail to compile when the
+  schema changes. The schema is now the single source of truth.
+- Sub-agent tool sets are a `ToolPolicy` (`{allow}` | `{deny}`) instead of
+  literal name lists. `general` was a 19-name list documented as "all tools
+  except task" — a claim nothing enforced, and one that would silently
+  withhold any newly added tool. It is now `{deny: ['task']}`, true by
+  construction. `explore` stays an allow-list deliberately: read-only is its
+  guarantee, so it must not acquire a new writing tool just because one
+  appeared. `createLocalTools` throws on a policy naming a tool nobody
+  registers, and the `task` tool's description and agent-type table are
+  generated from the resolved sets rather than hand-maintained beside them —
+  that copy is how the description came to advertise a `list_directory` tool
+  for something actually called `list_dir`.
+- Terminal rendering of tool calls (`renderToolResult`, `renderToolOutput`,
+  `colorDiffLine`) moved from `agent/loop.ts` to the new `ui/tools.ts`,
+  beside `ui/markdown.ts`. Roughly 60 of `loop.ts`'s 305 lines were
+  formatting; it is now orchestration only.
+- `paintFor` existed twice, in `agent/loop.ts` and `util/log.ts`, with
+  near-identical bodies and near-identical comments. Both now use the new
+  `util/color.ts` — the single place `styleText` is applied. Its comment
+  records the half missing from both copies: auto-detection is the wrong
+  input not only because Node resolves colour support before `--no-color` is
+  parsed out of argv, but because the answer describes stdout rather than
+  whichever sink the caller is writing to.
+- `runCalls` returned `{id, outcome}[]` where `ToolResult` already carries
+  `id`; it now returns `ToolResult[]`, and the two "never reached a tool"
+  outcomes (aborted, unknown tool) come from one helper instead of two
+  five-field object literals.
+- `runExec`'s argv and shell-mode parameters were dead generality left behind
+  by the removed `git` tool — one caller, always passing `[]` and
+  `{shell: true}`. It is now `runShell(command, ctx)`, private to `exec.ts`;
+  `safeEnv` is unexported, reached only through `baseExecOptions`.
+- Smaller: the `task` tool's `description` argument was accepted and silently
+  discarded, so it is echoed on the result wrapper to tie a result to its
+  delegation; `statTool`'s `try`/`catch` around `lstat` was unreachable (the
+  preceding `stat` on the same path already proved it resolves);
+  `readFileTool` had two nested error wrappers and re-`stat`ed the path
+  instead of the handle it had already opened.
+
+### Changed
+- Exhausting `maxToolIterations` with tool calls still pending now logs a
+  warning naming the setting. The loop previously just returned whatever text
+  the final turn produced — for a pure tool-call turn, nothing — so a
+  truncated run was indistinguishable from the model having no reply.
+- The `task` tool no longer accepts `task_id` or `command`. Both were
+  documented as working (resumable sub-agent sessions, a `task_id` in the
+  result) and neither was implemented.
+- System prompt corrections: it referred to "the todo tool" (renamed
+  `todowrite`, and now a whole-list write), and told the model to launch
+  sub-agents concurrently — which `task`'s `parallel: false` makes
+  impossible, since the loop serializes them.
+
 ### Docs
+- `PLAN.md` §5's module tree, `CLAUDE.md`'s architecture section, and
+  `AGENTS.md`'s module-layout notes are synced with the above: the
+  `ui/tools.ts` and `util/color.ts` split, `defineTool` as the way to add a
+  tool, and `ToolPolicy`. `AGENTS.md` also records two constraints that were
+  previously load-bearing but unwritten — the `-g` ordering in
+  `search.ts` (`config.ignore` patterns must follow the caller's own, because
+  ripgrep resolves competing globs last-match-wins; merging them the other
+  way silently re-includes ignored files) and the tool-deadline contract in
+  `run.ts` (losing the race abandons rather than cancels, so a tool that
+  spawns or connects must take `ctx.signal` itself).
+- Historical phase specs in `PLAN.md` (§11.8, §22) that describe the
+  renderers as living inline in `agent/loop.ts` keep their original text but
+  gain a pointer to where the code moved, rather than being rewritten.
 - `AGENTS.md`'s "Security model" section (added above, then revised once
   `web_fetch` gained its own guard) documents the trust boundary: dcode
   grants the model real shell access on the user's machine by design
   (`run_shell`/`run_process`, unrestricted, intentionally), while `web_fetch`
   gets a private-address guard because its target is often not something the
   user typed directly. Also documents why `grep`/`glob` spawn `rgPath`
-  directly instead of going through `exec.ts`'s `runExec` (ripgrep's
-  exit-code convention doesn't fit `runExec`'s throw-on-nonzero contract), so
-  it isn't "fixed" into inconsistency by a future contributor.
+  directly instead of going through `exec.ts` (ripgrep's exit-code convention
+  doesn't fit a throw-on-nonzero contract), so
+  it isn't "fixed" into inconsistency by a future contributor. (`runExec` has
+  since become `exec.ts`-private `runShell`; the note is phrased in terms of
+  the exit-code contract rather than the helper's name.)
 - `config/config.ts`'s `mergeConfigs` gained a one-line comment explaining
   why it doesn't use `.strict()` the way `readConfigFile` does: by the time
   `file`/`env` reach the merge, they've already passed through

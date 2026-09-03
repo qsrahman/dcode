@@ -54,10 +54,8 @@ architecture, or conventions.
   **interactive REPL prompt** only.
 - All other diagnostics go to **stderr** via `util/log.ts` — `createLogger(config)`
   returns `{ debug, warn, error }`, where `debug` is gated by `config.verbose` and
-  `warn`/`error` always emit. Color comes from `node:util`'s `styleText`
-  (disabled when `config.color` is false — the paint functions are built
-  per-call from that flag rather than relying on Node's own auto-detection,
-  which is decided at startup before `--no-color` is parsed). `--verbose` also echoes
+  `warn`/`error` always emit. Color comes from `util/color.ts`'s `paintFor`
+  (see "Module layout"), driven by `config.color`. `--verbose` also echoes
   each tool call's raw output to the terminal (in addition to stderr
   diagnostics) — see README's flag reference.
 
@@ -97,12 +95,26 @@ See [PLAN.md](./PLAN.md) §5 for the authoritative module tree and the agent-loo
 description. The 12 locked design decisions are in PLAN.md §6 — do not reopen them
 without explicit agreement.
 
-`grep`/`glob` (`tools/local/search.ts`) spawn `rgPath` directly instead of going
-through `exec.ts`'s `runExec`, unlike every other tool that shells out. This is
+`grep`/`glob` (`tools/local/search.ts`) spawn `rgPath` directly instead of
+going through `exec.ts`, unlike every other tool that shells out. This is
 deliberate, not an inconsistency to "fix": ripgrep's exit-code convention (0 =
-matches, 1 = ran fine, nothing found — neither is an error) doesn't fit
-`runExec`'s throw-on-nonzero contract. Both tools share a local `runRg` helper
-with the correct exit-code handling instead.
+matches, 1 = ran fine, nothing found — neither is an error) doesn't fit a
+throw-on-nonzero contract. Both tools share a local `runRg` helper with the
+correct exit-code handling instead. Their `-g` argument order is also
+load-bearing: `config.ignore` patterns go *after* the caller's own patterns,
+because ripgrep resolves competing globs last-match-wins.
+
+Define a tool with `tools/registry.ts`'s `defineTool`, which infers the
+argument type from its zod schema. Don't write a `ToolDefinition<{...}>`
+annotation alongside the schema: the two have nothing keeping them in sync,
+and a tool that omits the annotation falls back to `P = unknown` and needs an
+unchecked `args as {...}` cast, which cannot fail to compile when the schema
+changes.
+
+Colour goes through `util/color.ts`'s `paintFor(color)` — the one place
+`styleText` is applied. Take the flag from `config.color`; never let Node
+auto-detect. Detection runs at startup, before `--no-color` reaches argv, and
+it reports on stdout rather than the sink being written to.
 
 `runTool` (`agent/run.ts`) races every tool against `config.toolTimeout` and
 `ctx.signal` via `withDeadline`. Losing that race **abandons** the tool

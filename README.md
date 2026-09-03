@@ -152,9 +152,10 @@ own judgement, rather than blocking on a keypress that will never come.
 The `task` tool runs a **sub-agent** — a nested agent loop with its own
 history, its own todo list, and only the tools its agent type allows:
 `explore` is read-only (search, read, web), `general` gets everything except
-`task` itself. Sub-agents can't spawn sub-agents, their output isn't streamed
-to the terminal (only the final result returns to the parent), and each call
-starts from a fresh context — there is no way to resume one.
+`task` itself. Sub-agents can't spawn sub-agents, they run one at a time
+rather than in parallel, their output isn't streamed to the terminal (only the
+final result returns to the parent), and each call starts from a fresh
+context — there is no way to resume one.
 
 **Context-window management.** Long sessions are kept within `context.window`:
 before each request, dcode prunes old tool outputs (collapsing them to a short

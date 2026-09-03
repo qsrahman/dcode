@@ -40,7 +40,10 @@ A small, modular, locally-run coding agent you drive from a terminal:
 - **Language:** TypeScript 7+ (strict, ESM, `erasableSyntaxOnly`).
 - **Package manager:** pnpm only.
 - **Tests:** Vitest 4+.
-- **Runtime deps:** `zod`, `ansis`, `openai`.
+- **Runtime deps:** `openai`, `zod`, `execa`, `@vscode/ripgrep`, `marked` +
+  `marked-terminal`, `node-html-markdown`, `@clack/prompts`. (`ansis` was
+  dropped for `node:util`'s `styleText`; the pure-JS traversal and the
+  `ignore` package went with the move to ripgrep.)
 - **Dev deps:** `typescript`, `@types/node`, `prettier`, `vitest`.
 
 ### Type-stripping caveats (hard constraints)
@@ -73,12 +76,12 @@ src/
                       #   manager.ts (ContextManager: prune→compact, overflow retry, breaker)
   agent/types.ts      # ToolDefinition<P>, ToolContext (incl. depth), ToolCall, ToolResult, ResponseItemFields
   agent/todo-store.ts # TaskStore: in-session todo list (replace/list — the model sends the whole list)
-  agent/subagent.ts   # AGENT_TYPES (general, explore): per-type tool allow-list + system prompt
+  agent/subagent.ts   # AGENT_TYPES (general, explore): per-type ToolPolicy ({allow} | {deny}) + system prompt; describeAgentTypes/unknownAgentTools
   tools/index.ts      # createLocalTools(tasks, client): hub that registers all built-in tools into the registry
-  tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
+  tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema; defineTool (infers a tool's arg type from its schema)
   tools/local/        # local tool set, split by concern:
     paths.ts          #   resolvePath, withFsError, ensureParentDir — path confinement (realpath-checked against symlink escapes) + shared fs error/mkdir idioms
-    exec.ts           #   run_shell + baseExecOptions/safeEnv/runExec/CHILD_MAX_BUFFER — shared execa wrapper (timeout/cancelSignal/maxBuffer, env redaction)
+    exec.ts           #   run_shell + baseExecOptions/safeEnv/CHILD_MAX_BUFFER — shared execa options (cwd/timeout/cancelSignal/maxBuffer, env redaction)
     http.ts           #   fetchSafely (SSRF guard, timeout, manual redirects), readBounded — shared network boundary for web.ts
     fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
     search.ts         #   grep, glob — both ripgrep-backed (@vscode/ripgrep's bundled binary, spawned directly, not via exec.ts); find_symbol/find_references planned, P12
@@ -89,7 +92,9 @@ src/
     web.ts            #   web_search (Brave; key from ctx.config.brave only), web_fetch
   tools/mcp/manager.ts  # connect servers, cache tools, callTool (P6, not yet built)
   ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
+  ui/tools.ts            # renderToolResult / renderToolOutput — terminal rendering of tool calls (moved out of agent/loop.ts)
   types/marked-terminal.d.ts # local ambient types (marked-terminal ships none; @types/marked-terminal on npm is stale/mismatched)
+  util/color.ts         # paintFor(color) — the one place styleText is applied, shared by util/log.ts and ui/tools.ts
   util/log.ts           # diagnostics -> stderr (never console.log)
 ```
 
@@ -105,21 +110,27 @@ scaled-down version of the "newline-gated" pattern both Codex CLI's Rust TUI
 and independent streaming-markdown libraries converge on; unlike Codex,
 dcode doesn't hold back tables or handle retroactive reference-link
 resolution. Rendering itself is `marked` + `marked-terminal` (same library
-OpenAI's own Codex CLI TypeScript implementation uses) — color/no-color
-follows `marked-terminal`/`chalk`'s own TTY/`NO_COLOR` auto-detection, same
-as `ansis` elsewhere in the codebase; `--no-color` isn't separately wired
-into it (matching the existing precedent that `--no-color` only forces the
-logger today).
+OpenAI's own Codex CLI TypeScript implementation uses). `--no-color` *is*
+honoured, but only after the fact: `marked-terminal` styles through its own
+`chalk` import, whose colour level is fixed at module load — before argv is
+parsed — and its options only let you replace individual node renderers, not
+force plain output. So `renderMarkdown`/`MarkdownStreamRenderer` take an
+explicit `color` flag and strip the codes with `stripVTControlCharacters()`
+when it is false. Everything dcode renders itself instead consults
+`config.color` up front, via `util/color.ts`'s `paintFor`.
 
 ### Agent loop
 
 1. Send conversation `input` + tool defs to the Responses API (streaming).
 2. Render streamed text; collect `function_call` items.
 3. When the turn ends, split calls into **read-only** (run via `Promise.all`)
-   and **mutating** (sequential, each harness-gated) groups.
+   and **mutating** (`parallel: false`; sequential, in emission order) groups.
+   Nothing is gated — P5 was cancelled.
 4. Feed `function_call_output` items back; repeat until no tool calls.
 5. Cap loop iterations (`maxToolIterations`, default 16); feed tool errors back
-   so the model can self-correct.
+   so the model can self-correct. Hitting the cap with tool calls still
+   pending logs a warning naming the setting — otherwise the loop returns the
+   last turn's text, which for a pure tool-call turn is nothing at all.
 
 ### Future: `reasoning: { summary: ... }` for streaming feedback
 
@@ -198,7 +209,15 @@ Landed outside the numbered phases (no new locked decisions; see §6):
   tool runs a nested `runAgent` with a filtered tool registry, its own
   `TaskStore` and `ContextManager` (compaction off), a silent sink, and a
   nesting depth limit of 1. Sessions are never resumable: each call starts
-  from a fresh history.
+  from a fresh history. Each agent type carries a `ToolPolicy` rather than a
+  literal list: `explore` is `{allow: [...]}` because read-only is the
+  guarantee it must keep even as new tools appear, while `general` is
+  `{deny: ['task']}` so "everything except task" stays true by construction
+  instead of being a copy of the registry that rots. `createLocalTools`
+  rejects a policy naming a tool nobody registers, and the `task` tool's
+  description is generated from the resolved sets — the previous
+  hand-maintained copy is how it came to advertise a `list_directory` tool
+  that does not exist.
 - **`todo` → `todowrite`** — the four-action tool was replaced by a single
   whole-list write, so the model's plan can't drift out of sync field by field.
 
@@ -274,6 +293,10 @@ Streamed model text → `process.stdout` (reserved channel). REPL prompt colored
 `ansis`. Rendering stays minimal; tool-status lines are rendered inline in
 `agent/loop.ts` (no separate `ui` module). A tiny `ui/prompt.ts` for the prompt
 string is optional.
+
+> Since superseded: there is now a `ui/` module — `ui/markdown.ts` for streamed
+> assistant output and `ui/tools.ts` for tool-status lines — and colour comes
+> from `util/color.ts`, not `ansis`. See §5.
 
 ### 10.6 Multi-line input
 Deferred to a later phase (single-line in P2).
@@ -412,6 +435,12 @@ Tool output is untrusted data (decision H).
 (color via `ansis`, same auto-TTY behavior as today). Printed between turns,
 before the next streamed model text — matching the REPL layout. The helper
 lives inline in `agent/loop.ts` (its only consumer).
+
+> Since superseded: `ansis` was replaced by `node:util`'s `styleText` (via
+> `util/color.ts`, driven by `config.color` rather than auto-detection), and
+> the renderers moved out of `agent/loop.ts` to `ui/tools.ts` once they had a
+> second consumer in the tests and the loop had grown a third of its length in
+> formatting code. See §5.
 
 ### 11.9 Slash commands
 `/tools` — list registered tools (`name` + `description`); deferred from P2 to P3.
@@ -989,7 +1018,10 @@ confinement and yields harder-to-structure errors).
 Status: **Done.** Display-only improvements that don't change tool contracts
 or the agent data flow.
 
-- **Richer tool-status lines** (`src/agent/loop.ts` `renderToolResult`): the
+(`renderToolResult`/`renderToolOutput` have since moved to `src/ui/tools.ts`;
+paths below are as-implemented at the time.)
+
+- **Richer tool-status lines** (`renderToolResult`): the
   tool name is colored, the status check/cross stays green/red, and the
   duration is dimmed. Stripped text is unchanged, so the contract holds.
 - **Colored diff preview** (`renderToolOutput`): unified-diff lines are colored
