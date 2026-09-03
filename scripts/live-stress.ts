@@ -128,7 +128,7 @@ async function main(): Promise<void> {
   const logger = createLogger(config)
   const client = createClient(config)
   const tasks = new TaskStore()
-  const tools = createLocalTools(tasks)
+  const tools = createLocalTools(tasks, client)
 
   console.log(
     `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +

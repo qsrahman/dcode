@@ -1,5 +1,6 @@
 import { ToolRegistry } from './registry.ts'
 import type { TaskStore } from '../agent/tasks.ts'
+import type { Client } from '../agent/client.ts'
 import {
   readFileTool,
   listDirTool,
@@ -21,12 +22,18 @@ import {
 import { webTools } from './local/web.ts'
 import { todoTool } from './local/todo.ts'
 import { askUserTool } from './local/question.ts'
+import { taskTool } from './local/task.ts'
 
 // Central registry builder: the single place that assembles all built-in tools
 // (local filesystem + web search + todo list) into the ToolRegistry. The todo
 // tool closes over the per-session TaskStore, so it must be supplied here.
-export function createLocalTools(tasks: TaskStore): ToolRegistry {
-  return new ToolRegistry([
+// The task tool closes over the parent's Client and the registry itself (to
+// filter tools for child agents), so both are passed in.
+export function createLocalTools(
+  tasks: TaskStore,
+  client: Client,
+): ToolRegistry {
+  const registry = new ToolRegistry([
     readFileTool(),
     listDirTool(),
     grepTool(),
@@ -46,4 +53,8 @@ export function createLocalTools(tasks: TaskStore): ToolRegistry {
     todoTool(tasks),
     askUserTool(),
   ])
+  // The task tool captures the registry by reference, so by the time it's
+  // called the registry is fully populated — no chicken-and-egg problem.
+  registry.register(taskTool(client, registry))
+  return registry
 }

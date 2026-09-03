@@ -133,7 +133,7 @@ export async function main(): Promise<void> {
     }
     const client = createClient(config)
     const tasks = new TaskStore()
-    const tools = createLocalTools(tasks)
+    const tools = createLocalTools(tasks, client)
     const ac = new AbortController()
     const onSigint = () => ac.abort()
     process.on('SIGINT', onSigint)

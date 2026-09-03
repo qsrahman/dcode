@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createLocalTools } from '../../src/tools/index.ts'
 import { TaskStore } from '../../src/agent/tasks.ts'
+import type { Client } from '../../src/agent/client.ts'
+
+const mockClient: Client = {
+  stream() {
+    throw new Error('mock client: not implemented')
+  },
+}
 
 // A pure assembly smoke test: nothing here exercises any tool's behavior
 // (that's covered per-tool elsewhere), just that createLocalTools wires up
@@ -11,7 +18,7 @@ import { TaskStore } from '../../src/agent/tasks.ts'
 // contain) but show up here.
 describe('createLocalTools', () => {
   it('registers exactly the expected set of built-in tools, once each', () => {
-    const registry = createLocalTools(new TaskStore())
+    const registry = createLocalTools(new TaskStore(), mockClient)
     const names = registry.list().map((t) => t.name)
     expect(names.sort()).toEqual(
       [
@@ -34,6 +41,7 @@ describe('createLocalTools', () => {
         'web_fetch',
         'todowrite',
         'ask_user',
+        'task',
       ].sort(),
     )
     // No accidental name collision silently overwriting an earlier
@@ -42,7 +50,7 @@ describe('createLocalTools', () => {
   })
 
   it('converts to Responses tool schemas without throwing', () => {
-    const registry = createLocalTools(new TaskStore())
+    const registry = createLocalTools(new TaskStore(), mockClient)
     const tools = registry.toResponsesTools()
     expect(tools).toHaveLength(registry.list().length)
     for (const t of tools) {
@@ -53,7 +61,7 @@ describe('createLocalTools', () => {
 
   it('the todowrite tool closes over the given TaskStore, not a shared default', () => {
     const store = new TaskStore()
-    const registry = createLocalTools(store)
+    const registry = createLocalTools(store, mockClient)
     const todo = registry.get('todowrite')!
     const ctx = { root: '/tmp', config: undefined, logger: undefined } as never
     return todo

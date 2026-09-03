@@ -35,6 +35,8 @@ export async function runAgent(
     signal?: AbortSignal
     tools?: ToolRegistry
     context?: ContextManager
+    depth?: number
+    instructions?: string
   },
 ): Promise<string> {
   const sink = opts.sink ?? process.stdout
@@ -44,13 +46,14 @@ export async function runAgent(
     config,
     logger: opts.logger,
     signal: opts.signal,
+    depth: opts.depth,
   }
   const responses = registry.list().length
     ? registry.toResponsesTools()
     : undefined
   // Durable system guidance lives in the Responses API `instructions` field,
   // not in the conversation `history`, so it isn't trimmed or replayed as a turn.
-  const instructions = buildSystemPrompt(config)
+  const instructions = opts.instructions ?? buildSystemPrompt(config)
   // One streaming turn; hoisted so the context-overflow retry reuses it instead
   // of duplicating the call.
   const runOnce = () =>

@@ -24,12 +24,13 @@ const PROMPT = styleText('cyan', '> ')
 
 export function createSession(config: Config, logger: Logger): Session {
   const tasks = new TaskStore()
+  const client = createClient(config)
   return {
     config,
     logger,
-    client: createClient(config),
+    client,
     history: [],
-    tools: createLocalTools(tasks),
+    tools: createLocalTools(tasks, client),
     context: new ContextManager(config.context, logger, tasks),
     tasks,
     root: resolveRoot(config),
