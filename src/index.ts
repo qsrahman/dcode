@@ -10,26 +10,7 @@ import { runOneShot } from './agent/loop.ts'
 import { createLocalTools } from './tools/index.ts'
 import { createLogger, errorMessage, isAbortError } from './util/log.ts'
 import { getVersion } from './version.ts'
-import { fileURLToPath } from 'node:url'
-import { realpathSync } from 'node:fs'
 import { ensureApiKey } from './cli/auth.ts'
-
-// True when this module is the process entry point. Resolving symlinks matters:
-// a global `pnpm add -g` install is reached through symlinks, so the raw
-// argv[1] path and import.meta.url differ in their symlink components and a
-// naive string compare would wrongly conclude we're imported (not run), leaving
-// main() uncalled and the binary silently exiting 0.
-function isMainModule(): boolean {
-  const invoked = process.argv[1]
-  if (!invoked) return false
-  try {
-    return (
-      realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url))
-    )
-  } catch {
-    return false
-  }
-}
 
 function printHelp(): void {
   console.log(`dcode — AI coding agent
@@ -96,6 +77,10 @@ export async function main(): Promise<void> {
   }
 }
 
-if (isMainModule()) {
+// `import.meta.main` is true only when this module is the process entry point,
+// so `main()` runs when the binary is invoked but not when a test imports it.
+// The loader computes it against the resolved entry, so a global `pnpm add -g`
+// install (reached through symlinks) is handled without any realpath dance.
+if (import.meta.main) {
   void main()
 }
