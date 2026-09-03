@@ -1,5 +1,20 @@
 import { z } from 'zod'
 
+const contextSchema = z
+  .object({
+    auto: z.boolean().default(true),
+    window: z.number().int().positive().default(200000),
+    reserved: z.number().int().nonnegative().default(20000),
+    keepTokens: z.number().int().positive().default(15000),
+    prune: z.boolean().default(true),
+    compactAt: z.number().min(0).max(1).default(0.85),
+  })
+  .strict()
+  .refine(
+    (ctx) => ctx.keepTokens < ctx.window - ctx.reserved,
+    'keepTokens must be less than window - reserved to allow headroom for compaction',
+  )
+
 export const configSchema = z.object({
   model: z.string().default('gpt-5.4-mini'),
   // OpenAI-compatible endpoint. dcode appends the resource path (`/responses`,
@@ -25,6 +40,14 @@ export const configSchema = z.object({
   // Directory names skipped by the recursive tools (grep/glob). These flood
   // results and are almost never what the model wants to search.
   ignore: z.array(z.string()).default(['.git', 'node_modules']),
+  // The default is derived by parsing `{}` through the schema rather than
+  // restating every field default a second time. zod hands a `.default()`
+  // value back verbatim — it does not re-parse it — so the literal object
+  // that used to live here was a full second copy of the defaults above, and
+  // the two could silently diverge: omitting `context` entirely would yield
+  // the stale literal while writing `"context": {}` would yield the real
+  // field defaults. Same values, two sources of truth, no error either way.
+  //
   // Context-window management: keep the request within `window` tokens by
   // pruning old tool outputs (cheap, no model call) and, when still over,
   // summarizing the oldest history into a single developer message (compact).
@@ -32,27 +55,6 @@ export const configSchema = z.object({
   // kept free for the model's output + the compaction call. `compactAt` is the
   // fraction of that budget at which compaction kicks in *proactively* (before a
   // context-length error), so the model stays comfortably under the limit.
-  context: z
-    .object({
-      auto: z.boolean().default(true),
-      window: z.number().int().positive().default(200000),
-      reserved: z.number().int().nonnegative().default(20000),
-      keepTokens: z.number().int().positive().default(15000),
-      prune: z.boolean().default(true),
-      compactAt: z.number().min(0).max(1).default(0.85),
-    })
-    .strict()
-    .refine(
-      (ctx) => ctx.keepTokens < ctx.window - ctx.reserved,
-      'keepTokens must be less than window - reserved to allow headroom for compaction',
-    )
-    .default({
-      auto: true,
-      window: 200000,
-      reserved: 20000,
-      keepTokens: 15000,
-      prune: true,
-      compactAt: 0.85,
-    }),
+  context: contextSchema.default(() => contextSchema.parse({})),
 })
 export type Config = z.infer<typeof configSchema>

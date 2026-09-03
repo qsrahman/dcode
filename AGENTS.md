@@ -66,12 +66,34 @@ Config is resolved with precedence **CLI > env > global (`~/.config/dcode/dcode.
 - File: `~/.config/dcode/dcode.json` (global), or an explicit `--config <path>`.
   JSON, validated by `config/schema.ts` (zod). dcode is a globally installed
   personal tool, so there is no repo-local config discovery.
-- Env: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` (read from the process
-  environment; the same values can be persisted in `dcode.json` instead).
+- Env: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `BRAVE_API_KEY`
+  (read from the process environment; the same values can be persisted in
+  `dcode.json` instead).
 - CLI flags (`--model`, `--no-color`, `--verbose`) override the above.
 
 `config/config.ts` holds the pure `mergeConfigs` (tested) plus thin `loadConfig`
 and `buildConfig` wrappers.
+
+Unknown input is rejected at every layer, not tolerated: `configSchema.strict()`
+rejects a typo'd config key (including inside `context`), and `parseCli` runs
+`parseArgs` in strict mode so a typo'd flag is an error. The lenient mode it
+used before was not merely forgiving — `--modle gpt-4 "do a thing"` dropped the
+flag *and* swallowed its value into the positionals, silently running the
+default model against the prompt `"gpt-4 do a thing"`.
+
+Add a flag by adding one entry to `cli/args.ts`'s `FLAGS` table: it feeds both
+the `parseArgs` options and `formatFlags()`, which renders `--help`. Don't
+write the help text separately — the previous hand-written block had already
+lost all four short forms (`-m`, `-c`, `-v`, `-h`).
+
+Nested schema defaults: zod hands a `.default()` value back **verbatim**, it
+does not re-parse it. A literal default object for a nested schema is
+therefore a second copy of that schema's field defaults, and the two diverge
+silently — omitting the key yields the literal while passing `{}` yields the
+field defaults. `configSchema`'s `context` derives its default with
+`contextSchema.default(() => contextSchema.parse({}))` instead. Note that
+`.default({})` does *not* work here for the same reason: it would be returned
+as-is, giving an empty object with none of the fields.
 
 `/key` (`cli/keys.ts`'s `setGlobalKey`/`unsetGlobalKey`) always writes to
 `globalConfigPath()`, never to whatever `--config <path>` a session was

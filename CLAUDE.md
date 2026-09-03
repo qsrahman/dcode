@@ -179,9 +179,18 @@ fresh history.
 The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
 keeping a module-local `Session` (`{ config, client, logger, history, tools }`)
 and dispatching slash commands (`parseCommand`/`dispatch` in `commands.ts`)
-before falling through to a model turn. `index.ts` wires CLI args -> config ->
-either `runOneShot` (prompt given, with its own `ToolRegistry`) or `startRepl`
-(no prompt, builds its own `ToolRegistry` inside `createSession`).
+before falling through to a model turn.
+
+`index.ts` wires CLI args -> config -> `ensureApiKey` -> either `runOneShot`
+(prompt given, with its own `ToolRegistry`) or `startRepl` (no prompt, builds
+its own `ToolRegistry` inside `createSession`). `ensureApiKey` (`cli/auth.ts`)
+owns the whole startup key path — prompt on a TTY when none is configured,
+check it, persist a freshly pasted one — and returns the fatal message rather
+than calling `process.exit` itself, so the caller owns how the process ends
+and the flow stays testable. `cli/args.ts` holds one `FLAGS` table feeding
+both the `parseArgs` options and `formatFlags()`, which renders `--help`;
+parsing is strict, so an unknown flag is an error rather than being silently
+folded into the prompt positionals.
 
 Config resolution precedence is **CLI > env > global (`~/.config/dcode/dcode.json`) > schema defaults**,
 implemented as pure `mergeConfigs` in `config/config.ts` with `config/schema.ts`
@@ -195,7 +204,11 @@ loudly instead of being silently ignored; the nested `context` object is
 `.strict()` too, since `.strict()` doesn't cascade into nested objects on its
 own. A missing default config (`dcode.json`/`.dcode.json`) falls back to
 schema defaults (`{}`), but an explicit `--config <path>` that doesn't exist
-throws rather than being silently ignored.
+throws rather than being silently ignored. The nested `context` default is
+derived (`contextSchema.default(() => contextSchema.parse({}))`) rather than
+written out as a literal: zod returns a `.default()` value verbatim without
+re-parsing it, so a literal would be a second copy of the field defaults that
+could diverge from them silently.
 
 See PLAN.md §5 for the full target module tree (including mutating tools and
 MCP modules not yet built) and §10+ for the current phase's detailed spec.

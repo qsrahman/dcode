@@ -59,12 +59,13 @@ Node 26 strips types but does **not** transform. Therefore:
 
 ```
 src/
-  index.ts            # entry: parse CLI -> build config -> one-shot or REPL
-  cli/args.ts         # parseCli(argv) -> ParsedArgs (pure, fully tested)
+  index.ts            # entry: parse CLI -> build config -> ensureApiKey -> one-shot or REPL
+  cli/args.ts         # FLAGS table -> parseArgs options + formatFlags() for --help; parseCli(argv) -> ParsedArgs (strict: an unknown flag is an error)
   cli/repl.ts         # readline loop; builds the Session and drives runAgent
   cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
+  cli/auth.ts         # validateApiKey + ensureApiKey: the whole startup key path (prompt -> check -> persist)
   config/schema.ts    # zod schema (Config), .strict()
-  config/config.ts    # loadConfig(path) + mergeConfigs(CLI, file, env) + resolveRoot
+  config/config.ts    # loadConfig(path) + mergeConfigs(CLI, file, env) + resolveRoot + normalizeBaseURL
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
   agent/system.ts     # buildSystemPrompt(config)
   agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
@@ -95,7 +96,7 @@ src/
   ui/tools.ts            # renderToolResult / renderToolOutput — terminal rendering of tool calls (moved out of agent/loop.ts)
   types/marked-terminal.d.ts # local ambient types (marked-terminal ships none; @types/marked-terminal on npm is stale/mismatched)
   util/color.ts         # paintFor(color) — the one place styleText is applied, shared by util/log.ts and ui/tools.ts
-  util/log.ts           # diagnostics -> stderr (never console.log)
+  util/log.ts           # diagnostics -> stderr (never console.log); errorMessage, isAbortError
 ```
 
 ### Markdown rendering

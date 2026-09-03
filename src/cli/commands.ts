@@ -4,6 +4,7 @@ import type { Client, ResponseInput } from '../agent/client.ts'
 import type { RunSink } from '../agent/run.ts'
 import type { Logger } from '../util/log.ts'
 import type { ResponseItemFields } from '../agent/types.ts'
+import { contentToText } from '../agent/context/tokens.ts'
 import type { ToolRegistry } from '../tools/registry.ts'
 import { CommandRegistry } from './registry.ts'
 import type { ContextManager } from '../agent/context/manager.ts'
@@ -51,9 +52,10 @@ function historyToMarkdown(history: ResponseInput): string {
     } else if (it.type === 'function_call_output') {
       parts.push(`## tool output\n\n\`\`\`\n${it.output}\n\`\`\`\n`)
     } else if ('role' in it && 'content' in it) {
-      const text =
-        typeof it.content === 'string' ? it.content : JSON.stringify(it.content)
-      parts.push(`## ${it.role}\n\n${text}\n`)
+      // contentToText, not a local `typeof === 'string' ? ... : JSON.stringify`
+      // reimplementation: message content is often an array of parts, which
+      // the local version dumped into the transcript as raw JSON.
+      parts.push(`## ${it.role}\n\n${contentToText(it.content)}\n`)
     }
   }
   return parts.join('\n')
@@ -275,11 +277,13 @@ export function createCommands(): CommandRegistry {
         sink.write(`keys (global config, values hidden):\n${status}\n`)
         return 'ok'
       }
-      if (sub === 'set') {
+      if (sub === 'set' || sub === 'unset') {
         const provider = parts[1]?.toLowerCase()
         const value = parts.slice(2).join(' ')
-        if (!provider || !value) {
-          sink.write('usage: /key set <openai|brave> <value>\n')
+        if (!provider || (sub === 'set' && !value)) {
+          sink.write(
+            `usage: /key ${sub} <${KEY_PROVIDERS.join('|')}>${sub === 'set' ? ' <value>' : ''}\n`,
+          )
           return 'ok'
         }
         if (!isKnownProvider(provider)) {
@@ -289,29 +293,21 @@ export function createCommands(): CommandRegistry {
           return 'ok'
         }
         const field = keyField(provider)
-        setGlobalKey(field, value)
-        session.config[field] = value
-        // The OpenAI client captured the key at construction; rebuild it so the
-        // new key is actually used for subsequent requests this session.
-        session.client = createClient(session.config)
-        sink.write(`stored ${provider} key in ${globalConfigPath()}\n`)
-        return 'ok'
-      }
-      if (sub === 'unset') {
-        const provider = parts[1]?.toLowerCase()
-        if (!provider) {
-          sink.write('usage: /key unset <openai|brave>\n')
-          return 'ok'
+        if (sub === 'set') {
+          setGlobalKey(field, value)
+          session.config[field] = value
+        } else {
+          unsetGlobalKey(field)
+          delete (session.config as Record<string, unknown>)[field]
         }
-        if (!isKnownProvider(provider)) {
-          sink.write(`unknown provider: ${provider}\n`)
-          return 'ok'
-        }
-        const field = keyField(provider)
-        unsetGlobalKey(field)
-        delete (session.config as Record<string, unknown>)[field]
+        // The OpenAI client captured the key at construction; rebuild it so
+        // the change is actually used for subsequent requests this session.
         session.client = createClient(session.config)
-        sink.write(`cleared ${provider} key\n`)
+        sink.write(
+          sub === 'set'
+            ? `stored ${provider} key in ${globalConfigPath()}\n`
+            : `cleared ${provider} key\n`,
+        )
         return 'ok'
       }
       sink.write('usage: /key <set|unset|list> [provider] [value]\n')

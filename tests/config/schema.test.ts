@@ -64,4 +64,26 @@ describe('configSchema', () => {
       configSchema.parse({ context: { window: 100000, reserved: 1000 } }),
     ).not.toThrow()
   })
+
+  // zod returns a `.default()` value verbatim rather than re-parsing it, so a
+  // literal default object is a second copy of the field defaults that can
+  // drift from them silently: omitting `context` would yield the stale
+  // literal while `"context": {}` would yield the real defaults. The default
+  // is now derived by parsing {} through the same schema.
+  it('gives the same context whether the key is absent or an empty object', () => {
+    expect(configSchema.parse({}).context).toEqual(
+      configSchema.parse({ context: {} }).context,
+    )
+  })
+
+  it('still fills every context field when the key is absent', () => {
+    expect(configSchema.parse({}).context).toEqual({
+      auto: true,
+      window: 200000,
+      reserved: 20000,
+      keepTokens: 15000,
+      prune: true,
+      compactAt: 0.85,
+    })
+  })
 })

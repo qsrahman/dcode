@@ -1,6 +1,5 @@
 import { createInterface } from 'node:readline/promises'
 import { styleText } from 'node:util'
-import OpenAI from 'openai'
 import type { Config } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
 import type { ResponseInput } from '../agent/client.ts'
@@ -10,7 +9,7 @@ import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
 import { resolveRoot } from '../config/config.ts'
 import type { RunSink } from '../agent/run.ts'
-import { type Logger, errorMessage } from '../util/log.ts'
+import { type Logger, errorMessage, isAbortError } from '../util/log.ts'
 import {
   type Session,
   type HandleResult,
@@ -134,11 +133,7 @@ export async function handleLine(
     sink.write('\n')
     trimHistory(session.history, session.config.maxHistoryItems)
   } catch (err) {
-    // Two distinct abort paths land here: the SDK throws APIUserAbortError
-    // when the model request itself is cancelled mid-stream; runAgent throws
-    // a plain Error('aborted') when the signal fires between tool calls
-    // (after a turn already completed). Both are expected, not failures.
-    if (!(err instanceof OpenAI.APIUserAbortError) && !opts.signal?.aborted) {
+    if (!isAbortError(err, opts.signal)) {
       session.logger.error(errorMessage(err))
     }
   }

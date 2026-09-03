@@ -58,8 +58,9 @@ export function setGlobalKey(field: 'apiKey' | 'brave', value: string): void {
 }
 
 export function unsetGlobalKey(field: 'apiKey' | 'brave'): void {
-  const p = globalConfigPath()
-  if (!existsSync(p)) return
+  // No existsSync guard: readGlobalRaw already returns {} for a missing file,
+  // and writing the (possibly empty) result back is what creates the
+  // correctly-permissioned config directory in the first place.
   const data = readGlobalRaw()
   delete data[field]
   writeGlobalConfig(data)

@@ -1,7 +1,6 @@
 #!/usr/bin/env -S node
 
-import OpenAI from 'openai'
-import { parseCli } from './cli/args.ts'
+import { parseCli, formatFlags } from './cli/args.ts'
 import { startRepl } from './cli/repl.ts'
 import { buildConfig } from './config/config.ts'
 import { configSchema } from './config/schema.ts'
@@ -9,13 +8,11 @@ import { createClient } from './agent/client.ts'
 import { TaskStore } from './agent/todo-store.ts'
 import { runOneShot } from './agent/loop.ts'
 import { createLocalTools } from './tools/index.ts'
-import { createLogger, errorMessage } from './util/log.ts'
+import { createLogger, errorMessage, isAbortError } from './util/log.ts'
 import { getVersion } from './version.ts'
 import { fileURLToPath } from 'node:url'
 import { realpathSync } from 'node:fs'
-import { validateApiKey } from './cli/auth.ts'
-import { setGlobalKey } from './cli/keys.ts'
-import { createInterface } from 'node:readline/promises'
+import { ensureApiKey } from './cli/auth.ts'
 
 // True when this module is the process entry point. Resolving symlinks matters:
 // a global `pnpm add -g` install is reached through symlinks, so the raw
@@ -42,30 +39,7 @@ Usage:
   dcode              start the REPL
 
 Flags:
-  --model <id>     Model id
-  --config <path>  Path to JSON config
-  --verbose        Verbose diagnostics (stderr)
-  --no-color       Disable color
-  --version        Print version
-  --help           Print this help`)
-}
-
-// First-run key bootstrap for interactive (REPL) startup: if no API key is
-// available from env or config, prompt once. main() only refuses to persist
-// it on a confirmed 401/403; an indeterminate check (network error,
-// unsupported /models) still saves it, with a warning that it wasn't
-// actually verified. Visible input (no hidden echo); only runs on a TTY so
-// piped/one-shot use doesn't block. Returns the entered key, or '' if
-// skipped/empty.
-async function promptForApiKey(): Promise<string> {
-  if (!process.stdin.isTTY) return ''
-  process.stderr.write(
-    'No API key found. Paste your OpenAI-compatible key (saved to the global config):\n> ',
-  )
-  const rl = createInterface({ input: process.stdin })
-  const line = await rl.question('')
-  rl.close()
-  return line.trim()
+${formatFlags()}`)
 }
 
 export async function main(): Promise<void> {
@@ -85,48 +59,14 @@ export async function main(): Promise<void> {
     }
     const config = buildConfig(args)
     logger = createLogger(config)
-    // First-run key bootstrap (REPL/interactive only): if no key is available
-    // from env or config, prompt once. A key confirmed *invalid* (401/403)
-    // never gets stuck in the global config; an indeterminate check still
-    // persists it (see the validateApiKey call below), with a warning.
-    // One-shot use (a prompt was given) keeps the hard failure — there's no
-    // TTY to prompt on.
-    let promptedKey = ''
-    if (!args.prompt && !config.apiKey) {
-      promptedKey = await promptForApiKey()
-      if (promptedKey) config.apiKey = promptedKey
-    }
-    if (!config.apiKey) {
-      process.stderr.write(
-        'OPENAI_API_KEY is not set — dcode needs an OpenAI-compatible API key to run.\n\n' +
-          'Provide it one of these ways:\n' +
-          "  shell profile:  echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc\n" +
-          '  interactive:    paste it when dcode prompts on startup (saved to global config)\n' +
-          '  /key command:   run  /key set openai sk-...  in the REPL\n' +
-          'Then restart dcode if you used the shell profile.\n',
-      )
+    // Find, check, and (for a freshly pasted key) persist the API key.
+    // Interactive only when no prompt was given: a one-shot run has no TTY to
+    // prompt on and keeps the hard failure.
+    const authError = await ensureApiKey(config, logger, !args.prompt)
+    if (authError) {
+      process.stderr.write(authError)
       process.exit(1)
     }
-    const keyStatus = await validateApiKey(config)
-    if (keyStatus === 'invalid') {
-      const base = config.baseURL ?? 'https://api.openai.com/'
-      process.stderr.write(
-        `OPENAI_API_KEY is invalid (authentication failed) — dcode could not ` +
-          `authenticate with the configured endpoint (${base}).\n\n` +
-          'Check the value in your shell profile (.zshrc/.bashrc) or dcode.json config, then\n' +
-          'restart dcode.\n',
-      )
-      process.exit(1)
-    }
-    if (keyStatus === 'unknown' && promptedKey) {
-      logger.warn(
-        "could not verify the key against %s (network error, timeout, or the endpoint doesn't expose /models) — saving it unverified. If it turns out to be wrong, run /key set openai <value> to replace it.",
-        config.baseURL ?? 'https://api.openai.com/',
-      )
-    }
-    // Persist a freshly prompted key — confirmed valid, or unverified (warned
-    // above); only a confirmed-invalid key (handled above) is never stored.
-    if (promptedKey) setGlobalKey('apiKey', promptedKey)
     if (!args.prompt) {
       await startRepl(config, logger)
       return
@@ -145,11 +85,7 @@ export async function main(): Promise<void> {
         signal: ac.signal,
       })
     } catch (err) {
-      // Two distinct abort paths land here: the SDK throws APIUserAbortError
-      // when the model request itself is cancelled mid-stream; runAgent
-      // throws a plain Error('aborted') when the signal fires between tool
-      // calls (after a turn already completed).
-      if (err instanceof OpenAI.APIUserAbortError || ac.signal.aborted) return
+      if (isAbortError(err, ac.signal)) return
       throw err
     } finally {
       process.off('SIGINT', onSigint)

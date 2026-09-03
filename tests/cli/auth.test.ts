@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { validateApiKey } from '../../src/cli/auth.ts'
+import { validateApiKey, ensureApiKey } from '../../src/cli/auth.ts'
+import * as keys from '../../src/cli/keys.ts'
+import { createLogger } from '../../src/util/log.ts'
 import { cfg } from '../helpers.ts'
 
 // Built from the real configSchema (via the shared `cfg` helper), not a
@@ -87,5 +89,56 @@ describe('validateApiKey', () => {
       'http://localhost:11434/v1/models',
       expect.anything(),
     )
+  })
+})
+
+// The startup auth flow (prompt → validate → persist) moved out of index.ts's
+// main(), where it was ~45 inline lines that no test could reach without
+// running the whole binary. It returns the fatal message rather than calling
+// process.exit, so the caller owns how the process ends and this is testable.
+describe('ensureApiKey', () => {
+  const realIsTTY = process.stdin.isTTY
+
+  afterEach(() => {
+    process.stdin.isTTY = realIsTTY
+    vi.restoreAllMocks()
+  })
+
+  it('returns the setup help when there is no key and no TTY to prompt on', async () => {
+    process.stdin.isTTY = false
+    const config = cfg({ apiKey: undefined })
+    const out = await ensureApiKey(config, createLogger(cfg()), true)
+    expect(out).toMatch(/OPENAI_API_KEY is not set/)
+  })
+
+  it('blocks startup on a confirmed 401 and stores nothing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 401 })),
+    )
+    const setKey = vi.spyOn(keys, 'setGlobalKey')
+    const out = await ensureApiKey(baseConfig(), createLogger(cfg()), false)
+    expect(out).toMatch(/invalid \(authentication failed\)/)
+    expect(setKey).not.toHaveBeenCalled()
+  })
+
+  it('allows startup on an indeterminate check', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 404 })),
+    )
+    expect(
+      await ensureApiKey(baseConfig(), createLogger(cfg()), false),
+    ).toBeNull()
+  })
+
+  it('allows startup when the key checks out', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status: 200 })),
+    )
+    expect(
+      await ensureApiKey(baseConfig(), createLogger(cfg()), false),
+    ).toBeNull()
   })
 })

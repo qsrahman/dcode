@@ -1,5 +1,8 @@
+import { createInterface } from 'node:readline/promises'
 import type { Config } from '../config/schema.ts'
+import type { Logger } from '../util/log.ts'
 import { normalizeBaseURL } from '../config/config.ts'
+import { setGlobalKey } from './keys.ts'
 
 // 'invalid' is the only outcome that blocks startup — a definite 401/403 auth
 // rejection. 'valid' is a confirmed 2xx from the configured endpoint.
@@ -29,4 +32,76 @@ export async function validateApiKey(config: Config): Promise<ApiKeyStatus> {
     // other network failure: don't block startup, but don't call it verified.
     return 'unknown'
   }
+}
+
+const DEFAULT_ENDPOINT = 'https://api.openai.com/'
+
+const NO_KEY_HELP = `OPENAI_API_KEY is not set — dcode needs an OpenAI-compatible API key to run.
+
+Provide it one of these ways:
+  shell profile:  echo 'export OPENAI_API_KEY=sk-...' >> ~/.zshrc
+  interactive:    paste it when dcode prompts on startup (saved to global config)
+  /key command:   run  /key set openai sk-...  in the REPL
+Then restart dcode if you used the shell profile.
+`
+
+// First-run key bootstrap: if no API key is available from env or config,
+// prompt once. Visible input (no hidden echo); only on a TTY, so piped or
+// one-shot use never blocks on a keypress that isn't coming. Returns the
+// entered key, or '' if skipped/empty.
+async function promptForApiKey(): Promise<string> {
+  if (!process.stdin.isTTY) return ''
+  process.stderr.write(
+    'No API key found. Paste your OpenAI-compatible key (saved to the global config):\n> ',
+  )
+  const rl = createInterface({ input: process.stdin })
+  const line = await rl.question('')
+  rl.close()
+  return line.trim()
+}
+
+// The whole startup auth path, in one place: find a key (prompting on a TTY
+// when there's none), check it, and persist a freshly entered one.
+//
+// `interactive` is false for one-shot runs, which keep the hard failure —
+// there is no TTY to prompt on. A key confirmed *invalid* (401/403) is never
+// stored, so a bad paste can't get stuck in the global config; an
+// indeterminate result still stores it, with a warning, because a network
+// blip or an endpoint without /models is not evidence the key is wrong.
+//
+// Returns the fatal message to print, or null when startup may proceed —
+// rather than calling process.exit itself, so the caller keeps control of
+// how the process ends and this stays testable.
+export async function ensureApiKey(
+  config: Config,
+  logger: Logger,
+  interactive: boolean,
+): Promise<string | null> {
+  let promptedKey = ''
+  if (interactive && !config.apiKey) {
+    promptedKey = await promptForApiKey()
+    if (promptedKey) config.apiKey = promptedKey
+  }
+  if (!config.apiKey) return NO_KEY_HELP
+
+  const endpoint = config.baseURL ?? DEFAULT_ENDPOINT
+  const status = await validateApiKey(config)
+  if (status === 'invalid') {
+    return (
+      `OPENAI_API_KEY is invalid (authentication failed) — dcode could not ` +
+      `authenticate with the configured endpoint (${endpoint}).\n\n` +
+      'Check the value in your shell profile (.zshrc/.bashrc) or dcode.json config, then\n' +
+      'restart dcode.\n'
+    )
+  }
+  if (promptedKey) {
+    if (status === 'unknown') {
+      logger.warn(
+        "could not verify the key against %s (network error, timeout, or the endpoint doesn't expose /models) — saving it unverified. If it turns out to be wrong, run /key set openai <value> to replace it.",
+        endpoint,
+      )
+    }
+    setGlobalKey('apiKey', promptedKey)
+  }
+  return null
 }

@@ -1,3 +1,4 @@
+import OpenAI from 'openai'
 import { format } from 'node:util'
 import type { Config } from '../config/schema.ts'
 import { paintFor, type Paint } from './color.ts'
@@ -36,4 +37,13 @@ export function createLogger(
     warn: (...args) => write('[warn]', paint.warn, args),
     error: (...args) => write('[error]', paint.error, args),
   }
+}
+
+// A turn can be cancelled two different ways, and both are expected rather
+// than failures: the SDK throws OpenAI.APIUserAbortError when the model
+// request itself is cancelled mid-stream, while runAgent throws a plain
+// Error('aborted') when the signal fires between tool calls, after a turn has
+// already completed. Callers that catch around a turn need to recognize both.
+export function isAbortError(err: unknown, signal?: AbortSignal): boolean {
+  return err instanceof OpenAI.APIUserAbortError || Boolean(signal?.aborted)
 }

@@ -59,6 +59,22 @@
   4ac)) / (2a)` instead of LaTeX commands.
 
 ### Fixed
+- `--help` is rendered from the same `FLAGS` table `parseCli` parses with,
+  rather than a separate hand-written block in `index.ts`. The two had already
+  drifted: none of the four short forms (`-m`, `-c`, `-v`, `-h`) appeared
+  anywhere the user could see them, though all four have always worked.
+- `configSchema`'s nested `context` default was a literal object restating all
+  six field defaults. zod hands a `.default()` value back verbatim — it does
+  not re-parse it — so those were two independent sources of truth for the
+  same values: omitting `context` yielded the literal, while writing
+  `"context": {}` yielded the real field defaults, and nothing would have
+  flagged a divergence. The default is now derived by parsing `{}` through the
+  same schema. (`.default({})` does not work for the identical reason: it
+  would be returned as-is, giving an empty object with none of the fields.)
+- `/save <file>.md` wrote array-shaped message content into the transcript as
+  raw JSON: `historyToMarkdown` reimplemented content extraction as
+  `typeof === 'string' ? … : JSON.stringify(…)` instead of using the shared
+  `contentToText`, which exists precisely so the two can't diverge.
 - `runTool`'s `withDeadline` (`src/agent/run.ts`) now actually races the tool
   promise against `config.toolTimeout` and `ctx.signal` instead of `await`ing
   it and consulting the signals only afterwards. As written, a tool that
@@ -273,6 +289,19 @@
     are protected as a unit.
 
 ### Refactored
+- The startup API-key path — prompt on a TTY, validate, warn, persist — moved
+  out of `index.ts`'s `main()` (~45 inline lines, unreachable by any test
+  short of running the binary) into `cli/auth.ts`'s `ensureApiKey`, beside the
+  `validateApiKey` it already wrapped. It returns the fatal message instead of
+  calling `process.exit` itself, so the caller owns how the process ends and
+  the flow is testable; `index.ts` drops from 165 to 101 lines.
+- Abort detection was duplicated in `cli/repl.ts` and `index.ts` — the same
+  predicate and the same four-line comment about the SDK's
+  `APIUserAbortError` versus `runAgent`'s plain `Error('aborted')`. Both now
+  call `util/log.ts`'s `isAbortError(err, signal)`.
+- `/key`'s `set` and `unset` branches repeated the same
+  parse-provider-then-validate sequence; merged. `unsetGlobalKey` checked
+  `existsSync` immediately before `readGlobalRaw` checked it again.
 - Tools are now built with `tools/registry.ts`'s `defineTool`, which infers a
   tool's argument type from its zod schema. Previously every tool spelled its
   parameter shape twice — as an explicit `ToolDefinition<{...}>` annotation
@@ -319,6 +348,13 @@
   instead of the handle it had already opened.
 
 ### Changed
+- `parseCli` now runs `parseArgs` in strict mode: an unrecognized flag is an
+  error. Lenient parsing wasn't merely forgiving, it was destructive —
+  `dcode --modle gpt-4 "do a thing"` dropped the flag *and* pulled its value
+  into the positionals, silently running the default model against the prompt
+  `"gpt-4 do a thing"`. This matches the config file, which already rejected
+  unknown keys via `configSchema.strict()`. A prompt beginning with `-` still
+  works after `--`.
 - Exhausting `maxToolIterations` with tool calls still pending now logs a
   warning naming the setting. The loop previously just returned whatever text
   the final turn produced — for a pure tool-call turn, nothing — so a
@@ -332,6 +368,13 @@
   impossible, since the loop serializes them.
 
 ### Docs
+- `AGENTS.md`'s "Configuration sources" section gains the rule behind the two
+  strictness changes above (unknown input is rejected at every layer, not
+  tolerated), how to add a flag (one `FLAGS` entry, never a separate help
+  block), and the zod `.default()` verbatim-return trap. It was also missing
+  `BRAVE_API_KEY` from the env-var list, as was `README.md`'s.
+- `README.md`'s flag table now shows the short forms and documents the `--`
+  escape for a prompt starting with `-`.
 - `PLAN.md` §5's module tree, `CLAUDE.md`'s architecture section, and
   `AGENTS.md`'s module-layout notes are synced with the above: the
   `ui/tools.ts` and `util/color.ts` split, `defineTool` as the way to add a

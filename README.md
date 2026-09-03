@@ -30,9 +30,10 @@ persist them in `dcode.json` via `/key` for a global install):
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENAI_API_KEY` | API key (required). If unset, dcode prints setup guidance and exits. |
+| `OPENAI_API_KEY` | API key (required). If unset, dcode prompts for one on an interactive terminal and saves it to the global config; otherwise it prints setup guidance and exits. |
 | `OPENAI_BASE_URL` | Override the API base URL (OpenAI-compatible endpoints). |
 | `OPENAI_MODEL` | Default model id when not set in config or `--model`. |
+| `BRAVE_API_KEY` | Brave Search key for `web_search` (or store it with `/key set brave`). |
 | `DCODE_CONFIG_HOME` | Directory holding the global `dcode.json` (default `~/.config/dcode`). |
 
 ## Install (from source)
@@ -53,12 +54,19 @@ dcode                                                # REPL
 
 | Flag | Description |
 |------|-------------|
-| `--model <id>` | Model id (default: latest flagship; overridable in config). |
-| `--config <path>` | Path to a JSON config file. |
+| `-m`, `--model <id>` | Model id (default: latest flagship; overridable in config). |
+| `-c`, `--config <path>` | Path to a JSON config file. |
 | `--verbose` | Verbose diagnostics (stderr) and echoes tool results to the terminal. |
 | `--no-color` | Disable colored output. |
-| `--version` | Print version and exit. |
-| `--help` | Print help and exit. |
+| `-v`, `--version` | Print version and exit. |
+| `-h`, `--help` | Print help and exit. |
+
+An unrecognized flag is an error rather than being ignored. To pass a prompt
+that begins with `-`, put it after `--`:
+
+```sh
+dcode -- "--this reads as a prompt, not a flag"
+```
 
 ### REPL slash commands
 
