@@ -107,11 +107,19 @@ export async function runTool(
   }
 }
 
-// Race a tool's execution against its timeout and the caller's abort signal.
-// Rejects promptly on either; the tool promise still settles (its rejection is
-// handled here, so no unhandled rejection). Process-spawning tools also receive
-// ctx.signal directly, so the abort actually kills the child, not just this
-// wrapper.
+// Race a tool's execution against its timeout and the caller's abort signal,
+// rejecting promptly on whichever fires first. This has to be an actual
+// `Promise.race`, not `await p` with the signals only consulted afterwards:
+// a tool that neither observes ctx.signal nor bounds itself (a prompt
+// waiting on stdin, a stalled socket) would otherwise hold the whole agent
+// loop open forever, with `toolTimeout` never enforced against it.
+//
+// Losing the race abandons `p` rather than cancelling it — nothing here can
+// force a tool to stop. That's why every process-spawning tool also receives
+// ctx.signal (and its own `timeout`) directly: those kill the child for
+// real, and this wrapper is the backstop for everything else. An abandoned
+// `p` still needs a rejection handler attached, or its eventual failure
+// surfaces as an unhandled rejection long after runTool returned.
 async function withDeadline<T>(
   p: Promise<T>,
   ms: number,
@@ -121,17 +129,39 @@ async function withDeadline<T>(
   const combinedSignal = signal
     ? AbortSignal.any([signal, timeoutSignal])
     : timeoutSignal
+  // The timeout takes precedence in the message only when it's what fired;
+  // an already-aborted caller signal still reads as 'aborted'.
+  const deadlineError = () =>
+    timeoutSignal.aborted && !signal?.aborted
+      ? new Error(`tool timed out after ${ms}ms`)
+      : new Error('aborted')
+
+  // Marks `p` handled for the abandoned case above. Promise.race attaches
+  // its own handlers independently, so this doesn't swallow a real rejection.
+  void p.catch(() => {})
+
+  if (combinedSignal.aborted) throw deadlineError()
+
+  // Removes the abort listener once the race settles, so a fast tool doesn't
+  // leave one attached to a caller signal that outlives it.
+  const cleanup = new AbortController()
+  const deadline = new Promise<never>((_resolve, reject) => {
+    combinedSignal.addEventListener('abort', () => reject(deadlineError()), {
+      once: true,
+      signal: cleanup.signal,
+    })
+  })
 
   try {
-    return await p
+    return await Promise.race([p, deadline])
   } catch (err) {
-    if (combinedSignal.aborted) {
-      if (timeoutSignal.aborted) {
-        throw new Error(`tool timed out after ${ms}ms`)
-      }
-      throw new Error('aborted')
-    }
+    // A tool that rejects *because* it saw the abort (execa's cancelSignal,
+    // fetch's signal) reports its own low-level error; normalize those to
+    // the same message the deadline branch produces.
+    if (combinedSignal.aborted) throw deadlineError()
     throw err
+  } finally {
+    cleanup.abort()
   }
 }
 

@@ -43,14 +43,23 @@ marked.use({
 // items render inline styling at all. Not overridable via the extension
 // system (`fixNestedLists` is an internal helper, not a renderer method),
 // so this strips the resulting artifact post-render instead: a line that
-// is non-empty but contains nothing except whitespace and ANSI escapes. A
-// genuine blank separator line from marked-terminal is always the empty
-// string, so this can't collide with intentional spacing.
+// is non-empty, *contains at least one ANSI escape*, and has nothing but
+// whitespace left once those escapes are removed. The ANSI requirement
+// matters: marked-terminal indents fenced code blocks, so a blank line
+// inside a code block comes out as a whitespace-only line with no escapes
+// at all — dropping those would silently delete blank lines from the
+// model's code samples. A genuine blank separator line from marked-terminal
+// is always the empty string, so this can't collide with intentional
+// spacing either.
 const ANSI_RE = /\x1b\[[0-9;]*m/g
 export function stripSpuriousAnsiOnlyLines(rendered: string): string {
   return rendered
     .split('\n')
-    .filter((line) => line === '' || line.replace(ANSI_RE, '').trim() !== '')
+    .filter((line) => {
+      if (line === '') return true
+      const bare = line.replace(ANSI_RE, '')
+      return bare === line || bare.trim() !== ''
+    })
     .join('\n')
 }
 

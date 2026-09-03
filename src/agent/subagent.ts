@@ -12,7 +12,7 @@ export interface AgentType {
 // Matches the names used in src/tools/index.ts and src/tools/local/*.ts.
 const EXPLORE_TOOLS = [
   'read_file',
-  'list_directory',
+  'list_dir',
   'grep',
   'stat',
   'glob',
@@ -24,7 +24,7 @@ const EXPLORE_TOOLS = [
 // spawn sub-agents (depth limit enforced in task.ts).
 const GENERAL_TOOLS = [
   'read_file',
-  'list_directory',
+  'list_dir',
   'grep',
   'stat',
   'glob',

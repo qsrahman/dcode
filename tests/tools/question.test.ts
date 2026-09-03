@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { askUserTool } from '../../src/tools/local/question.ts'
 import type { ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
@@ -18,10 +18,20 @@ const mockedMultiselect = vi.mocked(multiselect)
 const mockedText = vi.mocked(text)
 
 let ctx: ToolContext
+const realIsTTY = process.stdin.isTTY
 
+// ask_user refuses to prompt when stdin isn't a TTY (a piped one-shot run
+// would otherwise hang forever waiting for a keypress). vitest runs with a
+// non-TTY stdin, so the interactive path has to be simulated here.
 beforeEach(() => {
   vi.clearAllMocks()
   ctx = { root: '/tmp', config: cfg(), logger: createLogger(cfg()) }
+  process.stdin.isTTY = true
+})
+
+afterEach(() => {
+  process.stdin.isTTY = realIsTTY
+  vi.restoreAllMocks()
 })
 
 describe('ask_user tool', () => {
@@ -167,5 +177,25 @@ describe('ask_user tool', () => {
       ),
     )
     expect(res.ok).toBe(false)
+  })
+})
+
+describe('ask_user without an interactive terminal', () => {
+  it('refuses instead of hanging on a non-TTY stdin', async () => {
+    process.stdin.isTTY = false
+    const out = await askUserTool().execute(
+      {
+        questions: [
+          {
+            question: 'Pick one',
+            header: 'Choice',
+            options: [{ label: 'A', description: 'first' }],
+          },
+        ],
+      },
+      ctx,
+    )
+    expect(out).toContain('no interactive terminal')
+    expect(mockedSelect).not.toHaveBeenCalled()
   })
 })

@@ -5,6 +5,8 @@ import { runAgent } from '../../agent/loop.ts'
 import { ContextManager } from '../../agent/context/manager.ts'
 import { ToolRegistry } from '../registry.ts'
 import { getAgentType } from '../../agent/subagent.ts'
+import { TaskStore } from '../../agent/todo-store.ts'
+import { todoTool } from './todo.ts'
 import type { RunSink } from '../../agent/run.ts'
 
 const MAX_DEPTH = 1
@@ -36,16 +38,16 @@ When NOT to use the Task tool:
 
 Usage notes:
 1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses
-2. Once you have delegated work to an agent, do not duplicate that work yourself. Continue with non-overlapping tasks, or wait for the result. For background tasks, you will be notified automatically when the result is ready.
-3. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result. The output includes a task_id you can reuse later to continue the same subagent session.
-4. Each agent invocation starts with a fresh context unless you provide task_id to resume the same subagent session (which continues with its previous messages and tool outputs). When starting fresh, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return in its final and only message to you.
+2. Once you have delegated work to an agent, do not duplicate that work yourself. Continue with non-overlapping tasks.
+3. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
+4. Every agent invocation starts with a fresh context; sessions cannot be resumed. Your prompt must be a complete, self-contained task description, and should say exactly what information the agent is to return in its final and only message to you.
 5. The agent's outputs should generally be trusted
 6. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
 7. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
 
 Available agent types and the tools they have access to:
-- general: Full tools for research and multi-step tasks. Has access to: read_file, list_directory, grep, stat, glob, write_file, edit_file, move_file, copy_file, delete_file, make_dir, run_shell, run_process, read_process, kill_process, web_search, web_fetch, todowrite, ask_user
-- explore: Read-only agent for codebase exploration. Has access to: read_file, list_directory, grep, stat, glob, web_search, web_fetch`,
+- general: Full tools for research and multi-step tasks. Has access to: read_file, list_dir, grep, stat, glob, write_file, edit_file, move_file, copy_file, delete_file, make_dir, run_shell, run_process, read_process, kill_process, web_search, web_fetch, todowrite, ask_user
+- explore: Read-only agent for codebase exploration. Has access to: read_file, list_dir, grep, stat, glob, web_search, web_fetch`,
     parameters: z.object({
       description: z
         .string()
@@ -54,16 +56,6 @@ Available agent types and the tools they have access to:
       subagent_type: z
         .string()
         .describe('The type of specialized agent to use for this task'),
-      task_id: z
-        .string()
-        .optional()
-        .describe(
-          'This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session instead of creating a fresh one)',
-        ),
-      command: z
-        .string()
-        .optional()
-        .describe('The command that triggered this task'),
     }),
     async execute(args: unknown, ctx: ToolContext) {
       return runSubAgent(
@@ -71,8 +63,6 @@ Available agent types and the tools they have access to:
           description: string
           prompt: string
           subagent_type: string
-          task_id?: string
-          command?: string
         },
         ctx,
         parentClient,
@@ -87,8 +77,6 @@ async function runSubAgent(
     description: string
     prompt: string
     subagent_type: string
-    task_id?: string
-    command?: string
   },
   ctx: ToolContext,
   client: Client,
@@ -111,9 +99,17 @@ async function runSubAgent(
     )
   }
 
-  // Filter parent's tools to only those the agent type can use.
+  // Filter parent's tools to only those the agent type can use. `todowrite`
+  // is rebound to a fresh, per-sub-agent TaskStore rather than reused as-is:
+  // the parent's definition closes over the *session's* store, and
+  // TaskStore.replace overwrites the whole list, so a sub-agent tracking its
+  // own steps would wipe the parent's plan — including the "authoritative
+  // task list" compact.ts injects into the compaction summary.
   const childTools = new ToolRegistry(
-    parentTools.list().filter((t) => agentType.tools.includes(t.name)),
+    parentTools
+      .list()
+      .filter((t) => agentType.tools.includes(t.name))
+      .map((t) => (t.name === 'todowrite' ? todoTool(new TaskStore()) : t)),
   )
 
   // Sub-agents get their own context manager with compaction disabled — they

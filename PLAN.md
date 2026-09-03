@@ -71,20 +71,21 @@ src/
                       #   prune.ts   (collapse old tool outputs to a marker)
                       #   compact.ts (summarize oldest history via a model call)
                       #   manager.ts (ContextManager: prune→compact, overflow retry, breaker)
-  agent/types.ts      # ToolDefinition<P>, ToolContext, ToolCall, ToolResult
-  agent/tasks.ts      # TaskStore: in-session task list (create/list/update)
-  tools/index.ts      # createLocalTools(tasks): hub that registers all built-in tools into the registry
+  agent/types.ts      # ToolDefinition<P>, ToolContext (incl. depth), ToolCall, ToolResult, ResponseItemFields
+  agent/todo-store.ts # TaskStore: in-session todo list (replace/list — the model sends the whole list)
+  agent/subagent.ts   # AGENT_TYPES (general, explore): per-type tool allow-list + system prompt
+  tools/index.ts      # createLocalTools(tasks, client): hub that registers all built-in tools into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema
   tools/local/        # local tool set, split by concern:
-    constants.ts      #   CHILD_MAX_BUFFER — shared child_process buffer ceiling
-    paths.ts          #   resolvePath, fsError — path confinement (realpath-checked against symlink escapes)
-    exec.ts           #   runExec, safeEnv — shared execa wrapper (timeout/cancelSignal/maxBuffer, env redaction) for run_shell/git
+    paths.ts          #   resolvePath, withFsError, ensureParentDir — path confinement (realpath-checked against symlink escapes) + shared fs error/mkdir idioms
+    exec.ts           #   run_shell + baseExecOptions/safeEnv/runExec/CHILD_MAX_BUFFER — shared execa wrapper (timeout/cancelSignal/maxBuffer, env redaction)
+    http.ts           #   fetchSafely (SSRF guard, timeout, manual redirects), readBounded — shared network boundary for web.ts
     fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
     search.ts         #   grep, glob — both ripgrep-backed (@vscode/ripgrep's bundled binary, spawned directly, not via exec.ts); find_symbol/find_references planned, P12
-    shell.ts          #   run_shell (via exec.ts's runExec)
     process.ts        #   run_process, read_process, kill_process — background, via execa (killDescendants: true)
-    git.ts            #   git: scoped status/diff/log/show/add/commit/branch (via exec.ts's runExec)
-    todo.ts           #   todo (single tool over TaskStore: add/list/update/done)
+    todo.ts           #   todowrite (single tool over TaskStore: the model sends the full list each call)
+    question.ts       #   ask_user (@clack/prompts; refuses when stdin isn't a TTY)
+    task.ts           #   task (sub-agent: filtered tool registry + own TaskStore, depth-limited to 1)
     web.ts            #   web_search (Brave; key from ctx.config.brave only), web_fetch
   tools/mcp/manager.ts  # connect servers, cache tools, callTool (P6, not yet built)
   ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
@@ -180,18 +181,33 @@ See §17 for deferred candidates.
 | P6 | MCP integration | |
  | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 | P8 | Task list (in-session: create/list/update) | **Done** |
-| P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
+| P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done, then removed** — the scoped allow-list added no safety over `run_shell` (which is ungated anyway) while costing a whole tool slot; git is reached via `run_shell` |
 | P10 | Context-window management (prune + compact + overflow retry) | **Done** |
 | P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** (see §19) |
 | P12 | Symbol search (`find_symbol` / `find_references`, ripgrep-lite) | **Planned** (see §20) |
 | P13 | `apply_patch` (atomic multi-file unified-diff apply) | **Planned** (see §21) |
+
+Landed outside the numbered phases (no new locked decisions; see §6):
+
+- **Markdown rendering** — `ui/markdown.ts` renders streamed assistant output
+  as ANSI via `marked` + `marked-terminal`, emitting only block-complete lines.
+- **`ask_user`** (`tools/local/question.ts`) — interactive questions via
+  `@clack/prompts`; returns a "no interactive terminal" result rather than
+  hanging when stdin isn't a TTY.
+- **Sub-agents** (`agent/subagent.ts` + `tools/local/task.ts`) — the `task`
+  tool runs a nested `runAgent` with a filtered tool registry, its own
+  `TaskStore` and `ContextManager` (compaction off), a silent sink, and a
+  nesting depth limit of 1. Sessions are never resumable: each call starts
+  from a fresh history.
+- **`todo` → `todowrite`** — the four-action tool was replaced by a single
+  whole-list write, so the model's plan can't drift out of sync field by field.
 
 ## 9. Testing strategy
 
 - Tests live in `tests/`, mirroring `src/` (`tests/cli/args.test.ts` -> `src/cli/args.ts`).
 - Prefer fast, deterministic unit tests over network integration.
 - Mock external boundaries (OpenAI client, `child_process`, `fs` side effects).
-- For colored output, assert against `ansis.strip(...)`.
+- For colored output, assert against `node:util`'s `stripVTControlCharacters(...)`.
 - `tsc --noEmit` and `pnpm format:check` gate every commit.
 
 ## 10. P2 Specification (REPL)

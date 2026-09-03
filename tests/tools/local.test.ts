@@ -32,6 +32,8 @@ import {
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { runTool } from '../../src/agent/run.ts'
 import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
+import { z } from 'zod'
+import { getEventListeners } from 'node:events'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'
 
@@ -619,6 +621,58 @@ describe('runTool', () => {
     const res = await runTool(call, tool('read_file'), ctx)
     expect(res.ok).toBe(true)
     expect(res.output).toBe('1\thi')
+  })
+
+  // withDeadline has to actually race the tool promise, not just await it and
+  // check the signals afterwards: a tool that never settles and never observes
+  // ctx.signal (a prompt waiting on stdin, a stalled socket) would otherwise
+  // hold the agent loop open forever with toolTimeout never enforced.
+  const neverSettles: ToolDefinition<Record<string, never>> = {
+    name: 'never_settles',
+    description: 'hangs forever',
+    parameters: z.object({}),
+    execute: () => new Promise<string>(() => {}),
+  }
+  const hangCall: ToolCall = {
+    id: 'c',
+    name: 'never_settles',
+    arguments: '{}',
+  }
+
+  it('times out a tool that never settles', async () => {
+    const res = await runTool(hangCall, neverSettles as ToolDefinition, {
+      ...ctx,
+      config: cfg({ toolTimeout: 20 }),
+    })
+    expect(res.ok).toBe(false)
+    expect(res.output).toMatch(/timed out after 20ms/)
+  })
+
+  it('aborts a tool that never settles when ctx.signal fires', async () => {
+    const ac = new AbortController()
+    const pending = runTool(hangCall, neverSettles as ToolDefinition, {
+      ...ctx,
+      signal: ac.signal,
+    })
+    ac.abort()
+    const res = await pending
+    expect(res.ok).toBe(false)
+    expect(res.output).toMatch(/aborted/)
+  })
+
+  it('does not leave an abort listener on a caller signal after a fast tool', async () => {
+    await writeFile(join(root, 'a.txt'), 'hi')
+    const ac = new AbortController()
+    const call: ToolCall = {
+      id: 'c',
+      name: 'read_file',
+      arguments: '{"path":"a.txt"}',
+    }
+    for (let i = 0; i < 5; i++) {
+      await runTool(call, tool('read_file'), { ...ctx, signal: ac.signal })
+    }
+    // AbortSignal is an EventTarget; Node exposes the count for assertions.
+    expect(getEventListeners(ac.signal, 'abort')).toHaveLength(0)
   })
 })
 

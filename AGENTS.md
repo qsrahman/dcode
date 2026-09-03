@@ -54,8 +54,10 @@ architecture, or conventions.
   **interactive REPL prompt** only.
 - All other diagnostics go to **stderr** via `util/log.ts` — `createLogger(config)`
   returns `{ debug, warn, error }`, where `debug` is gated by `config.verbose` and
-  `warn`/`error` always emit. Color comes from the `ansis`
-  dependency (disabled when `config.color` is false). `--verbose` also echoes
+  `warn`/`error` always emit. Color comes from `node:util`'s `styleText`
+  (disabled when `config.color` is false — the paint functions are built
+  per-call from that flag rather than relying on Node's own auto-detection,
+  which is decided at startup before `--no-color` is parsed). `--verbose` also echoes
   each tool call's raw output to the terminal (in addition to stderr
   diagnostics) — see README's flag reference.
 
@@ -86,7 +88,7 @@ memory for the current session, so it still works there, but a later
 - Tests in `tests/`, mirroring `src/` (`tests/cli/args.test.ts` -> `src/cli/args.ts`).
 - Prefer fast, deterministic unit tests over network integration.
 - Mock external boundaries (OpenAI client, `child_process`, `fs` side effects).
-- For colored output, assert against `ansis.strip(...)`.
+- For colored output, assert against `node:util`'s `stripVTControlCharacters(...)`.
 - Same code style as `src/`.
 
 ## Module layout
@@ -101,6 +103,15 @@ deliberate, not an inconsistency to "fix": ripgrep's exit-code convention (0 =
 matches, 1 = ran fine, nothing found — neither is an error) doesn't fit
 `runExec`'s throw-on-nonzero contract. Both tools share a local `runRg` helper
 with the correct exit-code handling instead.
+
+`runTool` (`agent/run.ts`) races every tool against `config.toolTimeout` and
+`ctx.signal` via `withDeadline`. Losing that race **abandons** the tool
+promise — nothing can force a tool to stop from the outside — so a tool that
+spawns or connects must also take `ctx.signal` itself (`baseExecOptions`'
+`cancelSignal`, `fetchSafely`'s combined signal) if the underlying resource is
+to be released rather than merely orphaned. A tool that blocks on input must
+refuse up front when it can't succeed (see `ask_user`'s TTY check) rather than
+relying on the deadline to tidy up.
 
 ## Security model
 
@@ -118,7 +129,8 @@ fetching an internal address without the user ever intending it. Unlike
 implicitly accepts as full shell access each session), this is cheap to guard
 against without materially changing dcode's trust model, so `web_fetch`
 resolves the target host and rejects loopback/RFC1918/link-local/cloud-
-metadata addresses before connecting (`tools/local/web.ts`'s `assertPublicHost`),
+metadata addresses before connecting (`tools/local/http.ts`'s `assertPublicHost`,
+reached via its `fetchSafely` wrapper),
 re-validating on every redirect hop. This is a resolve-then-check guard, not
 connection-level pinning — a host whose DNS record changes between the check
 and the actual request (DNS rebinding) could still slip through — but it

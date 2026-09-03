@@ -3,16 +3,17 @@
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
 
-> Status: **P10 complete** — one-shot, the interactive REPL, the tool-using
-> agent loop (read-only and mutating tools), an in-session task list, a scoped
-> `git` tool, and automatic context-window management all work. See
+> Status: **P11 complete** — one-shot, the interactive REPL, the tool-using
+> agent loop (read-only and mutating tools), an in-session todo list,
+> sub-agents, and automatic context-window management all work. See
 > [PLAN.md](./PLAN.md) for the full roadmap.
 
 > **⚠️ Security warning — tools are ungated.** dcode has **no permission
 > architecture**. Every tool, including mutating ones (`write_file`, `edit_file`,
-> `run_shell`, and `git` `commit`/`branch`), runs **automatically** the moment the
+> `delete_file`, `run_shell`), runs **automatically** the moment the
 > model calls it — there is no confirmation prompt, allow-list, sandbox, or
-> dry-run mode. The model can edit files and execute arbitrary shell commands in
+> dry-run mode. Sub-agents launched with `task` run the same ungated tools.
+> The model can edit files and execute arbitrary shell commands in
 > the working directory entirely on its own initiative. **Use with caution:**
 > point dcode only at sandboxed or disposable directories, and review its
 > actions. A declarative permissions/modes system was planned (P5) but cancelled.
@@ -62,21 +63,30 @@ dcode                                                # REPL
 ### REPL slash commands
 
 `/help` `/key` `/model` `/tools` `/clear` `/reset` `/compact` `/context` `/tasks`
-`/config` `/undo` `/verbose` `/version` `/exit`
+`/todo` `/config` `/undo` `/verbose` `/version` `/limit` `/save` `/exit`
 
- (`/clear` clears the screen; `/reset` drops the conversation history. `/model`
+ (`/clear` clears the screen; `/reset` drops the conversation history and
+ requires an explicit `/reset confirm` — there is no undo, so it refuses a
+ bare `/reset` and points at `/save`. `/model`
  with no argument prints the current model; `/model <id>` switches it. `/tools`
  lists the tools the agent can call. `/compact` summarizes the oldest part of the
  conversation into a short summary to free context; `/context` shows the estimated
  token usage against the model's window. `/tasks` lists the in-session task list;
  `/config` prints the effective configuration; `/undo` removes the last user
- exchange (prompt + response); `/verbose` toggles verbose mode, optionally
+ exchange (prompt + response); `/save [path.md|path.json]` writes the
+ transcript out (refusing to overwrite an existing file); `/limit` reports
+ the API rate-limit headroom; `/verbose` toggles verbose mode, optionally
  `/verbose on|off`.)
+
+ Ctrl-C cancels the turn in flight. With nothing running, a single Ctrl-C
+ prints a hint and a second one within two seconds exits, matching the
+ convention of bash, Python, and Node's own REPL.
 
  The REPL supports tab-completion: slash commands complete from the list above,
  and the last whitespace-delimited token is completed as a file path under the
  working directory. In `--verbose` mode, tool-status lines are colorized and any
- diff output (e.g. `git diff`) is shown with colored additions/removals.
+ diff output (e.g. a `git diff` run through `run_shell`) is shown with colored
+ additions/removals.
  Assistant responses are rendered as styled markdown while streaming
  (headings, bold/italic, lists, syntax-highlighted code blocks) — a code
  block or other block-level construct isn't shown until it's complete, so
@@ -100,8 +110,9 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`). |
 | `web_search` | Search the web via Brave (`BRAVE_API_KEY` required). |
 | `web_fetch` | Fetch a URL and return its content (HTML → Markdown, JSON pretty-printed); no API key required. |
-| `todo` | Manage the in-session task list (add / list / update / done) to plan and track multi-step work. |
-| `git` | Scoped git operations: `status`, `diff`, `log`, `show`, `add`, `commit`, `branch` (in the working directory). |
+| `todowrite` | Replace the in-session todo list (the model sends the whole list each call) to plan and track multi-step work. |
+| `ask_user` | Ask the user a multiple-choice or free-text question mid-run (interactive terminals only). |
+| `task` | Delegate self-contained work to a sub-agent (`general` or `explore`) with its own context. |
 | `move_file` | Move/rename a file or directory under the working directory. |
 | `copy_file` | Copy a file under the working directory. |
 | `delete_file` | Delete a file or (with `recursive`) a directory under the working directory. |
@@ -128,8 +139,22 @@ end-of-file.
 Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
 (default 32 KiB), and tool errors are returned to the model so it can
 self-correct. In-flight tools (including `run_shell`) are cancelled on Ctrl-C.
-The `todo` tool holds an in-session list the model uses to plan and track work;
-the list is in-memory only and is cleared by `/reset` (and listed with `/todo`).
+The `todowrite` tool holds an in-session list the model uses to plan and track
+work; the model sends the entire list on every call, so its view and dcode's
+can't drift apart. The list is in-memory only and is cleared by `/reset` (and
+listed with `/tasks` or `/todo`).
+
+`ask_user` pauses the run to ask a question (single- or multi-select, with an
+optional free-text answer). It needs an interactive terminal: with piped or
+redirected stdin it returns immediately, telling the model to proceed on its
+own judgement, rather than blocking on a keypress that will never come.
+
+The `task` tool runs a **sub-agent** — a nested agent loop with its own
+history, its own todo list, and only the tools its agent type allows:
+`explore` is read-only (search, read, web), `general` gets everything except
+`task` itself. Sub-agents can't spawn sub-agents, their output isn't streamed
+to the terminal (only the final result returns to the parent), and each call
+starts from a fresh context — there is no way to resume one.
 
 **Context-window management.** Long sessions are kept within `context.window`:
 before each request, dcode prunes old tool outputs (collapsing them to a short
@@ -137,8 +162,8 @@ marker) and, once the estimate crosses `context.compactAt` of the usable budget
 (default 0.85), summarizes the oldest history into a single `user` message
 while keeping a recent tail verbatim — *proactively*, before a context-length
 error forces a retry. The summary is produced by a separate model call whose
-instruction also includes the session's authoritative task list (from the `todo`
-tool), so the summary can't contradict what was actually tracked. The token
+instruction also includes the session's authoritative task list (from
+`todowrite`), so the summary can't contradict what was actually tracked. The token
 estimate is calibrated against the real `usage` the API returns, so no tokenizer
 dependency is needed. If a request still exceeds the window, dcode compacts and
 retries once. Set `context.window` to match your model (lower it for small local

@@ -13,11 +13,15 @@ import { stripVTControlCharacters } from 'node:util'
 // Live end-to-end stress test. Talks to the real model (configured via the
 // global config, env, or CLI flags) and drives the real agent loop + tools over
 // THIS repository. Not part of the unit suite: run it explicitly with
-// `node scripts/live-stress.ts`. Exercises tool iteration, truncation, context
-// compaction (proactive + todo-aware), mutating writes, background processes,
-// ripgrep-backed grep/glob, web search, and concurrent runs, and verifies the
-// UI/UX spacing of the rendered output (exactly one well-formed line per tool
-// call).
+// `pnpm stress`. Exercises tool iteration, truncation, context compaction
+// (proactive + todo-aware), mutating writes, background processes,
+// ripgrep-backed grep/glob, web search/fetch, the todowrite list, sub-agents
+// (the task tool), and concurrent runs — and verifies the UI/UX spacing of
+// the rendered output (exactly one well-formed line per tool call) plus the
+// markdown rendering of the streamed answer.
+//
+// `ask_user` is deliberately never exercised: it blocks on a real keypress,
+// which would hang an unattended run.
 
 type Item = { type?: string; [k: string]: unknown }
 
@@ -25,9 +29,33 @@ function count(history: ResponseInput, type: string): number {
   return (history as Item[]).filter((h) => h.type === type).length
 }
 
+function toolNames(history: ResponseInput): string[] {
+  return (history as Item[])
+    .filter((h) => h.type === 'function_call')
+    .map((h) => String(h.name))
+}
+
+// What a scenario's `check` gets: everything observable about the run.
+interface RunFacts {
+  history: ResponseInput
+  // Streamed output, ANSI already stripped.
+  out: string
+  text: string
+  tasks: TaskStore
+}
+
 interface Scenario {
   name: string
   prompt: string
+  // Optional semantic assertion beyond "answered non-empty". Throw to fail.
+  check?: (facts: RunFacts) => void
+}
+
+function requireTool(facts: RunFacts, name: string): void {
+  const called = toolNames(facts.history)
+  if (!called.includes(name)) {
+    throw new Error(`expected the model to call ${name}, got [${called}]`)
+  }
 }
 
 const scenarios: Scenario[] = [
@@ -65,6 +93,64 @@ const scenarios: Scenario[] = [
     name: 'background-process',
     prompt:
       'Use run_process to run `echo dcode-bg-hello` in the background, wait a moment, then use read_process to fetch its output and report exactly what it printed.',
+  },
+  {
+    name: 'web-fetch',
+    prompt:
+      'Use the web_fetch tool to read https://example.com and report the page heading in one sentence.',
+    check: (f) => requireTool(f, 'web_fetch'),
+  },
+  {
+    name: 'todo-plan',
+    prompt:
+      'Use the todowrite tool to record a three-step plan for adding a --quiet flag to src/cli/args.ts (do not actually edit anything), then tell me the plan. Mark the first step in_progress.',
+    check: (f) => {
+      requireTool(f, 'todowrite')
+      // The store is the session's source of truth for compaction, so a
+      // todowrite that doesn't land there is a real (silent) failure.
+      const todos = f.tasks.list()
+      if (todos.length === 0)
+        throw new Error('TaskStore is empty after todowrite')
+      const bad = todos.find((t) => !t.content || !t.status || !t.priority)
+      if (bad) throw new Error(`malformed todo: ${JSON.stringify(bad)}`)
+    },
+  },
+  {
+    name: 'sub-agent',
+    // Stated as a hard constraint, not a suggestion: the system prompt tells
+    // the model to prefer doing simple work itself rather than delegating, so
+    // a softer phrasing gets answered with a direct grep/glob instead and the
+    // sub-agent path never runs.
+    prompt:
+      'Delegate this to a sub-agent — you must call the task tool with subagent_type "explore", and you must not call grep, glob, or read_file yourself. Ask the sub-agent to find every file under src/tools/local that defines a ToolDefinition. Report the list it returns.',
+    check: (f) => {
+      requireTool(f, 'task')
+      // Sub-agent output goes to a silent sink; only the parent's own single
+      // `task` status line may appear for it.
+      if (/task_result|task_error/.test(f.out)) {
+        throw new Error('sub-agent transcript leaked into the parent sink')
+      }
+    },
+  },
+  {
+    name: 'markdown-render',
+    prompt:
+      'Answer with a level-2 markdown heading, a bulleted list with one **bold** item, and a fenced python code block whose body contains a blank line between two statements. No other commentary.',
+    check: (f) => {
+      // The renderer converts markdown to ANSI, so raw syntax reaching the
+      // terminal means a block was emitted unrendered. Headings are NOT
+      // checked: marked-terminal deliberately keeps a heading's leading `#`
+      // characters as a plain-text hierarchy cue (they're styled, not
+      // stripped), so `## Heading` in the output is correct, not a miss.
+      if (f.out.includes('**')) {
+        throw new Error(
+          'literal ** reached the terminal (inline markdown unrendered)',
+        )
+      }
+      if (f.out.includes('```')) {
+        throw new Error('literal ``` fence reached the terminal')
+      }
+    },
   },
 ]
 
@@ -113,6 +199,7 @@ async function runScenario(
   const calls = count(history, 'function_call')
   const outputs = count(history, 'function_call_output')
   checkUiSpacing(scenario.name, sink.text, outputs)
+  checkReplayShape(scenario.name, history)
   if (config.verbose) process.stdout.write(sink.text)
   const ok = text.trim().length > 0
   const status = ok ? 'ok ' : 'EMPTY'
@@ -121,6 +208,45 @@ async function runScenario(
       `streamed=${Buffer.byteLength(sink.text)} finalLen=${text.trim().length} time=${dt}ms`,
   )
   if (!ok) throw new Error(`${scenario.name}: model returned empty answer`)
+  scenario.check?.({
+    history,
+    out: stripVTControlCharacters(sink.text),
+    text,
+    tasks,
+  })
+}
+
+// History is replayed verbatim as the next turn's input, so anything the API
+// rejects on replay has to be caught here rather than on the next request.
+// Two invariants: every function_call is paired with its output (an orphan is
+// a hard 400), and no function_call carries `parsed_arguments` (the SDK adds
+// it to responses; loop.ts's stripParsedArguments removes it again).
+function checkReplayShape(name: string, history: ResponseInput): void {
+  const items = history as Item[]
+  const callIds = new Set(
+    items.filter((h) => h.type === 'function_call').map((h) => h.call_id),
+  )
+  const outputIds = new Set(
+    items
+      .filter((h) => h.type === 'function_call_output')
+      .map((h) => h.call_id),
+  )
+  for (const id of callIds) {
+    if (!outputIds.has(id)) {
+      throw new Error(`${name}: function_call ${String(id)} has no output`)
+    }
+  }
+  for (const id of outputIds) {
+    if (!callIds.has(id)) {
+      throw new Error(`${name}: orphaned output for call ${String(id)}`)
+    }
+  }
+  const leaked = items.find(
+    (h) => h.type === 'function_call' && 'parsed_arguments' in h,
+  )
+  if (leaked) {
+    throw new Error(`${name}: function_call still carries parsed_arguments`)
+  }
 }
 
 async function main(): Promise<void> {

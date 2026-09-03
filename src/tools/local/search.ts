@@ -18,13 +18,32 @@ const GLOB_MAX = 1000
 // stderr), so there's no clean way to surface a note to the model about it.
 const GREP_MAX_FILE_SIZE = '5M'
 
+// ripgrep's --json encodes every string as either `{text}` (valid UTF-8) or
+// `{bytes}` (base64 of the raw bytes, used whenever the data isn't valid
+// UTF-8 — a matched line in a latin-1 file, a filename with odd bytes).
+// Both forms have to be handled: assuming `text` throws on the `bytes` form
+// and kills the whole search, not just that one file.
+type RgText = { text?: string; bytes?: string }
+
 interface RgEvent {
   type: 'begin' | 'match' | 'context' | 'end' | 'summary'
   data?: {
-    path?: { text: string }
-    lines?: { text: string }
+    path?: RgText
+    lines?: RgText
     line_number?: number
   }
+}
+
+// Decode either form to a string. `bytes` is base64 of raw, non-UTF-8 bytes,
+// so decoding is lossy (invalid sequences become U+FFFD) — still far more
+// useful to the model than dropping the match or failing the call.
+function rgText(v: RgText | undefined): string | undefined {
+  if (!v) return undefined
+  if (typeof v.text === 'string') return v.text
+  if (typeof v.bytes === 'string') {
+    return Buffer.from(v.bytes, 'base64').toString('utf8')
+  }
+  return undefined
 }
 
 interface RgResult {
@@ -169,10 +188,10 @@ function grepTool(): ToolDefinition<{
               break outer
             }
             matchCount++
-            lines.push(formatRgLine(ctx.root, evt))
+            pushRgLine(lines, ctx.root, evt)
             break
           case 'context':
-            lines.push(formatRgLine(ctx.root, evt))
+            pushRgLine(lines, ctx.root, evt)
             break
           case 'end':
             lines.push('')
@@ -188,10 +207,19 @@ function grepTool(): ToolDefinition<{
   }
 }
 
-function formatRgLine(root: string, evt: RgEvent): string {
-  const rel = toRootRelative(root, evt.data!.path!.text)
-  const text = evt.data!.lines!.text.replace(/\n$/, '')
-  return `${rel}:${evt.data!.line_number}: ${text}`
+// Returns null for an event that carries neither a path nor line content in
+// any decodable form — skipped rather than emitted as a half-formed line.
+function formatRgLine(root: string, evt: RgEvent): string | null {
+  const path = rgText(evt.data?.path)
+  const lines = rgText(evt.data?.lines)
+  if (path === undefined || lines === undefined) return null
+  const rel = toRootRelative(root, path)
+  return `${rel}:${evt.data?.line_number}: ${lines.replace(/\n$/, '')}`
+}
+
+function pushRgLine(out: string[], root: string, evt: RgEvent): void {
+  const line = formatRgLine(root, evt)
+  if (line !== null) out.push(line)
 }
 
 function globTool(): ToolDefinition<{

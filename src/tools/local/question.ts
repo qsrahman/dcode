@@ -18,6 +18,15 @@ const questionSchema = z.object({
     .describe('Allow typing a custom answer (default: true)'),
 })
 
+// @clack/prompts renders its menu and then waits for a keypress that will
+// never arrive when stdin isn't interactive (a piped one-shot run, CI), so
+// the tool promise never settles — and runTool's deadline awaits that
+// promise rather than racing it, so nothing rescues the hang. Refuse up
+// front instead, and tell the model to decide for itself.
+function interactive(): boolean {
+  return Boolean(process.stdin.isTTY)
+}
+
 async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
   const options = q.options.map((o) => ({
     value: o.label,
@@ -85,6 +94,9 @@ Usage notes:
       questions: z.array(questionSchema).describe('Questions to ask the user'),
     }),
     async execute({ questions }) {
+      if (!interactive()) {
+        return 'Cannot ask the user questions: this session has no interactive terminal (stdin is not a TTY). Proceed with your best judgement and state the assumptions you made.'
+      }
       const answers: string[][] = []
       for (const q of questions) {
         const answer = q.multiple ? await askMultiple(q) : await askSingle(q)

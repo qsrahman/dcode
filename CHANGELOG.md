@@ -37,11 +37,15 @@
   blank line between nested list items whenever their text is styled. Not
   overridable via the extension system (`fixNestedLists` is an internal
   helper, not a renderer method), so `renderMarkdown()` strips the
-  resulting artifact post-render instead — a line that's non-empty but
-  contains nothing but whitespace and ANSI escapes; a genuine blank
-  separator line is always the empty string, so this can't collide with
-  intentional spacing (verified against loose lists and multi-paragraph
-  text).
+  resulting artifact post-render instead — a line that's non-empty,
+  *contains at least one ANSI escape*, and is nothing but whitespace once
+  those escapes are removed. The ANSI requirement is load-bearing:
+  marked-terminal indents fenced code blocks, so a blank line inside a code
+  block arrives as a whitespace-only line with no escapes at all, and a
+  whitespace-only test alone silently deleted blank lines out of the model's
+  code samples. A genuine blank separator line is always the empty string,
+  so this can't collide with intentional spacing either (verified against
+  loose lists, multi-paragraph text, and code blocks).
 - System prompt now tells the model to write math in Unicode (∑ ∫ √ π α β
   ± × ÷ ≤ ≥ ≈ ∈ ∞, x², a/b for fractions) instead of LaTeX. There's no way
   to typeset LaTeX in a terminal — no graphics protocol dcode can rely on
@@ -55,6 +59,45 @@
   4ac)) / (2a)` instead of LaTeX commands.
 
 ### Fixed
+- `runTool`'s `withDeadline` (`src/agent/run.ts`) now actually races the tool
+  promise against `config.toolTimeout` and `ctx.signal` instead of `await`ing
+  it and consulting the signals only afterwards. As written, a tool that
+  neither observed `ctx.signal` nor bounded itself — a prompt waiting on
+  stdin, a stalled socket — held the whole agent loop open forever with
+  `toolTimeout` never enforced against it. Now a `Promise.race` against a
+  deadline promise driven by `AbortSignal.any([signal, timeout])`. Losing
+  that race *abandons* the tool promise rather than cancelling it (nothing
+  can force a tool to stop from outside), so a no-op `.catch()` keeps the
+  eventual failure from surfacing as an unhandled rejection, the abort
+  listener is removed in a `finally` so a fast tool doesn't leave listeners
+  piling up on a turn signal that outlives it, and a tool that *does* observe
+  the abort has its own low-level error normalized to the same
+  `aborted` / `timed out after Nms` text.
+- `ask_user` hung forever when stdin isn't a TTY: `@clack/prompts` rendered
+  its menu and waited for a keypress that never came, so a piped one-shot run
+  (`dcode -p "…" < /dev/null`, CI) deadlocked. It now refuses up front and
+  tells the model to proceed on its own judgement.
+- `grep` threw `Cannot read properties of undefined (reading 'replace')` and
+  failed the entire search whenever any matched file held invalid UTF-8:
+  ripgrep's `--json` encodes strings as either `{text}` or, for non-UTF-8
+  data, `{bytes}` (base64), and `formatRgLine` assumed `text`. Both forms are
+  now decoded (lossily, for `bytes`), and an event carrying neither is
+  skipped rather than emitted half-formed.
+- Blank lines inside fenced code blocks were deleted from rendered assistant
+  output — see the `stripSpuriousAnsiOnlyLines` note under Added.
+- Sub-agents shared the session's single `TaskStore`, so a sub-agent calling
+  `todowrite` replaced the *parent's* entire todo list — including the
+  authoritative task list `compact.ts` injects into compaction summaries.
+  `todowrite` is now rebound to a fresh per-sub-agent store.
+- The sub-agent tool allow-lists named `list_directory`, but the registered
+  tool is `list_dir`, so the name-based filter silently gave every sub-agent
+  no directory-listing tool while the `task` tool's description advertised
+  it as available.
+- The `task` tool accepted `task_id` and `command` parameters and told the
+  model that sessions could be resumed and that the result carries a
+  `task_id` — none of which was implemented. Both parameters are removed and
+  the description now states that every invocation starts from a fresh
+  context.
 - `runAgent` reconstructed the next turn's input by hand — a synthesized
   assistant-text message plus manually-rebuilt `function_call` items — which
   silently dropped every other item type the model returned, including

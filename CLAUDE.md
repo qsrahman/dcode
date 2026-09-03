@@ -7,11 +7,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `dcode` — a CLI-based AI coding agent built on the OpenAI Responses SDK. Runs
 locally via Node's type stripping (no build step). Phases P0–P11 are complete
 (one-shot, REPL, tool-using agent loop, read-only + mutating local tools,
-in-session task list, scoped `git`, context-window management, global key
-storage). P5 (declarative permissions) was cancelled and its gate/approval
-machinery removed — all tool calls run unconditionally. P6 (MCP) is the next
-major phase; P12 (symbol search) and P13 (apply_patch) are planned. See
-PLAN.md §8.
+in-session todo list, context-window management, global key storage), plus
+three additions outside the numbered phases: streamed markdown rendering,
+`ask_user`, and sub-agents (the `task` tool). P5 (declarative permissions)
+was cancelled and its gate/approval machinery removed — all tool calls run
+unconditionally. P9's scoped `git` tool was implemented and then removed
+(it added no safety over the ungated `run_shell`); git is reached via
+`run_shell`. P6 (MCP) is the next major phase; P12 (symbol search) and P13
+(apply_patch) are planned. See PLAN.md §8.
 
 **Read [AGENTS.md](./AGENTS.md) and [PLAN.md](./PLAN.md) before changing code.**
 AGENTS.md has the full developer guide (stack constraints, code style, config
@@ -62,7 +65,12 @@ then returns the SDK's own aggregated text (`Response.output_text` from
 `stream.finalResponse()`) plus the full response (so callers can inspect
 tool calls) — it does not reconstruct text from the deltas itself; only what's
 *displayed* goes through the renderer. `runTool`
-executes a single tool call with a timeout and output truncation. Turn
+executes a single tool call with output truncation and a real
+`Promise.race` deadline (`withDeadline`) against `config.toolTimeout` and
+`ctx.signal` — losing that race *abandons* the tool promise rather than
+cancelling it (nothing can force a tool to stop), which is why spawning and
+network tools also take `ctx.signal` directly, and why a tool that blocks on
+input refuses up front instead (`ask_user`'s TTY check). Turn
 cancellation is native, not hand-rolled: `runTurn` passes `opts.signal`
 straight into `client.stream()`'s request options, which the SDK's own
 `EventStream` wires into its internal `AbortController` — there is no
@@ -94,13 +102,15 @@ implements the full local tool set, split by concern, over shared
 against symlink escapes; `withFsError`/`ensureParentDir` — the fs.ts tools'
 shared error-wrapping and mkdir-parent idioms) module: `fs.ts` (`read_file`,
 `list_dir`, `stat`, `write_file`, `edit_file`, `move_file`, `copy_file`,
-`delete_file`, `make_dir`), `search.ts` (`grep`, `glob`), `shell.ts`
-(`run_shell`), `git.ts` (`git`), `process.ts` (`run_process`, `read_process`,
-`kill_process`), `todo.ts` (`todo`), `web.ts` (`web_search`, `web_fetch`).
-`shell.ts`/`git.ts`/`process.ts`/`search.ts` all spawn through `exec.ts`'s
+`delete_file`, `make_dir`), `search.ts` (`grep`, `glob`), `exec.ts`
+(`run_shell`), `process.ts` (`run_process`, `read_process`,
+`kill_process`), `todo.ts` (`todowrite`), `question.ts` (`ask_user`),
+`task.ts` (`task`), `web.ts` (`web_search`, `web_fetch`) over `http.ts`'s
+shared `fetchSafely`/`readBounded` network boundary.
+`exec.ts`/`process.ts`/`search.ts` all spawn through `exec.ts`'s
 shared `baseExecOptions`/`safeEnv` (`cwd`/`env`/`extendEnv`/`cancelSignal`,
 common to every spawn in `tools/local/`) plus `runExec` on top for
-`shell.ts`/`git.ts` specifically, which wrap `execa` (`killDescendants: true`
+`run_shell` specifically, which wraps `execa` (`killDescendants: true`
 so a killed shell/process's own children die with it; env is rebuilt via
 `safeEnv()` rather than inherited, so secret-looking vars like
 `OPENAI_API_KEY` never reach a child process). `grep` and `glob` (both in
@@ -108,19 +118,38 @@ so a killed shell/process's own children die with it; env is rebuilt via
 `rgPath` from `@vscode/ripgrep` directly, not through `exec.ts` — ripgrep's
 exit code 1 means "ran fine, nothing found", which doesn't fit `runExec`'s
 throw-on-nonzero contract, so both share a local `runRg` helper with the same
-exit-code handling. `grep` parses ripgrep's `--json` event stream; `glob`
-parses its plain `--files -g <pattern>` output. Both pass `.` (not an
+exit-code handling. `grep` parses ripgrep's `--json` event stream — whose
+strings come back as either `{text}` or, for data that isn't valid UTF-8,
+`{bytes}` (base64), so `rgText` decodes both rather than assuming `text`;
+`glob` parses its plain `--files -g <pattern>` output. Both pass `.` (not an
 absolute path) as the search target with `cwd: ctx.root` already set —
 ripgrep matches anchored `-g` globs relative to cwd, so an absolute target
-argument silently breaks patterns like `sub/**`. `git`/`grep`/`glob` are the
+argument silently breaks patterns like `sub/**`. `grep`/`glob` are the
 tools with a native-binary dependency (the old pure-JS `traverse.ts`
 `walkDir`/`globToRegExp`/`createIgnore` implementation was deleted once both
 tools moved to ripgrep). `web_search`'s Brave
 key comes from `ctx.config.brave` only — `buildConfig` already resolves
 `BRAVE_API_KEY` (env) over the stored config file into it before any tool
-runs, so the tool itself doesn't re-read `process.env`. `createLocalTools()`
-is the single hub that registers all built-in tools into the `ToolRegistry`
-(no config argument) and is used by both `runOneShot` and the REPL.
+runs, so the tool itself doesn't re-read `process.env`.
+`createLocalTools(tasks, client)` is the single hub that registers all
+built-in tools into the `ToolRegistry` and is used by both `runOneShot` and
+the REPL; it takes the session's `Client` because the `task` tool reuses it
+for sub-agents, and registers `task` last so it can close over the finished
+registry by reference.
+
+Sub-agents: `agent/subagent.ts` defines the agent types (`general`,
+`explore`) as a tool-name allow-list plus a system prompt, and
+`tools/local/task.ts`'s `task` tool runs a nested `runAgent` with a
+`ToolRegistry` filtered to that list, a silent sink (only the final text is
+returned to the parent), compaction disabled, and `ctx.depth + 1` — `MAX_DEPTH
+= 1`, so sub-agents can't spawn sub-agents. The allow-list is matched against
+real registered tool names, so a typo there silently removes a tool rather
+than erroring. `todowrite` is the one tool *not* passed through by reference:
+it's rebound to a fresh per-sub-agent `TaskStore`, since `TaskStore.replace`
+overwrites the whole list and would otherwise wipe the parent's plan (which
+`compact.ts` injects into compaction summaries as the authoritative task
+list). Sub-agent sessions are never resumable — every call starts from a
+fresh history.
 
 The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
 keeping a module-local `Session` (`{ config, client, logger, history, tools }`)
@@ -150,5 +179,8 @@ MCP modules not yet built) and §10+ for the current phase's detailed spec.
 
 Tests live in `tests/`, mirroring `src/` (`tests/cli/args.test.ts` ->
 `src/cli/args.ts`). Mock external boundaries (OpenAI client, `child_process`,
-`fs`); assert colored output against `ansis.strip(...)`. `tests/helpers.ts`
-holds shared fakes (e.g. a fake streaming client) used across suites.
+`fs`); assert colored output against `node:util`'s
+`stripVTControlCharacters(...)`. `tests/helpers.ts` holds shared fakes (e.g. a
+fake streaming client) used across suites. `pnpm stress`
+(`scripts/live-stress.ts`) is the live end-to-end counterpart: it talks to the
+real model over this repository and is never part of `pnpm test`.
