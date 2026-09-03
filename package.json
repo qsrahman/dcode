@@ -28,6 +28,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@clack/prompts": "^1.7.0",
     "@vscode/ripgrep": "^1.18.0",
     "execa": "^10.0.1",
     "marked": "^15.0.12",

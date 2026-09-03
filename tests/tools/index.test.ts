@@ -33,6 +33,7 @@ describe('createLocalTools', () => {
         'web_search',
         'web_fetch',
         'todowrite',
+        'ask_user',
       ].sort(),
     )
     // No accidental name collision silently overwriting an earlier

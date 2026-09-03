@@ -20,6 +20,7 @@ import {
 } from './local/process.ts'
 import { webTools } from './local/web.ts'
 import { todoTool } from './local/todo.ts'
+import { askUserTool } from './local/question.ts'
 
 // Central registry builder: the single place that assembles all built-in tools
 // (local filesystem + web search + todo list) into the ToolRegistry. The todo
@@ -43,5 +44,6 @@ export function createLocalTools(tasks: TaskStore): ToolRegistry {
     killProcessTool(),
     ...webTools,
     todoTool(tasks),
+    askUserTool(),
   ])
 }
