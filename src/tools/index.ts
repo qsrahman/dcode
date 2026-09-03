@@ -23,12 +23,13 @@ import { webTools } from './local/web.ts'
 import { todoTool } from './local/todo.ts'
 import { askUserTool } from './local/question.ts'
 import { taskTool } from './local/task.ts'
+import { unknownAgentTools } from '../agent/subagent.ts'
 
-// Central registry builder: the single place that assembles all built-in tools
-// (local filesystem + web search + todo list) into the ToolRegistry. The todo
-// tool closes over the per-session TaskStore, so it must be supplied here.
-// The task tool closes over the parent's Client and the registry itself (to
-// filter tools for child agents), so both are passed in.
+// Central registry builder: the single place that assembles all built-in
+// tools (filesystem, search, shell/process, web, todo list, ask_user, and the
+// task sub-agent) into the ToolRegistry. `todowrite` closes over the
+// per-session TaskStore and `task` over the parent's Client and the registry
+// itself (to filter tools for child agents), so all three are passed in.
 export function createLocalTools(
   tasks: TaskStore,
   client: Client,
@@ -56,5 +57,16 @@ export function createLocalTools(
   // The task tool captures the registry by reference, so by the time it's
   // called the registry is fully populated — no chicken-and-egg problem.
   registry.register(taskTool(client, registry))
+  // Fail loudly on an agent-type allow-list that names a tool nobody
+  // registers: the filter would otherwise just drop it, leaving sub-agents
+  // quietly less capable than their own description claims. This can only
+  // trip on a bad edit to AGENT_TYPES, so it fires on the first test run
+  // rather than in a user's session.
+  const missing = unknownAgentTools(registry.list().map((t) => t.name))
+  if (missing.length > 0) {
+    throw new Error(
+      `agent types reference unregistered tools: ${missing.join(', ')}`,
+    )
+  }
   return registry
 }

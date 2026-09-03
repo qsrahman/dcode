@@ -13,7 +13,7 @@ import {
 } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 import { z } from 'zod'
-import type { ToolDefinition } from '../../agent/types.ts'
+import { defineTool } from '../registry.ts'
 import { resolvePath, withFsError, ensureParentDir } from './paths.ts'
 
 // Cap directory listings so a huge directory can't flood the model's context
@@ -29,13 +29,8 @@ const PAGE_READ_MAX_BYTES = 8 * 1024 * 1024
 // count newlines would defeat the bounded-read discipline elsewhere.
 const LINE_COUNT_MAX = 1_000_000
 
-function readFileTool(): ToolDefinition<{
-  path: string
-  offset?: number
-  limit?: number
-  line_numbers?: boolean
-}> {
-  return {
+const readFileTool = () =>
+  defineTool({
     name: 'read_file',
     description:
       'Read a UTF-8 text file under the working directory. Supports paging (offset/limit in lines) and optional 1-based line numbers.',
@@ -68,10 +63,12 @@ function readFileTool(): ToolDefinition<{
       const limitBytes = paging
         ? Math.max(PAGE_READ_MAX_BYTES, ctx.config.maxToolOutputBytes)
         : ctx.config.maxToolOutputBytes
-      const handle = await withFsError(args.path, () => open(file, 'r'))
-      try {
-        return await withFsError(args.path, async () => {
-          const { size } = await stat(file)
+      return withFsError(args.path, async () => {
+        const handle = await open(file, 'r')
+        try {
+          // stat through the open handle, not the path again: one syscall
+          // fewer, and it can't disagree with the descriptor being read.
+          const { size } = await handle.stat()
           const buf = Buffer.alloc(Math.min(size, limitBytes))
           const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
           // A NUL byte means binary: dumping it as text is useless and risks
@@ -105,16 +102,15 @@ function readFileTool(): ToolDefinition<{
           return truncated
             ? `${body}\n…(${size} bytes total; truncated at ${limitBytes})`
             : body
-        })
-      } finally {
-        await handle.close()
-      }
+        } finally {
+          await handle.close()
+        }
+      })
     },
-  }
-}
+  })
 
-function listDirTool(): ToolDefinition<{ path?: string }> {
-  return {
+const listDirTool = () =>
+  defineTool({
     name: 'list_dir',
     description: 'List a directory under the working directory.',
     parameters: z.object({
@@ -147,11 +143,10 @@ function listDirTool(): ToolDefinition<{ path?: string }> {
           : body
       })
     },
-  }
-}
+  })
 
-function statTool(): ToolDefinition<{ path?: string }> {
-  return {
+const statTool = () =>
+  defineTool({
     name: 'stat',
     description:
       'Report type, size, modification time, and (for small text files) line count of a path under the working directory. Symlinks report their target.',
@@ -170,20 +165,14 @@ function statTool(): ToolDefinition<{ path?: string }> {
         `size: ${info.size} bytes`,
         `modified: ${info.mtime.toISOString()}`,
       ]
-      // Report the symlink target (lstat doesn't follow the link).
-      let lst: Awaited<ReturnType<typeof lstat>> | undefined
-      try {
-        lst = await lstat(full)
-      } catch {
-        // not a symlink
-      }
-      if (lst?.isSymbolicLink()) {
-        let linkTarget = '?'
-        try {
-          linkTarget = await readlink(full)
-        } catch {
-          // leave '?'
-        }
+      // Report the symlink target (lstat doesn't follow the link). No
+      // try/catch: the stat() above already resolved this same path, and
+      // lstat resolves strictly less, so it cannot fail here. readlink still
+      // can — the link may vanish between the two calls — so that one keeps
+      // its fallback.
+      const lst = await withFsError(target, () => lstat(full))
+      if (lst.isSymbolicLink()) {
+        const linkTarget = await readlink(full).catch(() => '?')
         parts.push(`target: ${linkTarget}`)
       }
       if (info.isFile() && info.size <= LINE_COUNT_MAX) {
@@ -196,16 +185,10 @@ function statTool(): ToolDefinition<{ path?: string }> {
       }
       return parts.join('\n')
     },
-  }
-}
+  })
 
-function writeFileTool(): ToolDefinition<{
-  path: string
-  content: string
-  overwrite?: boolean
-  append?: boolean
-}> {
-  return {
+const writeFileTool = () =>
+  defineTool({
     name: 'write_file',
     parallel: false,
     description:
@@ -247,19 +230,13 @@ function writeFileTool(): ToolDefinition<{
         ? `wrote ${bytes} bytes to ${args.path} (overwrote existing)`
         : `wrote ${bytes} bytes to ${args.path}`
     },
-  }
-}
+  })
 
 // Edit by string replacement. Requiring a unique match (unless replace_all) is
 // deliberate: it forces the model to pin the edit to an unambiguous anchor
 // rather than silently clobbering every occurrence (decision K).
-function editFileTool(): ToolDefinition<{
-  path: string
-  old_string: string
-  new_string: string
-  replace_all?: boolean
-}> {
-  return {
+const editFileTool = () =>
+  defineTool({
     name: 'edit_file',
     parallel: false,
     description:
@@ -299,14 +276,10 @@ function editFileTool(): ToolDefinition<{
       await withFsError(args.path, () => writeFile(file, after, 'utf8'))
       return `edited ${args.path}`
     },
-  }
-}
+  })
 
-function moveFileTool(): ToolDefinition<{
-  source: string
-  destination: string
-}> {
-  return {
+const moveFileTool = () =>
+  defineTool({
     name: 'move_file',
     parallel: false,
     description:
@@ -326,14 +299,10 @@ function moveFileTool(): ToolDefinition<{
       await withFsError(args.destination, () => rename(src, dst))
       return `moved ${args.source} -> ${args.destination}`
     },
-  }
-}
+  })
 
-function copyFileTool(): ToolDefinition<{
-  source: string
-  destination: string
-}> {
-  return {
+const copyFileTool = () =>
+  defineTool({
     name: 'copy_file',
     parallel: false,
     description:
@@ -349,14 +318,10 @@ function copyFileTool(): ToolDefinition<{
       await withFsError(args.destination, () => copyFile(src, dst))
       return `copied ${args.source} -> ${args.destination}`
     },
-  }
-}
+  })
 
-function deleteFileTool(): ToolDefinition<{
-  path: string
-  recursive?: boolean
-}> {
-  return {
+const deleteFileTool = () =>
+  defineTool({
     name: 'delete_file',
     parallel: false,
     description:
@@ -382,11 +347,10 @@ function deleteFileTool(): ToolDefinition<{
       )
       return `deleted ${args.path}`
     },
-  }
-}
+  })
 
-function makeDirTool(): ToolDefinition<{ path: string }> {
-  return {
+const makeDirTool = () =>
+  defineTool({
     name: 'make_dir',
     parallel: false,
     description:
@@ -399,8 +363,7 @@ function makeDirTool(): ToolDefinition<{ path: string }> {
       await withFsError(args.path, () => mkdir(dir, { recursive: true }))
       return `created directory ${args.path}`
     },
-  }
-}
+  })
 
 export {
   readFileTool,

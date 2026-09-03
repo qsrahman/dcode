@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { ToolDefinition } from '../../agent/types.ts'
+import { defineTool } from '../registry.ts'
 import type { TaskStore } from '../../agent/todo-store.ts'
 
 const todoSchema = z.object({
@@ -12,8 +12,8 @@ const todoSchema = z.object({
     .describe('Priority level: high, medium, or low'),
 })
 
-export function todoTool(store: TaskStore): ToolDefinition {
-  return {
+export const todoTool = (store: TaskStore) =>
+  defineTool({
     name: 'todowrite',
     description: `Create and maintain a structured task list for the current coding session. Tracks progress, organizes multi-step work, and surfaces status to the user.
 
@@ -54,5 +54,4 @@ Skip when:
       store.replace(todos)
       return JSON.stringify(todos, null, 2)
     },
-  }
-}
+  })

@@ -1,6 +1,27 @@
 import { z } from 'zod'
-import type { ToolDefinition } from '../agent/types.ts'
+import type { ToolContext, ToolDefinition } from '../agent/types.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
+
+// Build a ToolDefinition whose argument type is *derived* from its zod schema
+// rather than declared alongside it. Without this every tool spelled its
+// parameter shape twice — once as an explicit `ToolDefinition<{...}>`
+// annotation and once as the schema — with nothing keeping the two in sync,
+// and the tools that skipped the annotation fell back to `P = unknown` and
+// cast `args as {...}` inside `execute`, which is a plain type hole: the cast
+// is unchecked, so a schema change can't surface as a compile error. Here the
+// schema is the single source of truth and `execute`'s `args` is inferred
+// from it, so a mismatch is a type error at the definition site.
+export function defineTool<P>(def: {
+  name: string
+  description: string
+  // Omit (or `true`) for read-only tools, which the loop batches in parallel;
+  // `false` forces sequential execution. See ToolDefinition.parallel.
+  parallel?: boolean
+  parameters: z.ZodType<P>
+  execute(args: P, ctx: ToolContext): Promise<string>
+}): ToolDefinition<P> {
+  return def
+}
 
 export class ToolRegistry {
   private tools = new Map<string, ToolDefinition>()

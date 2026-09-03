@@ -66,7 +66,9 @@ describe('task tool', () => {
       ctx,
     )
 
-    expect(result).toContain('<task state="completed">')
+    expect(result).toMatch(
+      /^<task state="completed" description="[^"]*" agent="[^"]*">/m,
+    )
     expect(result).toContain('sub-agent result text')
 
     // runAgent called with (client, config, history, opts)
@@ -112,7 +114,9 @@ describe('task tool', () => {
       ctx,
     )
 
-    expect(result).toContain('<task state="error">')
+    expect(result).toMatch(
+      /^<task state="error" description="[^"]*" agent="[^"]*">/m,
+    )
     expect(result).toContain('unknown agent type')
     expect(mockedRunAgent).not.toHaveBeenCalled()
   })
@@ -129,7 +133,9 @@ describe('task tool', () => {
       deepCtx,
     )
 
-    expect(result).toContain('<task state="error">')
+    expect(result).toMatch(
+      /^<task state="error" description="[^"]*" agent="[^"]*">/m,
+    )
     expect(result).toContain('nesting limit reached')
     expect(mockedRunAgent).not.toHaveBeenCalled()
   })
@@ -146,7 +152,9 @@ describe('task tool', () => {
       ctx,
     )
 
-    expect(result).toContain('<task state="error">')
+    expect(result).toMatch(
+      /^<task state="error" description="[^"]*" agent="[^"]*">/m,
+    )
     expect(result).toContain('LLM timeout')
   })
 

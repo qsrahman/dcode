@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { select, multiselect, text, isCancel } from '@clack/prompts'
-import type { ToolDefinition } from '../../agent/types.ts'
+import { defineTool } from '../registry.ts'
 
 const optionSchema = z.object({
   label: z.string().describe('Display text (1-5 words, concise)'),
@@ -76,8 +76,8 @@ async function askMultiple(
   return result as string[]
 }
 
-export function askUserTool(): ToolDefinition {
-  return {
+export const askUserTool = () =>
+  defineTool({
     name: 'ask_user',
     parallel: false,
     description: `Use this tool when you need to ask the user questions during execution. This allows you to:
@@ -103,12 +103,12 @@ Usage notes:
         answers.push(answer)
       }
       const formatted = questions
-        .map(
-          (q: z.infer<typeof questionSchema>, i: number) =>
-            `"${q.question}"="${answers[i]?.length ? answers[i].join(', ') : 'Unanswered'}"`,
-        )
+        .map((q, i) => {
+          const answer = answers[i]
+          const value = answer?.length ? answer.join(', ') : 'Unanswered'
+          return `"${q.question}"="${value}"`
+        })
         .join(', ')
       return `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.`
     },
-  }
-}
+  })

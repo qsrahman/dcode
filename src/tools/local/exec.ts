@@ -1,7 +1,8 @@
 import { execa } from 'execa'
 import type { ExecaError } from 'execa'
 import { z } from 'zod'
-import type { ToolContext, ToolDefinition } from '../../agent/types.ts'
+import type { ToolContext } from '../../agent/types.ts'
+import { defineTool } from '../registry.ts'
 
 // Shared child_process buffer ceiling: comfortably above maxToolOutputBytes so
 // normal large output is truncated rather than killing the child.
@@ -12,7 +13,7 @@ export const CHILD_MAX_BUFFER = 10 * 1024 * 1024
 // into tool output and the model context. Keep ordinary runtime vars (PATH,
 // HOME, LANG, …) so commands still work.
 const SECRET_RE = /KEY|SECRET|TOKEN|PASSWORD|PASS|CREDENTIAL|PRIVATE/i
-export function safeEnv(): NodeJS.ProcessEnv {
+function safeEnv(): NodeJS.ProcessEnv {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && !SECRET_RE.test(k)) env[k] = v
@@ -35,15 +36,12 @@ export function baseExecOptions(cwd: string, signal?: AbortSignal) {
   }
 }
 
-// Shared execa wrapper for run_shell/git: applies the tool timeout/buffer
-// ceiling and formats success and failure the same way, surfacing
-// stdout+stderr either way instead of losing them to error.message on failure.
-export async function runExec(
-  cmd: string,
-  args: string[],
-  ctx: ToolContext,
-  opts: { shell?: boolean } = {},
-): Promise<string> {
+// Run a shell command and render success and failure the same way, surfacing
+// stdout+stderr either way instead of losing them to error.message on a
+// failure. Takes no argv/shell-mode parameters: it grew them for the scoped
+// `git` tool, which spawned a binary directly with an argument list, and that
+// tool is gone — `run_shell` is the only caller and always shells out.
+async function runShell(command: string, ctx: ToolContext): Promise<string> {
   try {
     // `timeout` kills the child on expiry and `cancelSignal` (via
     // baseExecOptions) kills it on ctx.signal firing — both terminate the
@@ -53,9 +51,9 @@ export async function runExec(
     // SIGTERM to a running foreground child (e.g. `sleep`) until that child
     // exits on its own, so without it execa would wait out the full
     // forceKillAfterDelay (5s) before SIGKILLing the shell itself.
-    const { stdout, stderr } = await execa(cmd, args, {
+    const { stdout, stderr } = await execa(command, {
       ...baseExecOptions(ctx.root, ctx.signal),
-      shell: opts.shell,
+      shell: true,
       killDescendants: true,
       timeout: ctx.config.toolTimeout,
       maxBuffer: CHILD_MAX_BUFFER,
@@ -89,8 +87,8 @@ export async function runExec(
   }
 }
 
-export function runShellTool(): ToolDefinition<{ command: string }> {
-  return {
+export const runShellTool = () =>
+  defineTool({
     name: 'run_shell',
     parallel: false,
     description:
@@ -99,7 +97,6 @@ export function runShellTool(): ToolDefinition<{ command: string }> {
       command: z.string().describe('Shell command to execute'),
     }),
     async execute(args, ctx) {
-      return runExec(args.command, [], ctx, { shell: true })
+      return runShell(args.command, ctx)
     },
-  }
-}
+  })

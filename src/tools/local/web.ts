@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { NodeHtmlMarkdown } from 'node-html-markdown'
 import type { ToolDefinition } from '../../agent/types.ts'
+import { defineTool } from '../registry.ts'
 import { fetchSafely, readBounded } from './http.ts'
 import { errorMessage } from '../../util/log.ts'
 
@@ -30,8 +31,8 @@ const WEB_FETCH_MAX_BYTES = 5 * 1024 * 1024
 // call time so tool construction stays config-free; a missing key (or any API
 // failure) throws, which runTool feeds back to the model as an ok:false
 // outcome (decision D) — the same path every other tool uses.
-function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
-  return {
+const webSearchTool = () =>
+  defineTool({
     name: 'web_search',
     description:
       'Search the web for a query and return the top results (title, URL, snippet). Use for current information, library or API docs, or anything not found in the working directory.',
@@ -89,16 +90,15 @@ function webSearchTool(): ToolDefinition<{ query: string; count?: number }> {
         .map((r) => `${r.title}\n${r.url}\n${r.description}`)
         .join('\n\n')
     },
-  }
-}
+  })
 
 // Fetch a URL and return its content as text. HTML is converted to Markdown,
 // JSON is pretty-printed, other text is passed through, and binary payloads
 // are described rather than dumped. No API key is needed — dcode fetches
 // directly from the machine's network. Errors (bad scheme, non-2xx, network
 // failure) are thrown and the runner returns them to the model as ok:false.
-export function webFetchTool(): ToolDefinition<{ url: string }> {
-  return {
+export const webFetchTool = () =>
+  defineTool({
     name: 'web_fetch',
     description:
       "Fetch a URL and return its content as text. HTML pages are converted to Markdown; JSON is pretty-printed; other text is returned as-is. Use to read a specific page, doc, or API response when you already know the URL. Use web_search to discover URLs you don't know yet. Requests to private/internal/loopback addresses are refused.",
@@ -155,7 +155,6 @@ export function webFetchTool(): ToolDefinition<{ url: string }> {
       }
       return text + suffix
     },
-  }
-}
+  })
 
 export const webTools: ToolDefinition[] = [webSearchTool(), webFetchTool()]

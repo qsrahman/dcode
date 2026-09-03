@@ -2,7 +2,8 @@ import { relative, resolve } from 'node:path'
 import { execa } from 'execa'
 import { rgPath } from '@vscode/ripgrep'
 import { z } from 'zod'
-import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
+import type { ToolContext } from '../../agent/types.ts'
+import { defineTool } from '../registry.ts'
 import { errorMessage } from '../../util/log.ts'
 import { resolvePath } from './paths.ts'
 import { baseExecOptions, CHILD_MAX_BUFFER } from './exec.ts'
@@ -98,19 +99,24 @@ function toRootRelative(root: string, text: string): string {
   return relative(root, resolve(root, text))
 }
 
-// Shared by grep/glob: config.ignore is gitignore-syntax already, so ripgrep
-// understands each entry natively via -g '!pattern'.
-function pushIgnorePatterns(rgArgs: string[], ignore: string[]): void {
-  for (const pattern of ignore) rgArgs.push('-g', `!${pattern}`)
+// Arguments both tools always pass. `--hidden` reveals dotfiles/dotdirs
+// (ripgrep skips them by default, unlike the walkDir-based implementation
+// these tools replaced); .git stays excluded regardless.
+const BASE_RG_ARGS = ['--hidden', '-g', '!.git'] as const
+
+// config.ignore is gitignore-syntax already, so ripgrep understands each
+// entry natively via -g '!pattern'.
+//
+// Order matters and is not merely stylistic: ripgrep resolves competing -g
+// globs last-match-wins, so these must be appended *after* any caller-supplied
+// -g patterns. Folded ahead of glob's own patterns, a request for `**/*`
+// re-includes everything config.ignore just excluded.
+function ignoreArgs(ignore: readonly string[]): string[] {
+  return ignore.flatMap((pattern) => ['-g', `!${pattern}`])
 }
 
-function grepTool(): ToolDefinition<{
-  pattern: string
-  path?: string
-  ignore_case?: boolean
-  context?: number
-}> {
-  return {
+const grepTool = () =>
+  defineTool({
     name: 'grep',
     description:
       'Search file contents for a regular expression under the working directory (backed by ripgrep — Rust regex syntax: no lookaround/backreferences, but no catastrophic-backtracking risk either).',
@@ -129,15 +135,7 @@ function grepTool(): ToolDefinition<{
         .optional()
         .describe('Lines of context to show around each match'),
     }),
-    async execute(
-      args: {
-        pattern: string
-        path?: string
-        ignore_case?: boolean
-        context?: number
-      },
-      ctx: ToolContext,
-    ) {
+    async execute(args, ctx) {
       const dir = await resolvePath(ctx.root, args.path ?? '.')
       const rgArgs = [
         '--json',
@@ -145,15 +143,11 @@ function grepTool(): ToolDefinition<{
         '--color=never',
         '--max-filesize',
         GREP_MAX_FILE_SIZE,
-        // Reveal dotfiles/dotdirs (the old walkDir-based grep searched them
-        // too, unlike ripgrep's default); .git stays excluded regardless.
-        '--hidden',
-        '-g',
-        '!.git',
+        ...BASE_RG_ARGS,
+        ...ignoreArgs(ctx.config.ignore),
       ]
       if (args.ignore_case) rgArgs.push('--ignore-case')
       if (args.context) rgArgs.push('--context', String(args.context))
-      pushIgnorePatterns(rgArgs, ctx.config.ignore)
       // An anchored -g pattern (e.g. a config.ignore entry like "/dist") is
       // matched relative to cwd, not to the search-target argument — so the
       // target must be relative (cwd is already ctx.root) or such patterns
@@ -173,7 +167,7 @@ function grepTool(): ToolDefinition<{
       const lines: string[] = []
       let matchCount = 0
       let capped = false
-      outer: for (const raw of result.stdout.split('\n')) {
+      for (const raw of result.stdout.split('\n')) {
         if (!raw) continue
         let evt: RgEvent
         try {
@@ -181,22 +175,20 @@ function grepTool(): ToolDefinition<{
         } catch {
           continue
         }
-        switch (evt.type) {
-          case 'match':
-            if (matchCount >= GREP_MAX_MATCHES) {
-              capped = true
-              break outer
-            }
-            matchCount++
-            pushRgLine(lines, ctx.root, evt)
-            break
-          case 'context':
-            pushRgLine(lines, ctx.root, evt)
-            break
-          case 'end':
-            lines.push('')
-            break
+        if (evt.type === 'end') {
+          lines.push('')
+          continue
         }
+        if (evt.type !== 'match' && evt.type !== 'context') continue
+        if (evt.type === 'match') {
+          if (matchCount >= GREP_MAX_MATCHES) {
+            capped = true
+            break
+          }
+          matchCount++
+        }
+        const line = formatRgLine(ctx.root, evt)
+        if (line !== null) lines.push(line)
       }
       let out = lines.join('\n').trimEnd() || '(no matches)'
       if (capped) {
@@ -204,8 +196,7 @@ function grepTool(): ToolDefinition<{
       }
       return out
     },
-  }
-}
+  })
 
 // Returns null for an event that carries neither a path nor line content in
 // any decodable form — skipped rather than emitted as a half-formed line.
@@ -217,16 +208,8 @@ function formatRgLine(root: string, evt: RgEvent): string | null {
   return `${rel}:${evt.data?.line_number}: ${lines.replace(/\n$/, '')}`
 }
 
-function pushRgLine(out: string[], root: string, evt: RgEvent): void {
-  const line = formatRgLine(root, evt)
-  if (line !== null) out.push(line)
-}
-
-function globTool(): ToolDefinition<{
-  pattern: string | string[]
-  limit?: number
-}> {
-  return {
+const globTool = () =>
+  defineTool({
     name: 'glob',
     description:
       'List files matching glob pattern(s) under the working directory (backed by ripgrep --files — gitignore-style globs: `**` matches any depth, and a bare pattern like `*.ts` with no `/` also matches at any depth, not just the top level; anchor with a leading `/` for root-only).',
@@ -243,16 +226,14 @@ function globTool(): ToolDefinition<{
         .optional()
         .describe('Maximum entries to return'),
     }),
-    async execute(
-      args: { pattern: string | string[]; limit?: number },
-      ctx: ToolContext,
-    ) {
+    async execute(args, ctx) {
       const patterns = Array.isArray(args.pattern)
         ? args.pattern
         : [args.pattern]
-      const rgArgs = ['--files', '--hidden', '-g', '!.git']
+      const rgArgs = ['--files', ...BASE_RG_ARGS]
       for (const p of patterns) rgArgs.push('-g', p)
-      pushIgnorePatterns(rgArgs, ctx.config.ignore)
+      // After the caller's patterns — see ignoreArgs on why the order binds.
+      rgArgs.push(...ignoreArgs(ctx.config.ignore))
       // '.' rather than ctx.root: an anchored pattern like "sub/**" is
       // matched relative to cwd (already ctx.root), not to an absolute
       // target argument — passing the absolute path here silently drops
@@ -274,7 +255,6 @@ function globTool(): ToolDefinition<{
       }
       return out
     },
-  }
-}
+  })
 
 export { grepTool, globTool }

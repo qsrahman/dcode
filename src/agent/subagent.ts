@@ -85,3 +85,39 @@ export function getAgentType(name: string): AgentType | undefined {
 export function listAgentTypes(): AgentType[] {
   return Object.values(AGENT_TYPES)
 }
+
+// The agent-type names as a non-empty tuple, so the task tool can build a
+// `z.enum` from them: an unknown subagent_type is then rejected by schema
+// validation with the valid names listed, instead of reaching execute() and
+// coming back as a hand-written error string.
+export const AGENT_TYPE_NAMES = Object.keys(AGENT_TYPES) as [
+  string,
+  ...string[],
+]
+
+// Agent-type tool allow-lists are matched against the registry by name, so a
+// name that matches nothing removes that tool from every sub-agent silently —
+// no error, just a capability that quietly isn't there (this is exactly how
+// `list_directory` shipped for a tool actually called `list_dir`). Callers
+// hand over the names the registry really has; anything unmatched is a
+// programming error in AGENT_TYPES, not a runtime condition.
+export function unknownAgentTools(registered: Iterable<string>): string[] {
+  const known = new Set(registered)
+  const missing = new Set<string>()
+  for (const agent of listAgentTypes()) {
+    for (const name of agent.tools) {
+      if (!known.has(name)) missing.add(`${agent.name}:${name}`)
+    }
+  }
+  return [...missing].sort()
+}
+
+// One-line-per-type summary for the task tool's description. Generated from
+// AGENT_TYPES rather than hand-written beside it: a hand-maintained copy is
+// how the tool description came to advertise a `list_directory` tool that
+// doesn't exist, while the filter below silently matched nothing.
+export function describeAgentTypes(): string {
+  return listAgentTypes()
+    .map((a) => `- ${a.name}: ${a.description} Tools: ${a.tools.join(', ')}`)
+    .join('\n')
+}

@@ -1,6 +1,6 @@
 import { execa } from 'execa'
 import { z } from 'zod'
-import type { ToolDefinition } from '../../agent/types.ts'
+import { defineTool } from '../registry.ts'
 import { resolvePath } from './paths.ts'
 import { baseExecOptions } from './exec.ts'
 
@@ -135,8 +135,8 @@ export const processManager = new ProcessManager()
 // Stop spawned processes when dcode exits so background jobs don't outlive it.
 process.on('exit', () => processManager.killAll())
 
-function runProcessTool(): ToolDefinition<{ command: string; cwd?: string }> {
-  return {
+const runProcessTool = () =>
+  defineTool({
     name: 'run_process',
     parallel: false,
     description:
@@ -153,11 +153,10 @@ function runProcessTool(): ToolDefinition<{ command: string; cwd?: string }> {
       const proc = processManager.spawn(args.command, cwd)
       return `started ${proc.handle} (pid ${proc.pid}): ${args.command}`
     },
-  }
-}
+  })
 
-function readProcessTool(): ToolDefinition<{ handle: string; tail?: number }> {
-  return {
+const readProcessTool = () =>
+  defineTool({
     name: 'read_process',
     description:
       'Return recent output from a background process started with run_process. Shows the last lines and whether it is still running or has exited (with its exit code).',
@@ -183,14 +182,10 @@ function readProcessTool(): ToolDefinition<{ handle: string; tail?: number }> {
         : 'running'
       return `${args.handle} ${status} — ${proc.cmd}\n${body}`
     },
-  }
-}
+  })
 
-function killProcessTool(): ToolDefinition<{
-  handle: string
-  signal?: string
-}> {
-  return {
+const killProcessTool = () =>
+  defineTool({
     name: 'kill_process',
     parallel: false,
     description:
@@ -215,7 +210,6 @@ function killProcessTool(): ToolDefinition<{
       }
       return `sent ${sig} to ${args.handle}`
     },
-  }
-}
+  })
 
 export { runProcessTool, readProcessTool, killProcessTool }

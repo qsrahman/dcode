@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createLocalTools } from '../../src/tools/index.ts'
 import { TaskStore } from '../../src/agent/todo-store.ts'
 import type { Client } from '../../src/agent/client.ts'
+import { unknownAgentTools } from '../../src/agent/subagent.ts'
 
 const mockClient: Client = {
   stream() {
@@ -74,5 +75,22 @@ describe('createLocalTools', () => {
       .then(() => {
         expect(store.list()).toHaveLength(1)
       })
+  })
+})
+
+// The agent-type allow-lists in agent/subagent.ts are matched against the
+// registry by name, so a typo there removes a tool from every sub-agent with
+// no error at all — how `list_directory` shipped for a tool named `list_dir`.
+// createLocalTools now refuses to build a registry in that state.
+describe('agent-type tool allow-lists', () => {
+  it('name only tools that are actually registered', () => {
+    const names = createLocalTools(new TaskStore(), mockClient)
+      .list()
+      .map((t) => t.name)
+    expect(unknownAgentTools(names)).toEqual([])
+  })
+
+  it('reports the offenders when a name matches nothing', () => {
+    expect(unknownAgentTools(['read_file'])).toContain('explore:grep')
   })
 })
