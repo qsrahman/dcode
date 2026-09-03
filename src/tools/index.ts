@@ -13,7 +13,6 @@ import {
 } from './local/fs.ts'
 import { grepTool, globTool } from './local/search.ts'
 import { runShellTool } from './local/shell.ts'
-import { gitTool } from './local/git.ts'
 import {
   runProcessTool,
   readProcessTool,
@@ -42,7 +41,6 @@ export function createLocalTools(tasks: TaskStore): ToolRegistry {
     runProcessTool(),
     readProcessTool(),
     killProcessTool(),
-    gitTool(),
     ...webTools,
     todoTool(tasks),
   ])

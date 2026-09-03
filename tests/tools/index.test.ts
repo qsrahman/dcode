@@ -30,7 +30,6 @@ describe('createLocalTools', () => {
         'run_process',
         'read_process',
         'kill_process',
-        'git',
         'web_search',
         'web_fetch',
         'todo',

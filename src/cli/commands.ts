@@ -10,7 +10,7 @@ import type { ContextManager } from '../agent/context/manager.ts'
 import type { TaskStore } from '../agent/tasks.ts'
 import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../version.ts'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { access, mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createClient } from '../agent/client.ts'
 import {
@@ -339,12 +339,19 @@ export function createCommands(): CommandRegistry {
     name: 'save',
     description:
       'write the conversation transcript to a file (/save [path.md|path.json])',
-    handler: (session, args, sink) => {
+    handler: async (session, args, sink): Promise<HandleResult> => {
       const arg = args.trim()
       const useMarkdown = arg.endsWith('.md')
       const fileName = arg || `dcode-transcript.${useMarkdown ? 'md' : 'json'}`
       const target = join(session.root, fileName)
-      if (existsSync(target)) {
+      let exists = false
+      try {
+        await access(target)
+        exists = true
+      } catch {
+        // file doesn't exist — safe to write
+      }
+      if (exists) {
         sink.write(
           `refusing to overwrite ${target} (choose a different path)\n`,
         )
@@ -353,8 +360,8 @@ export function createCommands(): CommandRegistry {
       const payload = useMarkdown
         ? historyToMarkdown(session.history)
         : JSON.stringify(session.history, null, 2)
-      mkdirSync(dirname(target), { recursive: true })
-      writeFileSync(target, payload)
+      await mkdir(dirname(target), { recursive: true })
+      await writeFile(target, payload)
       sink.write(`saved ${session.history.length} items to ${target}\n`)
       return 'ok'
     },

@@ -23,7 +23,6 @@ import {
 } from '../../src/tools/local/fs.ts'
 import { grepTool, globTool } from '../../src/tools/local/search.ts'
 import { runShellTool } from '../../src/tools/local/shell.ts'
-import { gitTool } from '../../src/tools/local/git.ts'
 import {
   runProcessTool,
   readProcessTool,
@@ -64,7 +63,6 @@ const localTools: ToolDefinition[] = [
   runProcessTool(),
   readProcessTool(),
   killProcessTool(),
-  gitTool(),
 ]
 
 function tool(name: string) {
