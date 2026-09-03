@@ -22,7 +22,7 @@ import {
   makeDirTool,
 } from '../../src/tools/local/fs.ts'
 import { grepTool, globTool } from '../../src/tools/local/search.ts'
-import { runShellTool } from '../../src/tools/local/shell.ts'
+import { runShellTool } from '../../src/tools/local/exec.ts'
 import {
   runProcessTool,
   readProcessTool,

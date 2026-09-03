@@ -12,7 +12,7 @@ import {
   makeDirTool,
 } from './local/fs.ts'
 import { grepTool, globTool } from './local/search.ts'
-import { runShellTool } from './local/shell.ts'
+import { runShellTool } from './local/exec.ts'
 import {
   runProcessTool,
   readProcessTool,

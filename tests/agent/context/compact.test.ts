@@ -120,19 +120,14 @@ describe('compactHistory', () => {
       history,
       createLogger(config),
       [
-        {
-          id: 'T1',
-          title: 'write tests',
-          status: 'pending',
-          blockedBy: ['T2'],
-        },
-        { id: 'T2', title: 'scaffold', status: 'completed', blockedBy: [] },
+        { content: 'write tests', status: 'pending', priority: 'high' },
+        { content: 'scaffold', status: 'completed', priority: 'medium' },
       ],
     )
     const instruction = (lastInput()[0] as { content: string }).content
     expect(instruction).toContain('Authoritative task list')
-    expect(instruction).toContain('[pending] T1 write tests (blocked by T2)')
-    expect(instruction).toContain('[completed] T2 scaffold')
+    expect(instruction).toContain('[pending] [high] write tests')
+    expect(instruction).toContain('[completed] [medium] scaffold')
     // still summarizes the head and keeps the tail verbatim
     expect(out).toHaveLength(2)
   })

@@ -22,107 +22,94 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-describe('todo tool', () => {
-  it('add returns the new id and stores it', async () => {
-    const out = await todoTool(store).execute(
-      { action: 'add', title: 'do thing' },
-      ctx,
-    )
-    expect(out).toBe('created T1: do thing')
-    expect(store.list().map((t) => t.id)).toEqual(['T1'])
+describe('todowrite tool', () => {
+  it('replaces the full todo list', async () => {
+    const todos = [
+      {
+        content: 'task a',
+        status: 'pending' as const,
+        priority: 'high' as const,
+      },
+      {
+        content: 'task b',
+        status: 'in_progress' as const,
+        priority: 'medium' as const,
+      },
+    ]
+    const out = await todoTool(store).execute({ todos }, ctx)
+    const parsed = JSON.parse(out)
+    expect(parsed).toEqual(todos)
+    expect(store.list()).toEqual(todos)
   })
 
-  it('add records blockers', async () => {
-    await todoTool(store).execute({ action: 'add', title: 'dep' }, ctx)
-    const t = await todoTool(store).execute(
-      { action: 'add', title: 'next', blockedBy: ['T1'] },
-      ctx,
-    )
-    expect(t).toBe('created T2: next')
-    expect(store.get('T2')?.blockedBy).toEqual(['T1'])
+  it('returns empty list', async () => {
+    const out = await todoTool(store).execute({ todos: [] }, ctx)
+    expect(JSON.parse(out)).toEqual([])
+    expect(store.list()).toEqual([])
   })
 
-  it('add requires a title', async () => {
-    expect(await todoTool(store).execute({ action: 'add' }, ctx)).toBe(
-      'error: add requires a title',
-    )
-  })
-
-  it('list renders ids, statuses, and blockers', async () => {
-    await todoTool(store).execute({ action: 'add', title: 'a' }, ctx)
+  it('overwrites previous list on each call', async () => {
     await todoTool(store).execute(
-      { action: 'add', title: 'b', blockedBy: ['T1'] },
+      {
+        todos: [{ content: 'first', status: 'pending', priority: 'low' }],
+      },
       ctx,
     )
+    expect(store.list()).toHaveLength(1)
+
     await todoTool(store).execute(
-      { action: 'update', id: 'T1', status: 'completed' },
+      {
+        todos: [
+          { content: 'second', status: 'completed', priority: 'high' },
+          { content: 'third', status: 'pending', priority: 'medium' },
+        ],
+      },
       ctx,
     )
-    const out = await todoTool(store).execute({ action: 'list' }, ctx)
-    expect(out).toContain('T1  [completed]  a')
-    expect(out).toContain('T2  [pending]  b (blocked by T1)')
+    expect(store.list()).toHaveLength(2)
+    expect(store.list()[0]!.content).toBe('second')
   })
 
-  it('list reports an empty list', async () => {
-    expect(await todoTool(store).execute({ action: 'list' }, ctx)).toBe(
-      '(no tasks)',
-    )
-  })
-
-  it('update changes status and notes', async () => {
-    await todoTool(store).execute({ action: 'add', title: 'x' }, ctx)
-    const out = await todoTool(store).execute(
-      { action: 'update', id: 'T1', status: 'in_progress', notes: 'on it' },
-      ctx,
-    )
-    expect(out).toBe('updated T1: [in_progress] x')
-    expect(store.get('T1')?.notes).toBe('on it')
-  })
-
-  it('update requires an id', async () => {
-    expect(
-      await todoTool(store).execute(
-        { action: 'update', status: 'completed' },
-        ctx,
-      ),
-    ).toBe('error: update requires an id')
-  })
-
-  it('done marks a task completed', async () => {
-    await todoTool(store).execute({ action: 'add', title: 'x' }, ctx)
-    const out = await todoTool(store).execute({ action: 'done', id: 'T1' }, ctx)
-    expect(out).toBe('updated T1: [completed] x')
-    expect(store.get('T1')?.status).toBe('completed')
-  })
-
-  it('update/done reject an unknown id', async () => {
-    expect(
-      await todoTool(store).execute(
-        { action: 'update', id: 'T9', status: 'completed' },
-        ctx,
-      ),
-    ).toBe('no such task: T9')
-    expect(
-      await todoTool(store).execute({ action: 'done', id: 'T9' }, ctx),
-    ).toBe('no such task: T9')
-  })
-
-  it('rejects an invalid status via schema', async () => {
-    await todoTool(store).execute({ action: 'add', title: 'x' }, ctx)
+  it('validates status enum via schema', async () => {
     const res = await runTool(
       {
         id: 'c',
-        name: 'todo',
+        name: 'todowrite',
         arguments: JSON.stringify({
-          action: 'update',
-          id: 'T1',
-          status: 'weird',
+          todos: [{ content: 'x', status: 'weird', priority: 'high' }],
         }),
       },
       todoTool(store),
       ctx,
     )
     expect(res.ok).toBe(false)
-    expect(res.output.length).toBeGreaterThan(0)
+  })
+
+  it('validates priority enum via schema', async () => {
+    const res = await runTool(
+      {
+        id: 'c',
+        name: 'todowrite',
+        arguments: JSON.stringify({
+          todos: [{ content: 'x', status: 'pending', priority: 'urgent' }],
+        }),
+      },
+      todoTool(store),
+      ctx,
+    )
+    expect(res.ok).toBe(false)
+  })
+
+  it('copies todos — external mutation does not affect store', async () => {
+    const todos = [
+      {
+        content: 'task',
+        status: 'pending' as const,
+        priority: 'medium' as const,
+      },
+    ]
+    await todoTool(store).execute({ todos }, ctx)
+    todos[0]!.content = 'mutated'
+    expect(store.list()[0]!.content).toBe('task')
   })
 })

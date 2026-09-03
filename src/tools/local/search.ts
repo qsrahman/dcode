@@ -5,8 +5,7 @@ import { z } from 'zod'
 import type { ToolDefinition, ToolContext } from '../../agent/types.ts'
 import { errorMessage } from '../../util/log.ts'
 import { resolvePath } from './paths.ts'
-import { baseExecOptions } from './exec.ts'
-import { CHILD_MAX_BUFFER } from './constants.ts'
+import { baseExecOptions, CHILD_MAX_BUFFER } from './exec.ts'
 
 // Cap grep output so a broad pattern over a large tree can't flood the model's
 // context (runTool's byte-truncation is a blunt backstop, not a real limit).

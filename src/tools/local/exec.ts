@@ -1,7 +1,11 @@
 import { execa } from 'execa'
 import type { ExecaError } from 'execa'
-import type { ToolContext } from '../../agent/types.ts'
-import { CHILD_MAX_BUFFER } from './constants.ts'
+import { z } from 'zod'
+import type { ToolContext, ToolDefinition } from '../../agent/types.ts'
+
+// Shared child_process buffer ceiling: comfortably above maxToolOutputBytes so
+// normal large output is truncated rather than killing the child.
+export const CHILD_MAX_BUFFER = 10 * 1024 * 1024
 
 // Don't let child processes inherit secret-looking environment variables
 // (API keys, tokens): `run_shell` could otherwise `printenv` them straight
@@ -82,5 +86,20 @@ export async function runExec(
     else if (typeof e.exitCode === 'number') label = `exit ${e.exitCode}`
     else label = e.signal ? `killed (${e.signal})` : 'unknown'
     throw new Error(`${label}: ${out || '(no output)'}`)
+  }
+}
+
+export function runShellTool(): ToolDefinition<{ command: string }> {
+  return {
+    name: 'run_shell',
+    parallel: false,
+    description:
+      'Run a shell command in the working directory with a timeout. Combined stdout/stderr is returned as the tool output.',
+    parameters: z.object({
+      command: z.string().describe('Shell command to execute'),
+    }),
+    async execute(args, ctx) {
+      return runExec(args.command, [], ctx, { shell: true })
+    },
   }
 }

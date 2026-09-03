@@ -70,10 +70,7 @@ function listTasks(
     return 'ok'
   }
   for (const t of list) {
-    const blocked = t.blockedBy.length
-      ? ` (blocked by ${t.blockedBy.join(', ')})`
-      : ''
-    sink.write(`${t.id} [${t.status}] ${t.title}${blocked}\n`)
+    sink.write(`[${t.status}] [${t.priority}] ${t.content}\n`)
   }
   return 'ok'
 }

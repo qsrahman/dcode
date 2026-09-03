@@ -1,74 +1,58 @@
 import { z } from 'zod'
 import type { ToolDefinition } from '../../agent/types.ts'
-import type { Task, TaskStore } from '../../agent/tasks.ts'
+import type { TaskStore } from '../../agent/tasks.ts'
 
-const statusEnum = z.enum(['pending', 'in_progress', 'completed', 'blocked'])
+const todoSchema = z.object({
+  content: z.string().describe('Brief description of the task'),
+  status: z
+    .enum(['pending', 'in_progress', 'completed', 'cancelled'])
+    .describe('Current status: pending, in_progress, completed, or cancelled'),
+  priority: z
+    .enum(['high', 'medium', 'low'])
+    .describe('Priority level: high, medium, or low'),
+})
 
-function formatTask(t: Task): string {
-  const blocker = t.blockedBy.length
-    ? ` (blocked by ${t.blockedBy.join(', ')})`
-    : ''
-  const note = t.notes ? ` — ${t.notes}` : ''
-  return `${t.id}  [${t.status}]  ${t.title}${blocker}${note}`
-}
-
-// One tool that wraps the session TaskStore for add/list/update/done, replacing
-// the previous task_create / task_list / task_update trio so the model manages
-// its plan through a single, well-defined interface.
 export function todoTool(store: TaskStore): ToolDefinition {
   return {
-    name: 'todo',
-    description:
-      'Manage the session task list to plan and track multi-step work: add a task, list tasks, update a task (status/title/notes/blockers), or mark one done.',
+    name: 'todowrite',
+    description: `Create and maintain a structured task list for the current coding session. Tracks progress, organizes multi-step work, and surfaces status to the user.
+
+## When to use
+Use proactively when:
+- The task requires 3+ distinct steps or actions (not just 3 tool calls for a single conceptual step)
+- The work is non-trivial and benefits from planning
+- The user provides multiple tasks (numbered or comma-separated) or explicitly asks for a todo list
+- New instructions arrive - capture them as todos
+- You start a task - mark it \`in_progress\` (only one at a time) before working
+- You finish a task - mark it \`completed\` and add any follow-ups discovered during the work
+
+## When NOT to use
+Skip when:
+- The work is a single, straightforward task (or <3 trivial steps)
+- The request is purely informational or conversational
+- Tracking adds no organizational value
+
+## States
+- \`pending\` - not started
+- \`in_progress\` - actively working (exactly ONE at a time)
+- \`completed\` - finished successfully
+- \`cancelled\` - no longer needed
+
+## Rules
+- Update status in real time; don't batch completions
+- Mark \`completed\` only after the required work is actually done, including any required verification. Never based on intent.
+- Keep exactly one \`in_progress\` while work remains
+- If blocked or partial, keep it \`in_progress\` and add a follow-up todo describing the blocker
+- Preserve user-provided commands verbatim (flags, args, order)
+- Items should be specific and actionable; break large work into smaller steps`,
     parameters: z.object({
-      action: z
-        .enum(['add', 'list', 'update', 'done'])
-        .describe('What to do: add, list, update, or done'),
-      title: z.string().optional().describe('Task title (action: add)'),
-      id: z
-        .string()
-        .optional()
-        .describe('Task id to update or mark done (action: update, done)'),
-      status: statusEnum
-        .optional()
-        .describe(
-          'New status: pending, in_progress, completed, or blocked (action: update)',
-        ),
-      notes: z.string().optional().describe('Note to attach (action: update)'),
-      blockedBy: z
-        .array(z.string())
-        .optional()
-        .describe('Ids of tasks that must finish first (action: add, update)'),
+      todos: z
+        .array(todoSchema)
+        .describe('The updated todo list (send the full list each time)'),
     }),
-    async execute({ action, title, id, status, notes, blockedBy }) {
-      switch (action) {
-        case 'add': {
-          if (!title) return 'error: add requires a title'
-          const t = store.create(title, blockedBy ?? [])
-          return `created ${t.id}: ${t.title}`
-        }
-        case 'list': {
-          const tasks = store.list()
-          return tasks.length === 0
-            ? '(no tasks)'
-            : tasks.map(formatTask).join('\n')
-        }
-        case 'update': {
-          if (!id) return 'error: update requires an id'
-          const updated = store.update(id, { status, title, notes, blockedBy })
-          return updated
-            ? `updated ${updated.id}: [${updated.status}] ${updated.title}`
-            : `no such task: ${id}`
-        }
-        case 'done': {
-          if (!id) return 'error: done requires an id'
-          const updated = store.update(id, { status: 'completed' })
-          return updated
-            ? `updated ${updated.id}: [${updated.status}] ${updated.title}`
-            : `no such task: ${id}`
-        }
-      }
-      return 'error: unknown action'
+    async execute({ todos }) {
+      store.replace(todos)
+      return JSON.stringify(todos, null, 2)
     },
   }
 }

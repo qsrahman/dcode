@@ -2,71 +2,37 @@ import { describe, expect, it } from 'vitest'
 import { TaskStore } from '../../src/agent/tasks.ts'
 
 describe('TaskStore', () => {
-  it('creates tasks with sequential ids and pending status', () => {
+  it('starts with an empty list', () => {
     const s = new TaskStore()
-    const a = s.create('first')
-    const b = s.create('second')
-    expect(a.id).toBe('T1')
-    expect(b.id).toBe('T2')
-    expect(a.title).toBe('first')
-    expect(a.status).toBe('pending')
-    expect(a.blockedBy).toEqual([])
+    expect(s.list()).toEqual([])
   })
 
-  it('lists tasks in creation order', () => {
+  it('replaces the list and returns a copy', () => {
     const s = new TaskStore()
-    s.create('a')
-    s.create('b')
-    expect(s.list().map((t) => t.id)).toEqual(['T1', 'T2'])
+    const todos = [
+      { content: 'a', status: 'pending' as const, priority: 'high' as const },
+      { content: 'b', status: 'completed' as const, priority: 'low' as const },
+    ]
+    s.replace(todos)
+    expect(s.list()).toEqual(todos)
   })
 
-  it('records blockedBy at creation', () => {
+  it('returns copies — external mutation does not affect store', () => {
     const s = new TaskStore()
-    const dep = s.create('dep')
-    const t = s.create('needs dep', [dep.id])
-    expect(t.blockedBy).toEqual([dep.id])
+    s.replace([{ content: 'a', status: 'pending', priority: 'medium' }])
+    const list = s.list()
+    list[0]!.content = 'mutated'
+    expect(s.list()[0]!.content).toBe('a')
   })
 
-  it('updates status, notes, title, and blockers', () => {
+  it('second replace overwrites the first', () => {
     const s = new TaskStore()
-    const t = s.create('work')
-    const u = s.update(t.id, {
-      status: 'in_progress',
-      notes: 'doing it',
-      blockedBy: ['T9'],
-    })
-    expect(u?.status).toBe('in_progress')
-    expect(u?.notes).toBe('doing it')
-    expect(u?.blockedBy).toEqual(['T9'])
-  })
-
-  it('returns undefined when updating a missing task', () => {
-    const s = new TaskStore()
-    expect(s.update('T99', { status: 'completed' })).toBeUndefined()
-  })
-
-  // Regression: create/get/list/update used to return the store's own live
-  // Task objects. Mutating one directly (e.g. pushing onto blockedBy)
-  // silently corrupted the store without going through update() — the one
-  // place meant to change it.
-  it('returns copies, not live references, from create/get/list/update', () => {
-    const s = new TaskStore()
-    const created = s.create('work')
-    created.title = 'mutated'
-    created.blockedBy.push('T99')
-    expect(s.get(created.id)?.title).toBe('work')
-    expect(s.get(created.id)?.blockedBy).toEqual([])
-
-    const got = s.get(created.id)!
-    got.status = 'completed'
-    expect(s.get(created.id)?.status).toBe('pending')
-
-    const [listed] = s.list()
-    listed!.title = 'also mutated'
-    expect(s.get(created.id)?.title).toBe('work')
-
-    const updated = s.update(created.id, { status: 'in_progress' })!
-    updated.status = 'blocked'
-    expect(s.get(created.id)?.status).toBe('in_progress')
+    s.replace([{ content: 'first', status: 'pending', priority: 'low' }])
+    s.replace([
+      { content: 'second', status: 'completed', priority: 'high' },
+      { content: 'third', status: 'in_progress', priority: 'medium' },
+    ])
+    expect(s.list()).toHaveLength(2)
+    expect(s.list()[0]!.content).toBe('second')
   })
 })

@@ -2,7 +2,7 @@ import type { Client, ResponseInput } from '../client.ts'
 import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
 import { errorMessage } from '../../util/log.ts'
-import type { Task } from '../tasks.ts'
+import type { Todo } from '../tasks.ts'
 import type { ResponseItemFields } from '../types.ts'
 import { estimateItem, contentToText } from './tokens.ts'
 
@@ -98,13 +98,8 @@ async function summarize(
 // summary can't drift from or contradict what the model actually tracked. The
 // list comes from the session's TaskStore (not from conversation text), so it is
 // the source of truth for outstanding work.
-function formatTasks(tasks: Task[]): string {
-  const lines = tasks.map((t) => {
-    const blocked = t.blockedBy.length
-      ? ` (blocked by ${t.blockedBy.join(', ')})`
-      : ''
-    return `- [${t.status}] ${t.id} ${t.title}${blocked}`
-  })
+function formatTasks(todos: Todo[]): string {
+  const lines = todos.map((t) => `- [${t.status}] [${t.priority}] ${t.content}`)
   return `\n\nAuthoritative task list (source of truth — preserve each task's status; do not invent or contradict it):\n${lines.join('\n')}`
 }
 
@@ -123,7 +118,7 @@ export async function compactHistory(
   config: Config,
   history: ResponseInput,
   logger: Logger,
-  tasks?: Task[],
+  todos?: Todo[],
 ): Promise<ResponseInput | null> {
   const keepTokens = config.context.keepTokens
   const { tail, summarized } = takeTail(history, keepTokens)
@@ -131,7 +126,7 @@ export async function compactHistory(
   if (toSummarize.length === 0) return null
 
   let instruction = `${COMPACTION_INSTRUCTION}\n\n${serializeHistory(toSummarize)}`
-  if (tasks && tasks.length > 0) instruction += formatTasks(tasks)
+  if (todos && todos.length > 0) instruction += formatTasks(todos)
   const text = await summarize(client, instruction, logger)
   logger.debug('context compacted %d items into summary', toSummarize.length)
   return [{ role: SUMMARY_ROLE, content: text }, ...tail]

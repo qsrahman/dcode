@@ -322,13 +322,15 @@ describe('ContextManager', () => {
     }) as Config
     const { client, lastInput } = summaryClient('SUMMARY')
     const store = new TaskStore()
-    store.create('write tests')
+    store.replace([
+      { content: 'write tests', status: 'pending', priority: 'medium' },
+    ])
     const m = new ContextManager(config.context, createLogger(config), store)
     const action = await m.beforeTurn(client, config, bigHistory())
     expect(action).toBe('compacted')
     const instruction = (lastInput()[0] as { content: string }).content
     expect(instruction).toContain('Authoritative task list')
-    expect(instruction).toContain('[pending] T1 write tests')
+    expect(instruction).toContain('[pending] [medium] write tests')
   })
 
   it('compacts proactively at the soft threshold, before the hard limit', async () => {

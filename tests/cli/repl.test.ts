@@ -202,13 +202,15 @@ describe('handleLine commands', () => {
 describe('handleLine new commands', () => {
   it('/tasks lists in-session tasks', async () => {
     const s = makeSession()
-    s.tasks.create('write tests')
-    s.tasks.create('update docs', ['T1'])
+    s.tasks.replace([
+      { content: 'write tests', status: 'pending', priority: 'medium' },
+      { content: 'update docs', status: 'pending', priority: 'low' },
+    ])
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/tasks', { sink })).toBe('ok')
     const text = out.join('')
-    expect(text).toContain('T1 [pending] write tests')
-    expect(text).toContain('(blocked by T1)')
+    expect(text).toContain('[pending] [medium] write tests')
+    expect(text).toContain('[pending] [low] update docs')
   })
   it('/tasks reports when empty', async () => {
     const s = makeSession()
@@ -218,10 +220,12 @@ describe('handleLine new commands', () => {
   })
   it('/todo lists in-session tasks (alias of /tasks)', async () => {
     const s = makeSession()
-    s.tasks.create('write tests')
+    s.tasks.replace([
+      { content: 'write tests', status: 'pending', priority: 'high' },
+    ])
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/todo', { sink })).toBe('ok')
-    expect(out.join('')).toContain('T1 [pending] write tests')
+    expect(out.join('')).toContain('[pending] [high] write tests')
   })
   it('/config prints effective configuration', async () => {
     const s = makeSession()

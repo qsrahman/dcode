@@ -32,7 +32,7 @@ describe('createLocalTools', () => {
         'kill_process',
         'web_search',
         'web_fetch',
-        'todo',
+        'todowrite',
       ].sort(),
     )
     // No accidental name collision silently overwriting an earlier
@@ -50,13 +50,20 @@ describe('createLocalTools', () => {
     }
   })
 
-  it('the todo tool closes over the given TaskStore, not a shared default', () => {
+  it('the todowrite tool closes over the given TaskStore, not a shared default', () => {
     const store = new TaskStore()
     const registry = createLocalTools(store)
-    const todo = registry.get('todo')!
+    const todo = registry.get('todowrite')!
     const ctx = { root: '/tmp', config: undefined, logger: undefined } as never
-    return todo.execute({ action: 'add', title: 'x' }, ctx).then(() => {
-      expect(store.list()).toHaveLength(1)
-    })
+    return todo
+      .execute(
+        {
+          todos: [{ content: 'x', status: 'pending', priority: 'medium' }],
+        },
+        ctx,
+      )
+      .then(() => {
+        expect(store.list()).toHaveLength(1)
+      })
   })
 })
