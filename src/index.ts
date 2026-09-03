@@ -1,4 +1,4 @@
-#!/usr/bin/env -S node
+#!/usr/bin/env node
 
 import { parseCli, formatFlags } from './cli/args.ts'
 import { startRepl } from './cli/repl.ts'
