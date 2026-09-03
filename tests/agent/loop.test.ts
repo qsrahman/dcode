@@ -6,11 +6,8 @@ import type {
   OpenAIResponse,
   ResponseInput,
 } from '../../src/agent/client.ts'
-import {
-  runAgent,
-  renderToolResult,
-  renderToolOutput,
-} from '../../src/agent/loop.ts'
+import { runAgent } from '../../src/agent/loop.ts'
+import { renderToolResult, renderToolOutput } from '../../src/ui/tools.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { ToolRegistry } from '../../src/tools/registry.ts'
 import { createLogger } from '../../src/util/log.ts'
@@ -97,7 +94,7 @@ describe('runAgent', () => {
 
   // End-to-end regression for the --no-color bug: markdown rendering
   // (marked-terminal, via its own internal chalk import) and tool-status
-  // rendering (loop.ts's renderToolResult/renderToolOutput) each used to
+  // rendering (ui/tools.ts's renderToolResult/renderToolOutput) each used to
   // decide color independently of config.color, so --no-color only worked
   // by accident (when NO_COLOR was set or output was piped). This runs a
   // full turn — streamed markdown text with bold, a tool call, and verbose

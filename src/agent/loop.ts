@@ -6,9 +6,9 @@ import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
 import { runTurn, runTool } from './run.ts'
+import { renderToolResult, renderToolOutput } from '../ui/tools.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
-import { styleText } from 'node:util'
 import type {
   ResponseFunctionToolCall,
   ResponseInputItem,
@@ -122,24 +122,31 @@ export async function runAgent(
     if (calls.length === 0) break
     prevHadTools = true
     const results = await runCalls(calls, registry, ctx)
-    for (const { id, outcome } of results) {
+    for (const r of results) {
       history.push({
         type: 'function_call_output',
-        call_id: id,
-        output: outcome.output,
+        call_id: r.id,
+        output: r.output,
       })
-      sink.write(
-        `${renderToolResult(outcome.name, outcome.ok, outcome.ms, config.color)}\n`,
-      )
+      sink.write(`${renderToolResult(r.name, r.ok, r.ms, config.color)}\n`)
       if (config.verbose)
-        sink.write(
-          `${renderToolOutput(outcome.name, outcome.output, config.color)}\n`,
-        )
+        sink.write(`${renderToolOutput(r.name, r.output, config.color)}\n`)
     }
     // Abort only after every call has a recorded output, so history stays
     // balanced (no function_call without its function_call_output) and the
     // conversation can be resumed. handleLine catches this and logs `aborted`.
     if (opts.signal?.aborted) throw new Error('aborted')
+    // Still calling tools on the final permitted iteration: the loop is about
+    // to stop mid-task and return whatever text that turn happened to
+    // produce, which for a pure tool-call turn is nothing at all. Say so —
+    // silently handing back an empty answer reads as the model having no
+    // reply, rather than as a ceiling the user can raise.
+    if (i === config.maxToolIterations - 1) {
+      opts.logger.warn(
+        'stopped after %d tool iterations (maxToolIterations) with work still in progress; raise maxToolIterations or narrow the request',
+        config.maxToolIterations,
+      )
+    }
   }
   return finalText
 }
@@ -188,36 +195,26 @@ async function runCalls(
   calls: ResponseFunctionToolCall[],
   registry: ToolRegistry,
   ctx: ToolContext,
-): Promise<{ id: string; outcome: ToolResult }[]> {
-  const results: { id: string; outcome: ToolResult }[] = []
+): Promise<ToolResult[]> {
+  const results: ToolResult[] = []
   let batch: ResponseFunctionToolCall[] = []
 
-  const runOne = async (
+  // A call that never reached a tool still needs an outcome, so the loop can
+  // pair it with its function_call and keep history balanced.
+  const didNotRun = (
     c: ResponseFunctionToolCall,
-  ): Promise<{ id: string; outcome: ToolResult }> => {
-    const call = { id: c.call_id, name: c.name, arguments: c.arguments }
+    output: string,
+  ): ToolResult => ({ id: c.call_id, name: c.name, output, ok: false, ms: 0 })
+
+  const runOne = async (c: ResponseFunctionToolCall): Promise<ToolResult> => {
+    if (ctx.signal?.aborted) return didNotRun(c, 'aborted')
     const tool = registry.get(c.name)
-    let outcome: ToolResult
-    if (ctx.signal?.aborted) {
-      outcome = {
-        id: c.call_id,
-        name: c.name,
-        output: 'aborted',
-        ok: false,
-        ms: 0,
-      }
-    } else if (!tool) {
-      outcome = {
-        id: c.call_id,
-        name: c.name,
-        output: `error: unknown tool "${c.name}"`,
-        ok: false,
-        ms: 0,
-      }
-    } else {
-      outcome = await runTool(call, tool, ctx)
-    }
-    return { id: c.call_id, outcome }
+    if (!tool) return didNotRun(c, `error: unknown tool "${c.name}"`)
+    return runTool(
+      { id: c.call_id, name: c.name, arguments: c.arguments },
+      tool,
+      ctx,
+    )
   }
 
   // Flush the accumulated parallel batch, preserving emission order.
@@ -239,67 +236,4 @@ async function runCalls(
   }
   await flush()
   return results
-}
-
-type Paint = (s: string) => string
-
-// Build colorizers locally rather than relying on auto-detected color
-// support, for the same reason util/log.ts's paintFor does: color support
-// is decided once at process startup, before --no-color is parsed from argv,
-// so it can't be toggled after the fact.
-function paintFor(color: boolean): {
-  green: Paint
-  red: Paint
-  cyan: Paint
-  dim: Paint
-} {
-  if (!color) {
-    const id: Paint = (s) => s
-    return { green: id, red: id, cyan: id, dim: id }
-  }
-  return {
-    green: (s) => styleText('green', s),
-    red: (s) => styleText('red', s),
-    cyan: (s) => styleText('cyan', s),
-    dim: (s) => styleText('dim', s),
-  }
-}
-
-export function renderToolResult(
-  name: string,
-  ok: boolean,
-  ms: number,
-  color: boolean,
-): string {
-  const p = paintFor(color)
-  const status = ok ? p.green('✓') : p.red('✗')
-  const secs = (ms / 1000).toFixed(1)
-  return `› ${p.cyan(name)}: ${status} ${ok ? 'done' : 'failed'} (${p.dim(secs + 's')})`
-}
-
-const RULE = '─'.repeat(40)
-
-// Color a unified-diff line so edits and `git diff` output are scannable in
-// verbose mode: hunk headers cyan, additions green, removals red.
-function colorDiffLine(line: string, p: ReturnType<typeof paintFor>): string {
-  if (line.startsWith('@@')) return p.cyan(line)
-  if (line.startsWith('+')) return p.green(line)
-  if (line.startsWith('-')) return p.red(line)
-  return line
-}
-
-// Verbose mode echoes a tool's raw output between turns; dim fences mark it
-// as diagnostics so it doesn't read as more streamed model text. Diff-like
-// lines (from git diff or edit_file) are colored.
-export function renderToolOutput(
-  name: string,
-  output: string,
-  color: boolean,
-): string {
-  const p = paintFor(color)
-  const body = output
-    .split('\n')
-    .map((line) => colorDiffLine(line, p))
-    .join('\n')
-  return [p.dim(`── ${name} output ${RULE}`), body, p.dim(RULE)].join('\n')
 }

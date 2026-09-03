@@ -1,5 +1,6 @@
-import { styleText, format } from 'node:util'
+import { format } from 'node:util'
 import type { Config } from '../config/schema.ts'
+import { paintFor, type Paint } from './color.ts'
 
 export interface Logger {
   debug(...args: unknown[]): void
@@ -11,27 +12,20 @@ export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-type Paint = (s: string) => string
-
-// Build colorizers locally so we never mutate the global state (which would
-// leak across tests). When color is off, every paint is identity.
-function paintFor(color: boolean): Record<keyof Logger, Paint> {
-  if (!color) {
-    const id = (s: string) => s
-    return { debug: id, warn: id, error: id }
-  }
-  return {
-    debug: (s) => styleText('dim', s),
-    warn: (s) => styleText('yellow', s),
-    error: (s) => styleText('red', s),
-  }
-}
+// One colour per severity; the paints themselves come from util/color.ts,
+// shared with the tool-result renderer in ui/tools.ts.
+const LEVEL_STYLE = { debug: 'dim', warn: 'yellow', error: 'red' } as const
 
 export function createLogger(
   config: Pick<Config, 'verbose' | 'color'>,
   stream: NodeJS.WritableStream = process.stderr,
 ): Logger {
-  const paint = paintFor(config.color)
+  const p = paintFor(config.color)
+  const paint = {
+    debug: p[LEVEL_STYLE.debug],
+    warn: p[LEVEL_STYLE.warn],
+    error: p[LEVEL_STYLE.error],
+  }
   const write = (label: string, paint: Paint, args: unknown[]) => {
     stream.write(`${paint(label)} ${format(...args)}\n`)
   }

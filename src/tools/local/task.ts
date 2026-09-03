@@ -6,6 +6,7 @@ import { ContextManager } from '../../agent/context/manager.ts'
 import { ToolRegistry, defineTool } from '../registry.ts'
 import {
   getAgentType,
+  resolveAgentTools,
   AGENT_TYPE_NAMES,
   describeAgentTypes,
 } from '../../agent/subagent.ts'
@@ -60,7 +61,7 @@ Usage notes:
 7. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
 
 Available agent types and the tools they have access to:
-${describeAgentTypes()}`,
+${describeAgentTypes(parentTools.list().map((t) => t.name))}`,
     parameters: taskParameters,
     async execute(args, ctx) {
       return runSubAgent(args, ctx, parentClient, parentTools)
@@ -99,10 +100,16 @@ async function runSubAgent(
   // TaskStore.replace overwrites the whole list, so a sub-agent tracking its
   // own steps would wipe the parent's plan — including the "authoritative
   // task list" compact.ts injects into the compaction summary.
+  const allowed = new Set(
+    resolveAgentTools(
+      agentType.tools,
+      parentTools.list().map((t) => t.name),
+    ),
+  )
   const childTools = new ToolRegistry(
     parentTools
       .list()
-      .filter((t) => agentType.tools.includes(t.name))
+      .filter((t) => allowed.has(t.name))
       .map((t) => (t.name === 'todowrite' ? todoTool(new TaskStore()) : t)),
   )
 

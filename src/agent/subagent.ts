@@ -1,11 +1,35 @@
 import { buildSystemPrompt } from './system.ts'
 import type { Config } from '../config/schema.ts'
 
+// Which of the parent's tools an agent type may use. `allow` names them
+// explicitly; `deny` takes everything the parent has except the named ones.
+// The two are not interchangeable: an allow-list has to be edited whenever a
+// tool is added, and forgetting silently leaves sub-agents less capable than
+// their own description claims — a deny-list stays correct on its own. Use
+// `allow` only where the restriction is the point (explore is read-only, and
+// must not gain write access just because a new writing tool appeared).
+export type ToolPolicy =
+  { readonly allow: readonly string[] } | { readonly deny: readonly string[] }
+
 export interface AgentType {
   name: string
   description: string
-  tools: readonly string[]
+  tools: ToolPolicy
   buildPrompt: (config: Config) => string
+}
+
+// Resolve a policy against the tools the parent actually has, preserving the
+// registry's order.
+export function resolveAgentTools(
+  policy: ToolPolicy,
+  registered: readonly string[],
+): string[] {
+  if ('allow' in policy) {
+    const allowed = new Set(policy.allow)
+    return registered.filter((name) => allowed.has(name))
+  }
+  const denied = new Set(policy.deny)
+  return registered.filter((name) => !denied.has(name))
 }
 
 // Read-only tools for the explore agent — grep, glob, read, list, web search.
@@ -20,29 +44,12 @@ const EXPLORE_TOOLS = [
   'web_fetch',
 ] as const
 
-// All tools except task itself — the general agent gets full access but cannot
-// spawn sub-agents (depth limit enforced in task.ts).
-const GENERAL_TOOLS = [
-  'read_file',
-  'list_dir',
-  'grep',
-  'stat',
-  'glob',
-  'write_file',
-  'edit_file',
-  'move_file',
-  'copy_file',
-  'delete_file',
-  'make_dir',
-  'run_shell',
-  'run_process',
-  'read_process',
-  'kill_process',
-  'web_search',
-  'web_fetch',
-  'todowrite',
-  'ask_user',
-] as const
+// The general agent gets everything the parent has except `task` itself:
+// sub-agents don't spawn sub-agents (the depth limit in task.ts enforces that
+// independently). Expressed as a deny-list so it stays literally true as
+// tools come and go, rather than as a 19-name copy of the registry that
+// silently rots the first time someone adds a tool and doesn't update it.
+const GENERAL_TOOLS = { deny: ['task'] } as const
 
 const EXPLORE_PROMPT = `You are a fast, focused code exploration agent. Your job is to investigate the codebase and return precise, actionable findings.
 
@@ -73,7 +80,7 @@ export const AGENT_TYPES: Record<string, AgentType> = {
     name: 'explore',
     description:
       'Fast agent specialized for exploring codebases. Use this when you need to quickly find files by patterns, search code for keywords, or answer questions about the codebase.',
-    tools: EXPLORE_TOOLS,
+    tools: { allow: EXPLORE_TOOLS },
     buildPrompt: () => EXPLORE_PROMPT,
   },
 }
@@ -95,29 +102,34 @@ export const AGENT_TYPE_NAMES = Object.keys(AGENT_TYPES) as [
   ...string[],
 ]
 
-// Agent-type tool allow-lists are matched against the registry by name, so a
-// name that matches nothing removes that tool from every sub-agent silently —
-// no error, just a capability that quietly isn't there (this is exactly how
-// `list_directory` shipped for a tool actually called `list_dir`). Callers
-// hand over the names the registry really has; anything unmatched is a
-// programming error in AGENT_TYPES, not a runtime condition.
+// Policy names are matched against the registry by name, so a name that
+// matches nothing quietly does nothing — an allow-list entry removes that
+// tool from the agent with no error at all (exactly how `list_directory`
+// shipped for a tool actually called `list_dir`), and a deny-list entry fails
+// to deny anything. Callers hand over the names the registry really has;
+// anything unmatched is a programming error in AGENT_TYPES.
 export function unknownAgentTools(registered: Iterable<string>): string[] {
   const known = new Set(registered)
   const missing = new Set<string>()
   for (const agent of listAgentTypes()) {
-    for (const name of agent.tools) {
+    const names = 'allow' in agent.tools ? agent.tools.allow : agent.tools.deny
+    for (const name of names) {
       if (!known.has(name)) missing.add(`${agent.name}:${name}`)
     }
   }
   return [...missing].sort()
 }
 
-// One-line-per-type summary for the task tool's description. Generated from
-// AGENT_TYPES rather than hand-written beside it: a hand-maintained copy is
-// how the tool description came to advertise a `list_directory` tool that
-// doesn't exist, while the filter below silently matched nothing.
-export function describeAgentTypes(): string {
+// One-line-per-type summary for the task tool's description, resolved against
+// the tools the parent actually holds. Generated rather than written by hand
+// beside AGENT_TYPES: a hand-maintained copy is how the tool description came
+// to advertise a `list_directory` tool that doesn't exist, while the filter
+// silently matched nothing.
+export function describeAgentTypes(registered: readonly string[]): string {
   return listAgentTypes()
-    .map((a) => `- ${a.name}: ${a.description} Tools: ${a.tools.join(', ')}`)
+    .map(
+      (a) =>
+        `- ${a.name}: ${a.description} Tools: ${resolveAgentTools(a.tools, registered).join(', ')}`,
+    )
     .join('\n')
 }

@@ -103,6 +103,46 @@ describe('task tool', () => {
     expect(childNames).not.toContain('task')
   })
 
+  // The point of expressing general's tool set as a deny-list rather than a
+  // 19-name allow-list: a tool added to the registry reaches the general
+  // sub-agent with no second list to remember to update. The old allow-list
+  // would silently withhold it.
+  it('gives the general agent a newly registered tool automatically', async () => {
+    parentTools.register({
+      name: 'brand_new_tool',
+      description: 'added later',
+      parameters: undefined as never,
+      execute: async () => 'ok',
+    })
+    const tool = taskTool(client, parentTools)
+    await tool.execute(
+      { description: 'x', prompt: 'y', subagent_type: 'general' },
+      ctx,
+    )
+    const opts = mockedRunAgent.mock.calls[0]![3] as { tools?: ToolRegistry }
+    expect(opts.tools!.list().map((t) => t.name)).toContain('brand_new_tool')
+  })
+
+  // ...but explore stays restricted on purpose: read-only is the guarantee,
+  // so it must not pick up a new writing tool just because one appeared.
+  it('does not give the explore agent a newly registered tool', async () => {
+    parentTools.register({
+      name: 'brand_new_writer',
+      description: 'added later',
+      parameters: undefined as never,
+      execute: async () => 'ok',
+    })
+    const tool = taskTool(client, parentTools)
+    await tool.execute(
+      { description: 'x', prompt: 'y', subagent_type: 'explore' },
+      ctx,
+    )
+    const opts = mockedRunAgent.mock.calls[0]![3] as { tools?: ToolRegistry }
+    expect(opts.tools!.list().map((t) => t.name)).not.toContain(
+      'brand_new_writer',
+    )
+  })
+
   it('returns error for unknown agent type', async () => {
     const tool = taskTool(client, parentTools)
     const result = await tool.execute(
