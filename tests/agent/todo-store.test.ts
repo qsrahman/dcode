@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TaskStore } from '../../src/agent/tasks.ts'
+import { TaskStore } from '../../src/agent/todo-store.ts'
 
 describe('TaskStore', () => {
   it('starts with an empty list', () => {

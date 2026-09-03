@@ -9,7 +9,7 @@ import { isContextOverflowError } from '../../../src/agent/client.ts'
 import type { Config } from '../../../src/config/schema.ts'
 import { createLogger } from '../../../src/util/log.ts'
 import { ContextManager } from '../../../src/agent/context/manager.ts'
-import { TaskStore } from '../../../src/agent/tasks.ts'
+import { TaskStore } from '../../../src/agent/todo-store.ts'
 import { cfg } from '../../helpers.ts'
 
 function summaryClient(summary: string): {

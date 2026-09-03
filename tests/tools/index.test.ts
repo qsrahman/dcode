@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createLocalTools } from '../../src/tools/index.ts'
-import { TaskStore } from '../../src/agent/tasks.ts'
+import { TaskStore } from '../../src/agent/todo-store.ts'
 import type { Client } from '../../src/agent/client.ts'
 
 const mockClient: Client = {

@@ -1,7 +1,7 @@
 import type { Client, ResponseInput } from '../client.ts'
 import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
-import type { TaskStore } from '../tasks.ts'
+import type { TaskStore } from '../todo-store.ts'
 import { estimateHistory } from './tokens.ts'
 import { pruneHistory } from './prune.ts'
 import { compactHistory } from './compact.ts'

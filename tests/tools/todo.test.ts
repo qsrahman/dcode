@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { todoTool } from '../../src/tools/local/todo.ts'
 import type { ToolContext } from '../../src/agent/types.ts'
 import { runTool } from '../../src/agent/run.ts'
-import { TaskStore } from '../../src/agent/tasks.ts'
+import { TaskStore } from '../../src/agent/todo-store.ts'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'
 

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { ToolDefinition } from '../../agent/types.ts'
-import type { TaskStore } from '../../agent/tasks.ts'
+import type { TaskStore } from '../../agent/todo-store.ts'
 
 const todoSchema = z.object({
   content: z.string().describe('Brief description of the task'),
