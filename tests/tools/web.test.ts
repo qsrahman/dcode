@@ -1,18 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// web_fetch resolves hostnames via node:dns/promises before connecting (SSRF
-// guard). Mock it so tests stay deterministic/offline by default — real DNS
-// lookups have no place in a unit test — while still letting individual
-// tests override the resolved address to exercise the guard itself.
-const lookupMock = vi.hoisted(() =>
-  vi.fn(async (_hostname: string, _opts?: unknown) => [
-    { address: '93.184.216.34', family: 4 },
-  ]),
-)
-vi.mock('node:dns/promises', () => ({
-  lookup: lookupMock,
-}))
-
+// web_fetch does no host filtering (opencode-style — network containment is
+// the surrounding sandbox's job, not the tool's), so there is no DNS mock:
+// every test stubs global fetch directly.
 import {
   webTools,
   webFetchTool,
@@ -77,7 +67,6 @@ function mockFetch(body: unknown, ok = true, status = 200): void {
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  lookupMock.mockClear()
 })
 
 describe('web_search', () => {
@@ -206,6 +195,46 @@ describe('web_fetch', () => {
     expect(out).toBe('just text')
   })
 
+  it('returns HTML unconverted when format=html', async () => {
+    mockFetchResponse({
+      body: '<h1>Title</h1><p>Hello</p>',
+      contentType: 'text/html',
+    })
+    const out = await fetchTool.execute(
+      { url: 'https://example.com', format: 'html' },
+      ctx,
+    )
+    expect(out).toBe('<h1>Title</h1><p>Hello</p>')
+  })
+
+  it('leaves JSON unconverted when format=text', async () => {
+    mockFetchResponse({ body: '{"a":1}', contentType: 'application/json' })
+    const out = await fetchTool.execute(
+      { url: 'https://example.com', format: 'text' },
+      ctx,
+    )
+    expect(out).toBe('{"a":1}')
+  })
+
+  it('sends an Accept header matching the requested format', async () => {
+    const fetchSpy = vi.fn(
+      async (_url: string | URL, _init?: RequestInit) =>
+        ({
+          ok: true,
+          status: 200,
+          headers: { get: () => 'text/plain' },
+          body: null,
+          text: async () => 'x',
+        }) as unknown as Response,
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+    await fetchTool.execute({ url: 'https://example.com', format: 'html' }, ctx)
+    const accept = (
+      fetchSpy.mock.calls[0]?.[1]?.headers as Record<string, string>
+    )?.Accept
+    expect(accept).toContain('text/html')
+  })
+
   it('describes binary payloads instead of dumping them', async () => {
     mockFetchResponse({ contentType: 'image/png', contentLength: '1234' })
     const out = await fetchTool.execute({ url: 'https://example.com' }, ctx)
@@ -258,59 +287,42 @@ describe('web_fetch', () => {
     ).rejects.toThrow('web fetch request failed: ECONNREFUSED')
   })
 
-  describe('SSRF guard', () => {
-    it('rejects a literal loopback address without a DNS lookup', async () => {
-      const fetchSpy = vi.fn()
-      vi.stubGlobal('fetch', fetchSpy)
-      await expect(
-        fetchTool.execute({ url: 'http://127.0.0.1/admin' }, ctx),
-      ).rejects.toThrow(/private\/internal address/)
-      expect(fetchSpy).not.toHaveBeenCalled()
-      expect(lookupMock).not.toHaveBeenCalled()
-    })
+  describe('no host filtering (opencode-style)', () => {
+    // The guard was removed deliberately: web_fetch now reaches a
+    // private/loopback/metadata address like any other, leaving network
+    // containment to the surrounding sandbox. These lock in that a literal
+    // internal address is fetched, not refused.
+    function okText(): Response {
+      return {
+        ok: true,
+        status: 200,
+        headers: {
+          get: (k: string) =>
+            k.toLowerCase() === 'content-type' ? 'text/plain' : null,
+        },
+        body: null,
+        text: async () => 'internal-body',
+      } as unknown as Response
+    }
 
-    it('rejects the cloud metadata address', async () => {
-      const fetchSpy = vi.fn()
+    it('fetches a literal loopback address', async () => {
+      const fetchSpy = vi.fn(async () => okText())
       vi.stubGlobal('fetch', fetchSpy)
-      await expect(
-        fetchTool.execute(
-          { url: 'http://169.254.169.254/latest/meta-data/' },
-          ctx,
-        ),
-      ).rejects.toThrow(/private\/internal address/)
-      expect(fetchSpy).not.toHaveBeenCalled()
-    })
-
-    it('rejects a hostname that resolves to a private address', async () => {
-      lookupMock.mockResolvedValueOnce([{ address: '10.0.0.5', family: 4 }])
-      const fetchSpy = vi.fn()
-      vi.stubGlobal('fetch', fetchSpy)
-      await expect(
-        fetchTool.execute({ url: 'https://internal.example' }, ctx),
-      ).rejects.toThrow(/private\/internal address/)
-      expect(fetchSpy).not.toHaveBeenCalled()
-    })
-
-    it('re-validates redirect targets and rejects a redirect into a private address', async () => {
-      const fetchSpy = vi.fn(
-        async () =>
-          ({
-            ok: false,
-            status: 302,
-            headers: {
-              get: (k: string) =>
-                k.toLowerCase() === 'location'
-                  ? 'http://127.0.0.1/secret'
-                  : null,
-            },
-            text: async () => '',
-          }) as unknown as Response,
+      const out = await fetchTool.execute(
+        { url: 'http://127.0.0.1/admin' },
+        ctx,
       )
+      expect(out).toBe('internal-body')
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('fetches the cloud metadata address', async () => {
+      const fetchSpy = vi.fn(async () => okText())
       vi.stubGlobal('fetch', fetchSpy)
-      await expect(
-        fetchTool.execute({ url: 'https://example.com/redirect' }, ctx),
-      ).rejects.toThrow(/private\/internal address/)
-      // The second (private) hop is never actually requested.
+      await fetchTool.execute(
+        { url: 'http://169.254.169.254/latest/meta-data/' },
+        ctx,
+      )
       expect(fetchSpy).toHaveBeenCalledTimes(1)
     })
 

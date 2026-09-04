@@ -64,9 +64,6 @@ const webSearchTool = () =>
       url.searchParams.set('text_decorations', 'false')
       let res: Response
       try {
-        // checkHost omitted (defaults false): BRAVE_ENDPOINT is a fixed,
-        // hardcoded constant, not user/model-controlled input, so the SSRF
-        // guard has nothing to protect against here.
         res = await fetchSafely(
           url,
           {
@@ -92,18 +89,34 @@ const webSearchTool = () =>
     },
   })
 
-// Fetch a URL and return its content as text. HTML is converted to Markdown,
-// JSON is pretty-printed, other text is passed through, and binary payloads
-// are described rather than dumped. No API key is needed — dcode fetches
-// directly from the machine's network. Errors (bad scheme, non-2xx, network
-// failure) are thrown and the runner returns them to the model as ok:false.
+// The `format` the caller asks for. `markdown` (the default) converts HTML to
+// Markdown and pretty-prints JSON so the model gets readable content; `text`
+// and `html` return the body unconverted. The choice also drives the request's
+// Accept header (see ACCEPT), so a server that content-negotiates can hand back
+// a different representation per format — which is the real distinction between
+// `text` and `html`, since dcode applies no conversion to either.
+const ACCEPT: Record<'markdown' | 'text' | 'html', string> = {
+  markdown: 'text/markdown;q=1.0, text/plain;q=0.9, text/html;q=0.8, */*;q=0.5',
+  text: 'text/plain;q=1.0, */*;q=0.5',
+  html: 'text/html;q=1.0, */*;q=0.5',
+}
+
+// Fetch a URL and return its content. No API key is needed — dcode fetches
+// directly from the machine's network, with no host filtering (see http.ts):
+// the target is reached as-is, private/loopback addresses included. Errors
+// (bad scheme, non-2xx, network failure) are thrown and the runner returns
+// them to the model as ok:false.
 export const webFetchTool = () =>
   defineTool({
     name: 'web_fetch',
     description:
-      "Fetch a URL and return its content as text. HTML pages are converted to Markdown; JSON is pretty-printed; other text is returned as-is. Use to read a specific page, doc, or API response when you already know the URL. Use web_search to discover URLs you don't know yet. Requests to private/internal/loopback addresses are refused.",
+      "Fetch a URL and return its content. With format=markdown (default) HTML pages are converted to Markdown and JSON is pretty-printed; format=text or format=html return the body unconverted. Binary payloads are described, not dumped. Use to read a specific page, doc, or API response when you already know the URL; use web_search to discover URLs you don't know yet.",
     parameters: z.object({
       url: z.string().describe('Absolute http(s) URL to fetch'),
+      format: z
+        .enum(['markdown', 'text', 'html'])
+        .optional()
+        .describe('How to return the content (default markdown)'),
     }),
     async execute(args, ctx) {
       let target: URL
@@ -117,13 +130,13 @@ export const webFetchTool = () =>
           `unsupported scheme (${target.protocol}); only http(s) is allowed`,
         )
       }
+      const format = args.format ?? 'markdown'
       let res: Response
       try {
         res = await fetchSafely(
           target,
-          { headers: { 'User-Agent': 'dcode' } },
+          { headers: { 'User-Agent': 'dcode', Accept: ACCEPT[format] } },
           ctx,
-          { checkHost: true },
         )
       } catch (err) {
         throw new Error(`web fetch request failed: ${errorMessage(err)}`)
@@ -143,6 +156,10 @@ export const webFetchTool = () =>
       const suffix = truncated
         ? `\n… [response truncated at ${WEB_FETCH_MAX_BYTES} bytes]`
         : ''
+      // text/html formats return the body unconverted; only markdown converts.
+      if (format !== 'markdown') {
+        return text + suffix
+      }
       if (contentType.startsWith('text/html')) {
         return htmlToMarkdown(text) + suffix
       }

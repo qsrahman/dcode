@@ -83,7 +83,7 @@ src/
   tools/local/        # local tool set, split by concern:
     paths.ts          #   resolvePath, withFsError, ensureParentDir — path confinement (realpath-checked against symlink escapes) + shared fs error/mkdir idioms
     exec.ts           #   run_shell + baseExecOptions/safeEnv/CHILD_MAX_BUFFER — shared execa options (cwd/timeout/cancelSignal/maxBuffer, env redaction)
-    http.ts           #   fetchSafely (SSRF guard, timeout, manual redirects), readBounded — shared network boundary for web.ts
+    http.ts           #   fetchSafely (timeout, native redirects), readBounded — shared network boundary for web.ts (no host filtering; opencode-style)
     fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
     search.ts         #   grep, glob — both ripgrep-backed (@vscode/ripgrep's bundled binary, spawned directly, not via exec.ts); find_symbol/find_references planned, P12
     process.ts        #   run_process, read_process, kill_process — background, via execa (killDescendants: true)

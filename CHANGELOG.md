@@ -209,7 +209,9 @@
   host guard is a resolve-then-check, not connection-level pinning — a DNS
   record that changes between the check and the real connection (DNS
   rebinding) could still slip through — documented as an accepted residual
-  gap rather than a closed one.
+  gap rather than a closed one. **(Superseded later this cycle: the host
+  guard was removed — see "web_fetch drops host filtering" under Changed. The
+  timeout and bounded-read fixes stay.)**
 - `--no-color`/`config.color` didn't actually disable ANSI output on a real
   TTY — it only worked when `NO_COLOR` was set or output was piped, because
   neither markdown rendering nor tool-status rendering ever looked at
@@ -348,6 +350,25 @@
   instead of the handle it had already opened.
 
 ### Changed
+- **`web_fetch` drops host filtering (opencode-style).** The
+  resolve-then-check SSRF guard (`assertPublicHost` and the hand-rolled
+  private-IPv4/IPv6 classification) is removed: `web_fetch` now reaches
+  whatever the URL resolves to — loopback, LAN, and cloud-metadata endpoints
+  included. The guard was a partial mitigation (fail-open, and defeated by
+  DNS rebinding since global `fetch` re-resolves after the check) sitting in
+  front of a process that already hands the model unrestricted `run_shell`,
+  so it raised the apparent bar without shrinking the real attack surface;
+  containment belongs to a surrounding sandbox, matching how opencode's
+  web_fetch works. `fetchSafely` is now a thin timeout/abort wrapper with
+  native redirect following (no `checkHost`, no manual redirect loop);
+  `http.ts` loses the `node:net`/`node:dns` imports. The trust boundary is
+  unchanged and unchanged-by-this: **don't point dcode at untrusted input or
+  networks** — the same boundary `run_shell` already defines.
+- `web_fetch` gains a `format` parameter (`markdown` default, `text`, `html`).
+  `markdown` keeps the existing behavior (HTML→Markdown, pretty-printed JSON);
+  `text` and `html` return the body unconverted. The choice also sets the
+  request's `Accept` header, so a content-negotiating server can return a
+  different representation per format.
 - `parseCli` now runs `parseArgs` in strict mode: an unrecognized flag is an
   error. Lenient parsing wasn't merely forgiving, it was destructive —
   `dcode --modle gpt-4 "do a thing"` dropped the flag *and* pulled its value
@@ -388,12 +409,12 @@
 - Historical phase specs in `PLAN.md` (§11.8, §22) that describe the
   renderers as living inline in `agent/loop.ts` keep their original text but
   gain a pointer to where the code moved, rather than being rewritten.
-- `AGENTS.md`'s "Security model" section (added above, then revised once
-  `web_fetch` gained its own guard) documents the trust boundary: dcode
+- `AGENTS.md`'s "Security model" section documents the trust boundary: dcode
   grants the model real shell access on the user's machine by design
-  (`run_shell`/`run_process`, unrestricted, intentionally), while `web_fetch`
-  gets a private-address guard because its target is often not something the
-  user typed directly. Also documents why `grep`/`glob` spawn `rgPath`
+  (`run_shell`/`run_process`, unrestricted, intentionally), and `web_fetch` is
+  no exception — it does no host filtering (the private-address guard it
+  briefly carried this cycle was removed; see Changed), leaving containment to
+  a surrounding sandbox. Also documents why `grep`/`glob` spawn `rgPath`
   directly instead of going through `exec.ts` (ripgrep's exit-code convention
   doesn't fit a throw-on-nonzero contract), so
   it isn't "fixed" into inconsistency by a future contributor. (`runExec` has
@@ -452,15 +473,14 @@
   real Ollama `/v1/responses` endpoint) showed it accepts an explicit
   `store` field fine. If some stricter endpoint ever does reject it, that's
   now a clear API error instead of a silent guess either way.
-- New `tools/local/http.ts`: the SSRF guard, redirect-following, and
-  timeout/signal handling that `web_fetch` had were extracted into a shared
+- New `tools/local/http.ts`: the redirect-following and timeout/signal
+  handling that `web_fetch` had were extracted into a shared
   `fetchSafely`/`readBounded` boundary, and `web_search`'s fetch to the
   Brave API now goes through it too — closing a gap where `web_search` had
   no real timeout at all (only `ctx.signal`, which only fires on user
-  Ctrl-C). The SSRF host check stays opt-in per call (`{checkHost: true}`):
-  `web_fetch`'s target is often model-chosen and sometimes sourced from
-  content read elsewhere, but `web_search` always hits the same fixed,
-  hardcoded Brave endpoint, which the check has nothing to protect against.
+  Ctrl-C). **(Superseded later this cycle: the host guard this originally
+  also carried, opt-in via `{checkHost: true}`, was removed; `fetchSafely`
+  no longer filters hosts or follows redirects manually. See Changed.)**
 - Two related "unify this into a single mechanism" suggestions from review
   were evaluated and declined, with the reasoning now documented in code
   rather than left as an open question:

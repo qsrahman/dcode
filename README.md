@@ -117,7 +117,7 @@ to the model and the loop repeats up to `maxToolIterations` (default 16).
 | `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). |
 | `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`). |
 | `web_search` | Search the web via Brave (`BRAVE_API_KEY` required). |
-| `web_fetch` | Fetch a URL and return its content (HTML → Markdown, JSON pretty-printed); no API key required. |
+| `web_fetch` | Fetch a URL and return its content (`format`: `markdown` default → HTML to Markdown + pretty JSON, or `text`/`html` unconverted); no API key required. |
 | `todowrite` | Replace the in-session todo list (the model sends the whole list each call) to plan and track multi-step work. |
 | `ask_user` | Ask the user a multiple-choice or free-text question mid-run (interactive terminals only). |
 | `task` | Delegate self-contained work to a sub-agent (`general` or `explore`) with its own context. |

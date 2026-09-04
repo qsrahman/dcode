@@ -155,23 +155,20 @@ cancelled; see the top-level CLAUDE.md). Anything reachable from your machine �
 localhost services, your local network, cloud metadata endpoints if you're on a
 cloud VM — is already in scope through those tools, and that isn't changing.
 
-`web_fetch` is a narrower case than `run_shell`, though: its target URL is
-often not something the user typed directly — it can come from `web_search`
-results or a previously-fetched page, so the model can be steered into
-fetching an internal address without the user ever intending it. Unlike
-`run_shell` (which requires the model to construct a command the user
-implicitly accepts as full shell access each session), this is cheap to guard
-against without materially changing dcode's trust model, so `web_fetch`
-resolves the target host and rejects loopback/RFC1918/link-local/cloud-
-metadata addresses before connecting (`tools/local/http.ts`'s `assertPublicHost`,
-reached via its `fetchSafely` wrapper),
-re-validating on every redirect hop. This is a resolve-then-check guard, not
-connection-level pinning — a host whose DNS record changes between the check
-and the actual request (DNS rebinding) could still slip through — but it
-blocks the common cases (a literal internal/metadata IP, `localhost`, a
-redirect into one) for near-zero cost. `run_shell`/`run_process` remain
-intentionally unrestricted; if that boundary ever needs to shrink, it has to
-shrink there, not in `web_fetch`.
+`web_fetch` is no exception, and deliberately so. It reaches whatever the URL
+resolves to — loopback, LAN, and cloud-metadata endpoints included — with no
+host filtering, matching opencode's model where network containment is the
+surrounding sandbox's job rather than the tool's. dcode earlier carried a
+resolve-then-check guard (`assertPublicHost`) that rejected private/internal
+addresses; it was removed because it was a partial mitigation (fail-open, and
+defeated by DNS rebinding since global `fetch` re-resolves after the check)
+sitting in front of a process that already grants unrestricted `run_shell`,
+so it raised the apparent bar without meaningfully shrinking the real attack
+surface. The boundary that actually matters is the same one `run_shell`
+defines: **don't point dcode at untrusted input or untrusted networks.** If
+that boundary ever needs to shrink, it shrinks with a real sandbox (network
+namespace, connect-time filtering), not an in-process host check. See
+`tools/local/http.ts`'s header comment.
 
 ## Phase workflow
 
