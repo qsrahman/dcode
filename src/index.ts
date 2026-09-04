@@ -9,7 +9,7 @@ import { TaskStore } from './agent/todo-store.ts'
 import { runOneShot } from './agent/loop.ts'
 import { createLocalTools } from './tools/index.ts'
 import { createLogger, errorMessage, isAbortError } from './util/log.ts'
-import { getVersion } from './version.ts'
+import { getVersion } from './util/version.ts'
 import { ensureApiKey } from './cli/auth.ts'
 
 function printHelp(): void {

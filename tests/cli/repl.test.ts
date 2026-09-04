@@ -21,7 +21,7 @@ import { parseCommand, type Session } from '../../src/cli/commands.ts'
 import { createLogger } from '../../src/util/log.ts'
 import type { ResponseInput } from '../../src/agent/client.ts'
 import { cfg, fakeClient, makeSink } from '../helpers.ts'
-import { getVersion } from '../../src/version.ts'
+import { getVersion } from '../../src/util/version.ts'
 
 function makeSession(over: Partial<Config> = {}): Session {
   const config = cfg(over)
