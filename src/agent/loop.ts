@@ -25,6 +25,7 @@ import type {
   ResponseInputItem,
 } from 'openai/resources/responses/responses'
 import { toResponseInputItems } from 'openai/lib/responses/ResponseInputItems'
+import { isCI } from '@clack/prompts'
 import { ContextManager } from './context/manager.ts'
 
 // Agent loop: run turns, execute any tool calls the model makes, feed the
@@ -69,7 +70,9 @@ export async function runAgent(
   // freezes into a single bounded category summary, above the streamed answer.
   // Piped output and --verbose keep the stable per-tool lines instead — a log
   // wants one record per call, and only a TTY can rewrite a line in place.
-  const live = Boolean(process.stdout.isTTY) && !config.verbose
+  // CI is excluded even when it presents a TTY: its captured log has no cursor,
+  // so the in-place `\r\x1b[2K` redraws would land as literal escape noise.
+  const live = Boolean(process.stdout.isTTY) && !isCI() && !config.verbose
   // The tally spans the whole query, accumulating across every tool turn, so a
   // multi-turn query collapses to one summary rather than one line per turn.
   let pending = newTally()

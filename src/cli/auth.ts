@@ -1,4 +1,4 @@
-import { password, isCancel } from '@clack/prompts'
+import { password, isCancel, cancel } from '@clack/prompts'
 import type { Config } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 import { normalizeBaseURL } from '../config/config.ts'
@@ -56,7 +56,13 @@ async function promptForApiKey(): Promise<string> {
     message:
       'No API key found. Paste your OpenAI-compatible key (saved to the global config):',
   })
-  if (isCancel(entered) || !entered) return ''
+  if (isCancel(entered)) {
+    // A bare return would leave the aborted prompt hanging with no feedback;
+    // cancel() prints a styled "cancelled" line so the skip is visible.
+    cancel('No key entered.')
+    return ''
+  }
+  if (!entered) return ''
   return entered.trim()
 }
 

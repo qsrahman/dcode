@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { select, multiselect, text, isCancel } from '@clack/prompts'
+import { select, multiselect, text, isCancel, cancel } from '@clack/prompts'
 import { defineTool } from '../registry.ts'
 
 const optionSchema = z.object({
@@ -48,10 +48,11 @@ async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
     options,
   })
 
-  if (isCancel(result)) return []
+  if (isCancel(result)) return cancelled()
   if (result === '__custom__') {
     const custom = await text({ message: q.question })
-    if (isCancel(custom) || !custom) return []
+    if (isCancel(custom)) return cancelled()
+    if (!custom) return []
     return [custom]
   }
   return [result as string]
@@ -72,8 +73,16 @@ async function askMultiple(
     required: false,
   })
 
-  if (isCancel(result)) return []
+  if (isCancel(result)) return cancelled()
   return result as string[]
+}
+
+// A cancelled prompt (Esc/Ctrl-C) yields no answer; print a styled cancel line
+// so the abort is visible rather than the prompt silently vanishing, and return
+// the empty answer the caller records as "Unanswered".
+function cancelled(): string[] {
+  cancel('Cancelled.')
+  return []
 }
 
 export const askUserTool = () =>

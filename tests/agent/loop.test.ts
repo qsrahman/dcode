@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { styleText, stripVTControlCharacters } from 'node:util'
 import { z } from 'zod'
 import type {
@@ -520,6 +520,17 @@ describe('tool result rendering', () => {
 // process.stdout.isTTY, so it must be forced on here (vitest runs non-TTY).
 describe('runAgent — interactive tool summary', () => {
   const realIsTTY = process.stdout.isTTY
+  const realCI = process.env.CI
+
+  // The live line is gated on `!isCI()` too; neutralize a real CI env so the
+  // TTY-forcing tests below exercise the interactive path deterministically.
+  beforeEach(() => {
+    delete process.env.CI
+  })
+  afterEach(() => {
+    if (realCI === undefined) delete process.env.CI
+    else process.env.CI = realCI
+  })
 
   function runWith(sink: CapturingSink, calls: unknown[][]) {
     const client = fakeClientWithCalls(calls)
@@ -568,6 +579,20 @@ describe('runAgent — interactive tool summary', () => {
 
   it('keeps the per-tool lines (no summary) when not a TTY', async () => {
     process.stdout.isTTY = false
+    try {
+      const sink = new CapturingSink()
+      await runWith(sink, twoToolTurn)
+      const out = stripVTControlCharacters(sink.text)
+      expect(out).toContain('› read_file: ✓ done')
+      expect(out).not.toContain('1 read · 1 edit')
+    } finally {
+      process.stdout.isTTY = realIsTTY
+    }
+  })
+
+  it('keeps the per-tool lines under CI even with a TTY (no in-place redraw)', async () => {
+    process.stdout.isTTY = true
+    process.env.CI = 'true'
     try {
       const sink = new CapturingSink()
       await runWith(sink, twoToolTurn)

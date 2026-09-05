@@ -8,6 +8,7 @@ vi.mock('@clack/prompts', () => ({
   select: vi.fn(),
   multiselect: vi.fn(),
   text: vi.fn(),
+  cancel: vi.fn(),
   isCancel: (v: unknown) => v === Symbol.for('clack:cancel'),
 }))
 
