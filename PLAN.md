@@ -198,6 +198,7 @@ See §17 for deferred candidates.
 | P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** (see §19) |
 | P12 | Symbol search (`find_symbol` / `find_references`, ripgrep-lite) | **Planned** (see §20) |
 | P13 | `apply_patch` (atomic multi-file unified-diff apply) | **Planned** (see §21) |
+| P14 | File inputs (let the model read local PDFs/images) | **Candidate** (see §27) |
 
 Landed outside the numbered phases (no new locked decisions; see §6):
 
@@ -1131,3 +1132,57 @@ false`), `src/cli/commands.ts` (`/save`, `/limit`, `historyToMarkdown`),
 
 
 
+
+## 27. P14 Specification (file inputs — read local PDFs/images) — candidate
+
+Lets the model actually read non-text artifacts. Today dcode is blind to
+them: `read_file` refuses binary (NUL byte → "binary … not shown") and
+`web_fetch` only describes it. The Responses API accepts a file three ways —
+a `file_id` from `client.files.create`, an inline base64 `file_data` data-URI,
+or a URL — as an `input_file`/`input_image` content part; on vision models a
+PDF is decomposed into text + page images. This phase wires local PDFs and
+images into that path so the agent can act on a spec, an RFC, a screenshot of
+a failing UI, or a diagram.
+
+### 27.1 Scope
+- A `read_document(path)` tool (or a `read_file` branch) that, for a PDF or
+  image under `root`, emits an `input_file` / `input_image` content part
+  instead of refusing — so the *next* model turn sees the artifact. Text
+  files keep going through `read_file` unchanged.
+- **v1 uses inline base64** (`file_data` / image data-URI), not
+  `files.create`: one request, no server-side object to retain or clean up,
+  and it keeps `store: false` intact. `files.create` (`purpose:
+  "user_data"`/`"assistants"`, reference by `file_id`) is a **later
+  optimization** for files past the inline size limit or reused across many
+  turns — not the entry point.
+
+### 27.2 Two locked-decision tensions to resolve first (see §6)
+- **`store: false` / privacy.** Inline base64 respects it; `files.create`
+  does *not* (server-side retention of the user's file). If `files.create` is
+  ever added it must be opt-in and documented, consistent with decision on
+  server storage.
+- **OpenAI-compatible-endpoint posture.** File inputs are OpenAI-specific;
+  local/compatible endpoints (Ollama's `/v1/responses`) may reject them, like
+  the `developer`/`system` roles compaction already avoids. So this is
+  **capability-gated** — a config flag or a real endpoint check — and degrades
+  to today's "binary, not shown" when unavailable, never a hard failure.
+
+### 27.3 Module changes
+- `src/agent/client.ts`: the `Client.stream` input path must carry structured
+  content parts (`input_file`/`input_image`), not just text — a small widening
+  of what a history item's `content` may hold.
+- `src/tools/local/fs.ts` (or a new `documents.ts`): PDF/image detection by
+  extension + magic bytes, size cap (reuse the bounded-read discipline), base64
+  encoding, and building the content part. `resolvePath`-confined as ever.
+- Config: a gate (e.g. `fileInputs: boolean`, default off, or derived from the
+  endpoint) in `config/schema.ts`.
+
+### 27.4 Tests
+- PDF and image produce the right content-part shape; a text file is
+  unaffected; oversize is refused with a clear message; path-escape rejection;
+  the gate off → the old "binary, not shown" behavior.
+
+### 27.5 Status
+**Candidate** (not yet scheduled). Additive capability, not a simplification —
+it earns its place only if reading PDFs/images is a real workflow need, and it
+must clear the two tensions in §27.2 first.
