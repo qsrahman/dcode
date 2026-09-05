@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-05
+
 ### Added
 - Compact tool display for interactive (TTY) sessions: instead of one
   `› tool: ✓ done` line per call, a single line updates in place while tools
