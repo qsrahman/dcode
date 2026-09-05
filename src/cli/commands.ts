@@ -33,7 +33,12 @@ export interface Session {
   root: string
 }
 
-export type HandleResult = 'ok' | 'exit'
+// 'edit' asks the REPL loop to open the user's editor and submit the result as
+// a prompt. It's a loop-level action rather than something the handler does
+// itself because the editor needs the terminal (the loop owns the readline
+// interface to pause/resume) and the follow-up turn needs the loop's abort
+// signal — neither of which a command handler has access to.
+export type HandleResult = 'ok' | 'exit' | 'edit'
 
 // ANSI sequence to clear screen + scrollback and move home.
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
@@ -358,6 +363,14 @@ export function createCommands(): CommandRegistry {
       sink.write(`saved ${session.history.length} items to ${target}\n`)
       return 'ok'
     },
+  })
+  r.register({
+    name: 'edit',
+    description: 'compose a prompt in $VISUAL/$EDITOR, then send it',
+    // The loop performs the editor round-trip (see HandleResult 'edit'); the
+    // handler only signals the intent. Args are ignored — the prompt is
+    // whatever the editor buffer contains on close.
+    handler: () => 'edit',
   })
   r.register({
     name: 'exit',

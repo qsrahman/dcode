@@ -17,6 +17,7 @@ import {
   parseCommand,
 } from './commands.ts'
 import { createCompleter } from './completer.ts'
+import { openInEditor, resolveEditor, NO_EDITOR_MESSAGE } from './editor.ts'
 
 const HINT = 'Ask anything, /help for commands...'
 const PROMPT = styleText('cyan', '> ')
@@ -93,6 +94,11 @@ function isToolItem(item: ResponseInput[number]): boolean {
 export interface LineOpts {
   sink?: RunSink
   signal?: AbortSignal
+  // Treat the line as a prompt even if it begins with '/'. Set when submitting
+  // text composed in the editor (/edit), which is prose to send, never a
+  // command to re-parse — a prompt that happens to open with a slash must not
+  // be swallowed as an unknown command.
+  asPrompt?: boolean
 }
 
 export async function handleLine(
@@ -105,7 +111,7 @@ export async function handleLine(
 
   if (trimmed === '') return 'ok'
 
-  const cmd = parseCommand(trimmed)
+  const cmd = opts.asPrompt ? null : parseCommand(trimmed)
   if (cmd) {
     // Guard command handlers: an error here (e.g. /save to a bad path, /compact
     // failing) must not escape and terminate the REPL loop.
@@ -138,6 +144,33 @@ export async function handleLine(
     }
   }
   return 'ok'
+}
+
+// Run the /edit round-trip: open the user's editor on a scratch buffer and
+// return what they wrote, or null (no editor configured, an editor error, or an
+// empty buffer). Readline is paused for the duration so the editor owns the
+// terminal, and raw mode is reasserted afterward because a full-screen editor
+// leaves the tty in cooked mode on exit — without this the resumed prompt would
+// double-echo and mishandle arrow keys.
+async function composeInEditor(
+  rl: { pause(): void; resume(): void },
+  logger: Logger,
+): Promise<string | null> {
+  if (!resolveEditor()) {
+    logger.warn(NO_EDITOR_MESSAGE)
+    return null
+  }
+  rl.pause()
+  try {
+    const text = await openInEditor()
+    return text && text.trim() ? text : null
+  } catch (err) {
+    logger.error(errorMessage(err))
+    return null
+  } finally {
+    if (process.stdin.isTTY) process.stdin.setRawMode(true)
+    rl.resume()
+  }
 }
 
 export async function startRepl(config: Config, logger: Logger): Promise<void> {
@@ -204,6 +237,22 @@ export async function startRepl(config: Config, logger: Logger): Promise<void> {
     if (result === 'exit') {
       rl.close()
       return
+    }
+    if (result === 'edit') {
+      const text = await composeInEditor(rl, session.logger)
+      if (text) {
+        // Echo the composed prompt so the terminal (and any later /save) has a
+        // record of what was sent — it was typed in an external buffer, so
+        // nothing of it reached the screen otherwise.
+        process.stdout.write(`${PROMPT}${text.trim()}\n`)
+        ac = new AbortController()
+        await handleLine(session, text, {
+          sink: process.stdout,
+          signal: ac.signal,
+          asPrompt: true,
+        })
+        ac = undefined
+      }
     }
     rl.prompt()
   }

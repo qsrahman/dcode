@@ -281,6 +281,21 @@ describe('handleLine prompt turn', () => {
     expect(last.role).toBe('assistant')
     expect(stripVTControlCharacters(out.join(''))).toBe('\nhi there\n\n')
   })
+
+  it('asPrompt sends slash-prefixed text as a prompt, not a command', async () => {
+    const s = makeSession()
+    s.client = fakeClient('ok')
+    const { sink, out } = makeSink()
+    // Leading '/' would normally parse as a command; asPrompt (set for /edit
+    // buffers) must treat the whole thing as a user turn instead.
+    expect(
+      await handleLine(s, '/usr/bin quirk', { sink, asPrompt: true }),
+    ).toBe('ok')
+    const first = s.history[0] as { role?: string; content?: string }
+    expect(first.role).toBe('user')
+    expect(first.content).toBe('/usr/bin quirk')
+    expect(out.join('')).not.toContain('unknown command')
+  })
 })
 
 // Lines are delivered via rl.emit(), never auto-fired from prompt(), so tests
