@@ -291,7 +291,11 @@ P2 set: `/help`, `/model [<id>]`, `/clear`, `/reset`, `/version`, `/exit`.
   into `[summary, ...tail]`). The old fixed item-count cap (`maxHistoryItems`/
   `trimHistory`) was removed — it deleted items without summarizing and duplicated
   what compaction already does; opencode and Claude Code likewise bound history by
-  tokens, not item count.
+  tokens, not item count. Consequence: with `context.auto: false` there is nothing
+  left to bound history proactively — it grows unbounded and recovery is reactive
+  only (a request overflows, `onOverflow` prunes/compacts and retries once; three
+  failures trip the circuit breaker and requests then fail). `auto: false` is only
+  for short/one-shot sessions that never approach the window.
 - **Ctrl-C (decision L):** `readline` `'SIGINT'` aborts the in-flight
   `AbortController` → `runTurn`'s signal → stream aborts → caught, logged
   `[warn] aborted`, returns to prompt. Process must NOT exit. (Shell-child SIGTERM is

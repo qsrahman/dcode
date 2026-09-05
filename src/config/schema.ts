@@ -2,6 +2,26 @@ import { z } from 'zod'
 
 const contextSchema = z
   .object({
+    // Proactive context management before each request: prune old tool outputs,
+    // then summarize the oldest history once over `compactAt` of the budget.
+    // On by default and recommended.
+    //
+    // Setting this false is a deliberate opt-out with real consequences, now
+    // that the fixed item-count cap (`maxHistoryItems`/`trimHistory`) has been
+    // removed — automatic compaction is the ONLY thing that bounds history:
+    //   - History grows unbounded turn over turn. Each request is larger (more
+    //     tokens, higher cost, higher latency) than the last.
+    //   - Nothing shrinks it *proactively*. Recovery becomes purely reactive:
+    //     a request eventually overflows the model's window, and `onOverflow`
+    //     (which ignores this flag) prunes/compacts and retries once — so you
+    //     pay for a failed oversized request *plus* a compaction, instead of
+    //     compacting cheaply ahead of time.
+    //   - If that reactive compaction can't make progress three times running,
+    //     the circuit breaker trips and further requests just fail with a
+    //     context-length error until the session is reset.
+    // In short: `auto: false` trades steady, cheap, proactive compaction for
+    // unbounded growth punctuated by expensive reactive recovery. Only disable
+    // it for short-lived or one-shot sessions that never approach the window.
     auto: z.boolean().default(true),
     window: z.number().int().positive().default(200000),
     reserved: z.number().int().nonnegative().default(20000),
