@@ -93,7 +93,7 @@ src/
     web.ts            #   web_search (Brave; key from ctx.config.brave only), web_fetch
   tools/mcp/manager.ts  # connect servers, cache tools, callTool (P6, not yet built)
   ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
-  ui/tools.ts            # renderToolResult / renderToolOutput — terminal rendering of tool calls (moved out of agent/loop.ts)
+  ui/tools.ts            # tool-call rendering: interactive TTY = a per-query live counter that freezes into a bounded category summary (renderProgressLine/renderCategorySummary/TurnTally); piped/--verbose = per-call lines (renderToolResult/renderToolOutput)
   types/marked-terminal.d.ts # local ambient types (marked-terminal ships none; @types/marked-terminal on npm is stale/mismatched)
   util/color.ts         # paintFor(color) — the one place styleText is applied, shared by util/log.ts and ui/tools.ts
   util/log.ts           # diagnostics -> stderr (never console.log); errorMessage, isAbortError
@@ -203,6 +203,12 @@ Landed outside the numbered phases (no new locked decisions; see §6):
 
 - **Markdown rendering** — `ui/markdown.ts` renders streamed assistant output
   as ANSI via `marked` + `marked-terminal`, emitting only block-complete lines.
+- **Compact tool summary** (`ui/tools.ts`) — on an interactive TTY, a single
+  per-query live counter (updated on each tool completion, no timer) that
+  freezes once into a bounded category summary above the streamed answer,
+  instead of one line per call. The tally spans the whole `runAgent` call and
+  is frozen via `runTurn`'s `onBeforeText` hook. Piped/non-TTY output and
+  `--verbose` keep the per-call lines.
 - **`ask_user`** (`tools/local/question.ts`) — interactive questions via
   `@clack/prompts`; returns a "no interactive terminal" result rather than
   hanging when stdin isn't a TTY.

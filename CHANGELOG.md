@@ -1,6 +1,19 @@
 ## [Unreleased]
 
 ### Added
+- Compact tool display for interactive (TTY) sessions: instead of one
+  `› tool: ✓ done` line per call, a single line updates in place while tools
+  run (`⋯ N tools · <current> · <elapsed>`, event-driven — no spinner/timer)
+  and freezes into a bounded summary grouped by tool family
+  (`2 search · 13 read · 8.5s`) above the streamed answer, with a blank line
+  between. The tally spans the whole query — one summary even across many tool
+  turns — and grouping by family keeps the line to a fixed handful of segments
+  no matter how many tools ran, so it never wraps the way a name list would.
+  Frozen via a new `onBeforeText` hook on `runTurn`, fired just before the
+  first visible answer chunk. Piped/non-TTY output and `--verbose` keep the
+  per-call lines (a log wants one record per call; only a TTY can rewrite a
+  line in place). `ui/tools.ts` gains `TurnTally`/`renderProgressLine`/
+  `renderCategorySummary`; no new dependency.
 - Assistant output is now rendered as styled markdown in the terminal
   (headings, bold/italic, lists, syntax-highlighted code blocks) instead of
   raw text with literal `**`/`#`/backtick characters — via `marked` +

@@ -92,9 +92,13 @@ dcode -- "--this reads as a prompt, not a flag"
 
  The REPL supports tab-completion: slash commands complete from the list above,
  and the last whitespace-delimited token is completed as a file path under the
- working directory. In `--verbose` mode, tool-status lines are colorized and any
- diff output (e.g. a `git diff` run through `run_shell`) is shown with colored
- additions/removals.
+ working directory. While a turn calls tools, the terminal shows a single live
+ counter that updates in place and then settles into a one-line summary grouped
+ by tool family (e.g. `2 search · 13 read · 8.5s`) above the answer, so a turn
+ that makes many tool calls stays one line rather than scrolling. In `--verbose`
+ mode (or when output is piped) that compact summary is replaced by one status
+ line per call, colorized, and any diff output (e.g. a `git diff` run through
+ `run_shell`) is shown with colored additions/removals.
  Assistant responses are rendered as styled markdown while streaming
  (headings, bold/italic, lists, syntax-highlighted code blocks) — a code
  block or other block-level construct isn't shown until it's complete, so

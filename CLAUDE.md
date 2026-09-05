@@ -90,11 +90,25 @@ this preserves `reasoning` items, which reasoning models (the default
 `function_call` items carry a `parsed_arguments` field the live API rejects
 on replay ("Unknown parameter"), so `loop.ts`'s `stripParsedArguments` strips
 it explicitly after normalization.
-The loop is orchestration only: terminal rendering of tool calls
-(`renderToolResult`/`renderToolOutput`) lives in `ui/tools.ts`, beside
-`ui/markdown.ts`, and both get their colorizers from `util/color.ts`'s
-`paintFor(color)` — the single place `styleText` is applied, shared with
-`util/log.ts`. `paintFor` takes an explicit flag rather than letting Node
+The loop is orchestration only: terminal rendering of tool calls lives in
+`ui/tools.ts`, beside `ui/markdown.ts`, and both get their colorizers from
+`util/color.ts`'s `paintFor(color)` — the single place `styleText` is
+applied, shared with `util/log.ts`. Two tool-rendering modes, gated on
+`process.stdout.isTTY`: an interactive TTY (and not `--verbose`) gets a
+*single per-query* summary — one live line that updates in place on each
+tool completion (`⋯ N tools · <current> · <elapsed>`, event-driven, no
+timer) and freezes once into a bounded category summary
+(`renderCategorySummary`: `2 search · 13 read · 8.5s`, counts by tool
+family so its width never grows with the call count) above the streamed
+answer. The tally (`ui/tools.ts`'s `TurnTally`) spans the whole
+`runAgent` call, accumulating across every tool turn, and is frozen by
+`freezeSummary` — fired via `runTurn`'s `onBeforeText` hook just before
+the first visible answer chunk (reliable because intermediate reasoning
+turns emit no visible text), with an end-of-loop and abort-path freeze
+for a query that ends on tools with no closing text. Piped/non-TTY output
+and `--verbose` instead keep the stable one-line-per-call form
+(`renderToolResult`/`renderToolOutput`) — a log wants one record per call,
+and only a TTY can rewrite a line in place. `paintFor` takes an explicit flag rather than letting Node
 auto-detect, for two reasons: colour support is resolved at startup, before
 `--no-color` is parsed out of argv, and the answer describes stdout rather
 than whichever sink the caller writes to. Exhausting `maxToolIterations`
