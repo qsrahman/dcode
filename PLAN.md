@@ -157,7 +157,7 @@ the order the model emitted it. There is no approval prompt and no `--mode` /
 | # | Topic | Decision |
 |---|-------|----------|
 | A | Config format | JSON (zero extra deps) |
-| B | History | Capped in-memory array (`maxHistoryItems`); `/reset` drops, `/clear` screen-only |
+| B | History | In-memory `ResponseInput` array bounded by token-budget compaction (`ContextManager`); `/reset` drops, `/clear` screen-only |
 | C | Shell model | Real shell (`/bin/sh -c`), harness-gated, cwd-confined |
 | D | Loop term | Cap (16, configurable) + feed tool errors back as `function_call_output` |
 | E | `always` scope | Per-tool, session-scoped (cleared by `/reset`) |
@@ -286,9 +286,12 @@ P2 set: `/help`, `/model [<id>]`, `/clear`, `/reset`, `/version`, `/exit`.
   tools to list yet).
 
 ### 10.4 Streaming, history, cancel, errors
-- **History cap (decision B):** `trimHistory(history, config.maxHistoryItems)` keeps
-  `history[0]` (system) and the last N items; trims oldest user/assistant. Stored as
-  a plain `ResponseInput` array, so P3 tool-call / tool-output items drop in later.
+- **History (decision B):** a plain `ResponseInput` array, bounded solely by
+  token-budget compaction (`ContextManager`: prune old tool outputs, then summarize
+  into `[summary, ...tail]`). The old fixed item-count cap (`maxHistoryItems`/
+  `trimHistory`) was removed — it deleted items without summarizing and duplicated
+  what compaction already does; opencode and Claude Code likewise bound history by
+  tokens, not item count.
 - **Ctrl-C (decision L):** `readline` `'SIGINT'` aborts the in-flight
   `AbortController` → `runTurn`'s signal → stream aborts → caught, logged
   `[warn] aborted`, returns to prompt. Process must NOT exit. (Shell-child SIGTERM is
@@ -311,7 +314,7 @@ Deferred to a later phase (single-line in P2).
 
 ### 10.7 Tests (`tests/cli/repl.test.ts`)
 Mirror the split so `readline` I/O is the only untested seam:
-- Pure / fast: `parseCommand`, `trimHistory` (cap behavior), `dispatch` for
+- Pure / fast: `parseCommand`, `dispatch` for
   `/model` / `/reset` / `/clear` (assert session state + returned strings).
 - Smoke: mock `node:readline` (`vi.mock`) to emit `'line'` events; assert streamed
   output + command effects using a `fakeClient` like the existing run tests.

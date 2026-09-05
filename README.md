@@ -195,7 +195,6 @@ JSON, loaded from `--config <path>` or a default location. Example:
 {
   "model": "gpt-5.4-mini",
   "maxToolIterations": 16,
-  "maxHistoryItems": 100,
   "maxToolOutputBytes": 32768,
   "stateful": false,
   "ignore": [".git", "node_modules"],

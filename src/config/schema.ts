@@ -28,7 +28,6 @@ export const configSchema = z.object({
   verbose: z.boolean().default(false),
   color: z.boolean().default(true),
   maxToolIterations: z.number().int().positive().default(16),
-  maxHistoryItems: z.number().int().positive().default(100),
   maxToolOutputBytes: z.number().int().positive().default(32768),
   maxTokens: z.number().int().positive().default(8192),
   maxRetries: z.number().int().nonnegative().default(3),

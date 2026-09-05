@@ -11,15 +11,9 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Config } from '../../src/config/schema.ts'
-import {
-  createSession,
-  handleLine,
-  trimHistory,
-  startRepl,
-} from '../../src/cli/repl.ts'
+import { createSession, handleLine, startRepl } from '../../src/cli/repl.ts'
 import { parseCommand, type Session } from '../../src/cli/commands.ts'
 import { createLogger } from '../../src/util/log.ts'
-import type { ResponseInput } from '../../src/agent/client.ts'
 import { cfg, fakeClient, makeSink } from '../helpers.ts'
 import { getVersion } from '../../src/util/version.ts'
 
@@ -46,93 +40,6 @@ describe('parseCommand', () => {
       name: 'key',
       args: 'Set OpenAI SK-123',
     })
-  })
-})
-
-describe('trimHistory', () => {
-  it('keeps item 0 plus the last max items', () => {
-    const h: ResponseInput = [
-      { role: 'user', content: '1' },
-      { role: 'assistant', content: '1' },
-      { role: 'user', content: '2' },
-      { role: 'assistant', content: '2' },
-    ]
-    trimHistory(h, 2)
-    // Item 0 is protected (see below), so this keeps 1 + max = 3 items.
-    expect(h.length).toBe(3)
-    expect(h[0]).toEqual({ role: 'user', content: '1' })
-    expect(h[1]).toEqual({ role: 'user', content: '2' })
-    expect(h[2]).toEqual({ role: 'assistant', content: '2' })
-  })
-  it('is a no-op when within the cap', () => {
-    const h: ResponseInput = [
-      { role: 'user', content: '1' },
-      { role: 'assistant', content: '1' },
-    ]
-    trimHistory(h, 10)
-    expect(h.length).toBe(2)
-  })
-  it('never orphans a tool pair: cuts at a message boundary', () => {
-    const h: ResponseInput = [
-      { role: 'user', content: 'u1' },
-      { type: 'function_call', call_id: 'a', name: 'x', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'a', output: 'ok' },
-      { role: 'assistant', content: 'a1' },
-    ] as unknown as ResponseInput
-    trimHistory(h, 2)
-    // The naive cut would keep the orphaned output (call 'a' dropped); the fixed
-    // version advances past both tool items to the next message.
-    for (const item of h) {
-      expect((item as { type?: string }).type).not.toBe('function_call_output')
-      expect((item as { type?: string }).type).not.toBe('function_call')
-    }
-  })
-
-  it('never separates a reasoning item from its function_call', () => {
-    const h: ResponseInput = [
-      { role: 'user', content: 'u1' },
-      { type: 'reasoning', id: 'r1', summary: [] },
-      { type: 'function_call', call_id: 'a', name: 'x', arguments: '{}' },
-      { type: 'function_call_output', call_id: 'a', output: 'ok' },
-      { role: 'assistant', content: 'a1' },
-    ] as unknown as ResponseInput
-    trimHistory(h, 2)
-    const types = h.map((i) => (i as { type?: string; role?: string }).type)
-    // Either the reasoning item survives together with its function_call
-    // (both present), or the whole turn was dropped together (neither
-    // present) — never one without the other.
-    const hasReasoning = types.includes('reasoning')
-    const hasCall = types.includes('function_call')
-    expect(hasReasoning).toBe(hasCall)
-  })
-
-  // Regression: a naive front-cut is blind to what's at index 0. After a
-  // compaction (auto or /compact), history is `[summary, ...tail]` — the
-  // summary is the model's only record of everything before it. Trimming
-  // from index 0 like every other item, once the session runs long enough
-  // to hit the item-count cap again, would silently erase it.
-  it('never discards item 0, even when it is a compaction summary', () => {
-    const h: ResponseInput = [
-      { role: 'user', content: 'SUMMARY of everything before this point' },
-      ...Array.from({ length: 10 }, (_, i) => ({
-        role: 'user' as const,
-        content: `msg ${i}`,
-      })),
-    ]
-    trimHistory(h, 3)
-    expect(h[0]).toEqual({
-      role: 'user',
-      content: 'SUMMARY of everything before this point',
-    })
-    // Everything else is still capped to roughly `max`, just measured from
-    // index 1 instead of index 0.
-    expect(h.length).toBeLessThanOrEqual(4)
-  })
-
-  it('is still a no-op when only item 0 exists', () => {
-    const h: ResponseInput = [{ role: 'user', content: 'only' }]
-    trimHistory(h, 0)
-    expect(h).toEqual([{ role: 'user', content: 'only' }])
   })
 })
 

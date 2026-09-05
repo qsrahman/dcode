@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Removed
+- The fixed history item-count cap (`maxHistoryItems` config field and
+  `cli/repl.ts`'s `trimHistory`). History is now bounded solely by
+  `ContextManager`'s token-budget compaction (prune old tool outputs, then
+  summarize into `[summary, ...tail]`), the same mechanism that already ran
+  before every request. The item cap measured the wrong axis (item count, not
+  tokens — so it often clipped tool-heavy sessions well before the token
+  budget) and, unlike compaction, deleted turns *without* summarizing them.
+  opencode and Claude Code likewise bound history by tokens, not item count.
+  **Breaking:** config is parsed with `.strict()`, so a `"maxHistoryItems"`
+  key left in `dcode.json` is now rejected as unknown — remove it.
+
 ## [0.16.0] - 2026-09-05
 
 ### Added

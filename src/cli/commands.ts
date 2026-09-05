@@ -229,7 +229,6 @@ export function createCommands(): CommandRegistry {
         `verbose:      ${c.verbose}`,
         `keys:         ${keysLine} (values hidden)`,
         `maxTools:     ${c.maxToolIterations}`,
-        `maxHistory:   ${c.maxHistoryItems}`,
         `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
         `toolTimeout:  ${c.toolTimeout} ms`,
         `maxRetries:   ${c.maxRetries}`,

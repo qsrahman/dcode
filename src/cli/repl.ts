@@ -2,7 +2,6 @@ import { createInterface } from 'node:readline/promises'
 import { styleText } from 'node:util'
 import type { Config } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
-import type { ResponseInput } from '../agent/client.ts'
 import { TaskStore } from '../agent/todo-store.ts'
 import { ContextManager } from '../agent/context/manager.ts'
 import { runAgent } from '../agent/loop.ts'
@@ -36,60 +35,6 @@ export function createSession(config: Config, logger: Logger): Session {
     root: resolveRoot(config),
   }
 }
-
-// Keep roughly the last `max` items, plus item 0 unconditionally. The cut
-// point is advanced forward past any tool items so the retained region
-// always begins at a message boundary — otherwise trimming could keep a
-// function_call_output whose function_call was dropped (or a function_call
-// whose sibling output was dropped), which the Responses API rejects as an
-// orphaned tool call. Erring toward keeping fewer items is fine; correctness
-// beats hitting `max` exactly.
-//
-// Item 0 is protected because it's always either the session's very first
-// user message, or — after an automatic or manual compaction —
-// ContextManager's summary standing in for everything before it (compaction
-// always produces `[summary, ...tail]`, and both start with `role: 'user'`,
-// so there's nothing else in this array that could occupy index 0). Trimming
-// from index 0 like every other cut point would silently discard that
-// summary once the *item count* cap (independent of ContextManager's token
-// budget) is hit on a long session — erasing the model's only record of the
-// pre-compaction conversation, a far bigger loss than trimming any other
-// single item.
-export function trimHistory(history: ResponseInput, max: number): void {
-  if (history.length <= max || history.length <= 1) return
-  let keepFrom = Math.max(1, history.length - max)
-  while (keepFrom < history.length && isToolItem(history[keepFrom]!)) keepFrom++
-  if (keepFrom <= 1) return
-  history.splice(1, keepFrom - 1)
-}
-
-function isToolItem(item: ResponseInput[number]): boolean {
-  return item.type === 'function_call' || item.type === 'function_call_output'
-}
-
-// Why this doesn't also recognize `reasoning` items (which reasoning models
-// require replayed immediately before their triggering function_call — see
-// loop.ts): isToolItem's job is "never let the retained region *start* on
-// an item with a required partner elsewhere," and a `reasoning` item's
-// partner (its following function_call) is never at risk here. Landing
-// exactly on a `reasoning` item stops the skip-forward there (it isn't a
-// tool item), so the reasoning item and everything after it — including its
-// function_call and function_call_output — are kept together. Landing on
-// the function_call or function_call_output *is* recognized, and skips
-// forward past the whole contiguous run, discarding that turn's
-// reasoning+call+output together rather than ever leaving an orphaned half.
-// So no case actually splits a reasoning item from its function_call; adding
-// `reasoning` to isToolItem would only make the cut more aggressive (an
-// optional reasoning item preceding a plain, non-tool-call message would
-// get dropped too, since it'd no longer stop the skip there) for no
-// correctness benefit.
-//
-// This — plus the item-0 protection above — is also why trimHistory stays a
-// separate mechanism from ContextManager rather than being merged into it:
-// they solve different problems (a hard item-count safety net vs. a
-// token-budget-driven compaction policy), and the specific hazard a merge
-// would exist to prevent (a cut splitting a required item pair) is already
-// provably excluded by the two invariants above, not merely "usually fine."
 
 export interface LineOpts {
   sink?: RunSink
@@ -137,7 +82,6 @@ export async function handleLine(
     })
 
     sink.write('\n')
-    trimHistory(session.history, session.config.maxHistoryItems)
   } catch (err) {
     if (!isAbortError(err, opts.signal)) {
       session.logger.error(errorMessage(err))
