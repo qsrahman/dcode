@@ -31,6 +31,12 @@ export interface TurnOpts {
   tools?: ResponsesTool[]
   instructions?: string
   signal?: AbortSignal
+  // Called once, immediately before the first visible chunk of this turn's
+  // text reaches the sink. The agent loop uses it to freeze the accumulated
+  // tool summary above the answer: intermediate reasoning turns emit no
+  // visible text, so the first delta reliably marks the tool→answer
+  // transition. Not called for a turn that streams nothing (a pure tool call).
+  onBeforeText?: () => void
 }
 
 // Universal turn runner shared by one-shot and the REPL. Streams output to
@@ -57,13 +63,27 @@ export async function runTurn(
     signal: opts.signal,
   })
   const md = new MarkdownStreamRenderer(config.color)
+  let announced = false
+  // Fire onBeforeText exactly once, right before the first *visible* write —
+  // not on every buffered delta that renders to nothing yet.
+  const beforeVisible = () => {
+    if (announced) return
+    announced = true
+    opts.onBeforeText?.()
+  }
   for await (const delta of stream) {
     const out = md.push(delta)
-    if (out) sink.write(out)
+    if (out) {
+      beforeVisible()
+      sink.write(out)
+    }
   }
   const response = await stream.finalResponse()
   const tail = md.finalize()
-  if (tail) sink.write(tail)
+  if (tail) {
+    beforeVisible()
+    sink.write(tail)
+  }
   return { text: response.output_text, response }
 }
 

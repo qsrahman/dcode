@@ -6,7 +6,18 @@ import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
 import { runTurn, runTool } from './run.ts'
-import { renderToolResult, renderToolOutput } from '../ui/tools.ts'
+import {
+  renderToolResult,
+  renderToolOutput,
+  renderProgressLine,
+  renderCategorySummary,
+  newTally,
+  tallyResult,
+} from '../ui/tools.ts'
+
+// Carriage return + erase-line: rewrites the current terminal line in place,
+// used to update the live tool counter without scrolling. TTY-only (see use).
+const CLEAR_LINE = '\r\x1b[2K'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import type {
@@ -54,6 +65,37 @@ export async function runAgent(
   // Durable system guidance lives in the Responses API `instructions` field,
   // not in the conversation `history`, so it isn't trimmed or replayed as a turn.
   const instructions = opts.instructions ?? buildSystemPrompt(config)
+  // Interactive default: one live tool counter for the whole query that
+  // freezes into a single bounded category summary, above the streamed answer.
+  // Piped output and --verbose keep the stable per-tool lines instead — a log
+  // wants one record per call, and only a TTY can rewrite a line in place.
+  const live = Boolean(process.stdout.isTTY) && !config.verbose
+  // The tally spans the whole query, accumulating across every tool turn, so a
+  // multi-turn query collapses to one summary rather than one line per turn.
+  let pending = newTally()
+  const redraw = (current: string) => {
+    sink.write(
+      CLEAR_LINE +
+        renderProgressLine(
+          pending,
+          current,
+          Date.now() - pending.startedMs,
+          config.color,
+        ),
+    )
+  }
+  // Freeze the accumulated tools into a summary and start a fresh tally. Called
+  // just before the answer streams (via onBeforeText) and once more at the end
+  // to catch a query that finishes on tools without any closing text.
+  const freezeSummary = () => {
+    if (!live || pending.done === 0) return
+    // Trailing blank line separates the summary from the answer that streams
+    // in beneath it (freezeSummary runs just before the first answer chunk).
+    sink.write(
+      `${CLEAR_LINE}  ${renderCategorySummary(pending, Date.now() - pending.startedMs, config.color)}\n\n`,
+    )
+    pending = newTally()
+  }
   // One streaming turn; hoisted so the context-overflow retry reuses it instead
   // of duplicating the call.
   const runOnce = () =>
@@ -63,6 +105,7 @@ export async function runAgent(
       tools: responses,
       instructions,
       signal: opts.signal,
+      onBeforeText: freezeSummary,
     })
   let finalText = ''
   let prevHadTools = false
@@ -80,9 +123,10 @@ export async function runAgent(
         )
       }
     }
-    // Every turn streams live to `sink`. A turn that follows a tool call gets a
-    // leading blank line so its text is separated from the tool-output block.
-    if (prevHadTools) sink.write('\n')
+    // Non-live only: separate a completed per-tool block from the next turn's
+    // text with a blank line. In live mode the single tool line persists in
+    // place across turns, so a newline here would strand it above the redraw.
+    if (prevHadTools && !live) sink.write('\n')
     let response: OpenAIResponse
     try {
       ;({ text: finalText, response } = await runOnce())
@@ -121,21 +165,34 @@ export async function runAgent(
     )
     if (calls.length === 0) break
     prevHadTools = true
-    const results = await runCalls(calls, registry, ctx)
+    // Accumulate into the query-level tally; the live line redraws on each
+    // completion (no timer). The summary is frozen later, once, by
+    // freezeSummary — not per batch — so multi-turn queries stay one line.
+    const results = await runCalls(calls, registry, ctx, (r) => {
+      if (!live) return
+      tallyResult(pending, r.name, r.ok)
+      redraw(r.name)
+    })
     for (const r of results) {
       history.push({
         type: 'function_call_output',
         call_id: r.id,
         output: r.output,
       })
-      sink.write(`${renderToolResult(r.name, r.ok, r.ms, config.color)}\n`)
-      if (config.verbose)
-        sink.write(`${renderToolOutput(r.name, r.output, config.color)}\n`)
+      if (!live) {
+        sink.write(`${renderToolResult(r.name, r.ok, r.ms, config.color)}\n`)
+        if (config.verbose)
+          sink.write(`${renderToolOutput(r.name, r.output, config.color)}\n`)
+      }
     }
     // Abort only after every call has a recorded output, so history stays
     // balanced (no function_call without its function_call_output) and the
     // conversation can be resumed. handleLine catches this and logs `aborted`.
-    if (opts.signal?.aborted) throw new Error('aborted')
+    // Freeze first so the tools that did run leave a clean summary behind.
+    if (opts.signal?.aborted) {
+      freezeSummary()
+      throw new Error('aborted')
+    }
     // Still calling tools on the final permitted iteration: the loop is about
     // to stop mid-task and return whatever text that turn happened to
     // produce, which for a pure tool-call turn is nothing at all. Say so —
@@ -148,6 +205,10 @@ export async function runAgent(
       )
     }
   }
+  // Normally onBeforeText has already frozen the summary above the final
+  // answer; this catches a query that ends on tools with no closing text
+  // (an empty final answer, or the maxToolIterations ceiling above).
+  freezeSummary()
   return finalText
 }
 
@@ -195,6 +256,9 @@ async function runCalls(
   calls: ResponseFunctionToolCall[],
   registry: ToolRegistry,
   ctx: ToolContext,
+  // Called as each call settles (in completion order, which for a parallel
+  // batch is not emission order), so the caller can render live progress.
+  onResult?: (r: ToolResult) => void,
 ): Promise<ToolResult[]> {
   const results: ToolResult[] = []
   let batch: ResponseFunctionToolCall[] = []
@@ -207,9 +271,17 @@ async function runCalls(
   ): ToolResult => ({ id: c.call_id, name: c.name, output, ok: false, ms: 0 })
 
   const runOne = async (c: ResponseFunctionToolCall): Promise<ToolResult> => {
-    if (ctx.signal?.aborted) return didNotRun(c, 'aborted')
+    const outcome = await runOneOutcome(c)
+    onResult?.(outcome)
+    return outcome
+  }
+
+  const runOneOutcome = (c: ResponseFunctionToolCall): Promise<ToolResult> => {
+    if (ctx.signal?.aborted) return Promise.resolve(didNotRun(c, 'aborted'))
     const tool = registry.get(c.name)
-    if (!tool) return didNotRun(c, `error: unknown tool "${c.name}"`)
+    if (!tool) {
+      return Promise.resolve(didNotRun(c, `error: unknown tool "${c.name}"`))
+    }
     return runTool(
       { id: c.call_id, name: c.name, arguments: c.arguments },
       tool,

@@ -7,6 +7,7 @@ import type {
   ResponseInput,
 } from '../../src/agent/client.ts'
 import { runAgent } from '../../src/agent/loop.ts'
+import { CapturingSink } from '../../src/agent/run.ts'
 import { renderToolResult, renderToolOutput } from '../../src/ui/tools.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { ToolRegistry } from '../../src/tools/registry.ts'
@@ -511,5 +512,70 @@ describe('tool result rendering', () => {
     expect(output).toContain('@@ -1 +1 @@')
     expect(output).toContain('-old')
     expect(output).toContain('+new')
+  })
+})
+
+// The interactive (TTY) default: a live counter that freezes into a bounded
+// category summary, instead of one `› tool: ✓` line per call. Gated on
+// process.stdout.isTTY, so it must be forced on here (vitest runs non-TTY).
+describe('runAgent — interactive tool summary', () => {
+  const realIsTTY = process.stdout.isTTY
+
+  function runWith(sink: CapturingSink, calls: unknown[][]) {
+    const client = fakeClientWithCalls(calls)
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    return runAgent(client, cfg(), history, {
+      sink,
+      logger: createLogger(cfg()),
+      tools: new ToolRegistry([readTool, writeTool]),
+    })
+  }
+
+  const twoToolTurn: unknown[][] = [
+    [
+      {
+        type: 'function_call',
+        call_id: 'c1',
+        name: 'read_file',
+        arguments: '{}',
+      },
+      {
+        type: 'function_call',
+        call_id: 'c2',
+        name: 'write_file',
+        arguments: '{"path":"a.txt"}',
+      },
+    ],
+    [],
+  ]
+
+  it('renders one category summary instead of a line per tool', async () => {
+    process.stdout.isTTY = true
+    try {
+      const sink = new CapturingSink()
+      await runWith(sink, twoToolTurn)
+      const out = stripVTControlCharacters(sink.text)
+      // Bounded family summary, not an enumerated per-call list.
+      expect(out).toContain('1 read · 1 edit')
+      expect(out).not.toContain('› read_file:')
+      expect(out).not.toContain('› write_file:')
+      // The answer still streams after the summary.
+      expect(out).toContain('turn 1')
+    } finally {
+      process.stdout.isTTY = realIsTTY
+    }
+  })
+
+  it('keeps the per-tool lines (no summary) when not a TTY', async () => {
+    process.stdout.isTTY = false
+    try {
+      const sink = new CapturingSink()
+      await runWith(sink, twoToolTurn)
+      const out = stripVTControlCharacters(sink.text)
+      expect(out).toContain('› read_file: ✓ done')
+      expect(out).not.toContain('1 read · 1 edit')
+    } finally {
+      process.stdout.isTTY = realIsTTY
+    }
   })
 })
