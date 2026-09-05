@@ -1,4 +1,4 @@
-import { createInterface } from 'node:readline/promises'
+import { password, isCancel } from '@clack/prompts'
 import type { Config } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 import { normalizeBaseURL } from '../config/config.ts'
@@ -46,18 +46,18 @@ Then restart dcode if you used the shell profile.
 `
 
 // First-run key bootstrap: if no API key is available from env or config,
-// prompt once. Visible input (no hidden echo); only on a TTY, so piped or
-// one-shot use never blocks on a keypress that isn't coming. Returns the
-// entered key, or '' if skipped/empty.
+// prompt once with masked input (the value is a secret). Only on a TTY, so
+// piped or one-shot use never blocks on a keypress that isn't coming — @clack's
+// password() would otherwise wait forever on non-interactive stdin. Returns the
+// entered key, or '' if skipped/cancelled/empty.
 async function promptForApiKey(): Promise<string> {
   if (!process.stdin.isTTY) return ''
-  process.stderr.write(
-    'No API key found. Paste your OpenAI-compatible key (saved to the global config):\n> ',
-  )
-  const rl = createInterface({ input: process.stdin })
-  const line = await rl.question('')
-  rl.close()
-  return line.trim()
+  const entered = await password({
+    message:
+      'No API key found. Paste your OpenAI-compatible key (saved to the global config):',
+  })
+  if (isCancel(entered) || !entered) return ''
+  return entered.trim()
 }
 
 // The whole startup auth path, in one place: find a key (prompting on a TTY
