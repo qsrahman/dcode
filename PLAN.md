@@ -197,7 +197,7 @@ See §17 for deferred candidates.
 | P10 | Context-window management (prune + compact + overflow retry) | **Done** |
 | P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** (see §19) |
 | P12 | Symbol search (`find_symbol` / `find_references`, ripgrep-lite) | **Planned** (see §20) |
-| P13 | `apply_patch` (atomic multi-file unified-diff apply) | **Planned** (see §21) |
+| P13 | `apply_patch` (atomic multi-file unified-diff apply); `multi_edit` down-payment | **Planned** (see §21, §21.5) |
 | P14 | File inputs (let the model read local PDFs/images) | **Candidate** (see §27) |
 
 Landed outside the numbered phases (no new locked decisions; see §6):
@@ -1027,6 +1027,65 @@ only if parsing proves fiddly).
 ### 21.4 Status
 **Planned.** Shell `patch` is deliberately not used (it escapes `root`
 confinement and yields harder-to-structure errors).
+
+### 21.5 `multi_edit` — down-payment on P13 (planned, sketch)
+
+A smaller stepping stone that delivers most of P13's per-file value before the
+full unified-diff machinery: apply **multiple string replacements to a single
+file** in one call, **sequentially and atomically**. Single-file keeps it
+aligned with `edit_file` and makes atomicity trivial; `apply_patch` later
+generalizes the same idea to multi-file hunks.
+
+**Schema.** `multi_edit(path, edits: [{ old_string, new_string, replace_all? }])`
+(`edits` non-empty). `parallel: false` (mutating).
+
+**Semantics (the load-bearing decisions):**
+- **Sequential application.** Each edit runs against the *result* of the
+  previous one (a running buffer), not the original — so an edit may target
+  text a prior edit produced. Order-dependent; the description must say so
+  explicitly (this is what models most often get wrong about batch edits).
+- **Atomic, all-or-nothing.** Read once, apply every edit in memory, `writeFile`
+  **once** at the end. Any failure aborts the whole call and writes nothing —
+  the strict improvement over calling `edit_file` N times and having the 2nd
+  fail mid-way. One fs round-trip.
+- **Per-edit uniqueness inherited from `edit_file` (decision K).** Exact match,
+  unique unless `replace_all`; literal `split`/`join` substitution (never
+  `replace`/`replaceAll`, to avoid `$&`-style corruption); same `count === 0` /
+  `count > 1` guards.
+- **Indexed errors.** Failures name the edit — `edit 2/3: old_string not found
+  in <path>` / `edit 2/3: matches 4 times; make it unique or pass replace_all`
+  — so the model knows which hunk to fix. Without the index the atomicity
+  guarantee is wasted.
+- **Binary + fs-error handling once, up front** (NUL-byte refusal, `withFsError`),
+  same as `edit_file`.
+- **Return:** `edited <path> (<n> edits)`.
+
+**Shared-core refactor (do it as part of this):** extract the single
+replacement into a helper — `applyReplacement(text, old_string, new_string,
+replace_all, label) -> string` (throws with `label` prefix on
+not-found/ambiguous). `edit_file` becomes one call; `multi_edit` becomes a
+`reduce` over `edits` with `label = \`<path> edit i/n\``. Keeps the two tools
+from drifting.
+
+**Wiring.** Register in `tools/index.ts` beside `editFileTool()`. No sub-agent
+policy change: `general` is `{deny:['task']}` (auto-included); `explore` is
+read-only (correctly excluded). Keep `edit_file` — single edits stay the common
+cheap case.
+
+**Tests (`tests/tools/local.test.ts` or a new file):** sequential dependent
+edits; atomic rollback (a failing middle edit leaves the file byte-identical);
+indexed error text; `replace_all` within one edit; binary refusal; empty-array
+rejection (schema-level).
+
+**Open questions (settle before implementing):**
+- *New-file creation?* Claude Code's MultiEdit allows an empty `old_string` on
+  the first edit to create a file. Proposed: **no** for v1 — `write_file` owns
+  creation; keep `multi_edit` purely mutating.
+- *Overlap detection?* Proposed: **no** pre-validation — sequential semantics +
+  indexed errors already make outcomes predictable; overlap analysis is
+  complexity for little gain.
+
+**Status:** Planned (sketch only, not implemented).
 
 ## 22. REPL UX enhancements (cheap + safe) — implemented
 
