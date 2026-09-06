@@ -604,3 +604,255 @@ describe('runAgent — interactive tool summary', () => {
     }
   })
 })
+
+// ── A7: Multi-retry compaction ─────────────────────────────────────────────
+
+function makeOverflowError(): Error & { status: number; code: string } {
+  const e = new Error('maximum context length exceeded') as Error & {
+    status: number
+    code: string
+  }
+  e.status = 413
+  e.code = 'context_length_exceeded'
+  return e
+}
+
+function fakeContext(overflowRetries = 3): {
+  context: Parameters<typeof runAgent>[3]['context']
+  overflowCount: () => number
+} {
+  let overflowN = 0
+  return {
+    context: {
+      beforeTurn: async () => 'none',
+      observe: () => {},
+      predict: () => 0,
+      onOverflow: async () => {
+        overflowN++
+        return overflowN <= overflowRetries
+      },
+    } as any,
+    overflowCount: () => overflowN,
+  }
+}
+
+describe('runAgent — overflow retry (A7)', () => {
+  function overflowClient(failTimes: number): {
+    client: Client
+    streamCount: () => number
+  } {
+    let n = 0
+    return {
+      client: {
+        stream() {
+          n++
+          if (n <= failTimes) throw makeOverflowError()
+          return {
+            async *[Symbol.asyncIterator]() {
+              yield 'ok'
+            },
+            finalResponse: async () =>
+              ({
+                output: [messageItem('ok')],
+                output_text: 'ok',
+              }) as unknown as OpenAIResponse,
+          }
+        },
+      } satisfies Client,
+      streamCount: () => n,
+    }
+  }
+
+  it('compacts and retries up to 3 times on overflow', async () => {
+    const { client, streamCount } = overflowClient(2) // fail first 2 times
+    const { context, overflowCount } = fakeContext(5) // always "succeed"
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const text = await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      context,
+    })
+    expect(text).toBe('ok')
+    expect(overflowCount()).toBe(2)
+    expect(streamCount()).toBe(3)
+  })
+
+  it('throws after all 3 overflow retries are exhausted', async () => {
+    const { client, streamCount } = overflowClient(5) // always fail
+    const { context, overflowCount } = fakeContext(5) // always "succeed"
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await expect(
+      runAgent(client, cfg(), history, {
+        logger: createLogger(cfg()),
+        context,
+      }),
+    ).rejects.toThrow(/context.length.exceeded|maximum context length/i)
+    expect(overflowCount()).toBe(3)
+    expect(streamCount()).toBe(4)
+  })
+
+  it('does not retry non-overflow errors', async () => {
+    let n = 0
+    const client: Client = {
+      stream() {
+        n++
+        return {
+          async *[Symbol.asyncIterator]() {
+            if (n === 1) throw new Error('network timeout')
+            yield 'ok'
+          },
+          finalResponse: async () =>
+            ({
+              output: [messageItem('ok')],
+              output_text: 'ok',
+            }) as unknown as OpenAIResponse,
+        }
+      },
+    }
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    await expect(
+      runAgent(client, cfg(), history, {
+        logger: createLogger(cfg()),
+      }),
+    ).rejects.toThrow('network timeout')
+    expect(n).toBe(1) // no retry
+  })
+})
+
+// ── A3: Max output tokens recovery ─────────────────────────────────────────
+
+describe('runAgent — max output tokens recovery (A3)', () => {
+  it('injects "Continue." when response is truncated and retries', async () => {
+    let turn = 0
+    const client: Client = {
+      stream() {
+        turn++
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield turn === 1 ? 'partial' : 'done'
+          },
+          finalResponse: async () => {
+            if (turn === 1) {
+              return {
+                output: [messageItem('partial')],
+                output_text: 'partial',
+                incomplete_details: { reason: 'max_output_tokens' },
+              } as unknown as OpenAIResponse
+            }
+            return {
+              output: [messageItem('done')],
+              output_text: 'done',
+            } as unknown as OpenAIResponse
+          },
+        }
+      },
+    }
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const text = await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+    })
+    expect(text).toBe('done')
+    // "Continue." was injected into history after the truncated turn
+    const continueMsg = history.find(
+      (h) => (h as { content?: string }).content === 'Continue.',
+    )
+    expect(continueMsg).toBeDefined()
+    expect((continueMsg as { role: string }).role).toBe('user')
+  })
+
+  it('gives up after 3 consecutive truncations', async () => {
+    let turn = 0
+    const client: Client = {
+      stream() {
+        turn++
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield `turn ${turn}`
+          },
+          finalResponse: async () =>
+            ({
+              output: [messageItem(`turn ${turn}`)],
+              output_text: `turn ${turn}`,
+              incomplete_details: { reason: 'max_output_tokens' },
+            }) as unknown as OpenAIResponse,
+        }
+      },
+    }
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const text = await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+    })
+    // Returns the last truncated text
+    expect(text).toBe('turn 4') // 1 initial + 3 continues = 4 turns
+    // 3 "Continue." messages in history
+    const continues = history.filter(
+      (h) => (h as { content?: string }).content === 'Continue.',
+    )
+    expect(continues).toHaveLength(3)
+    // Total streams: 1 initial + 3 continues = 4
+    expect(turn).toBe(4)
+  })
+
+  it('does not inject "Continue." for non-truncated responses', async () => {
+    const client: Client = {
+      stream() {
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield 'complete'
+          },
+          finalResponse: async () =>
+            ({
+              output: [messageItem('complete')],
+              output_text: 'complete',
+              incomplete_details: null,
+            }) as unknown as OpenAIResponse,
+        }
+      },
+    }
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const text = await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+    })
+    expect(text).toBe('complete')
+    const continues = history.filter(
+      (h) => (h as { content?: string }).content === 'Continue.',
+    )
+    expect(continues).toHaveLength(0)
+  })
+
+  it('resets continue counter after a successful non-truncated turn', async () => {
+    let turn = 0
+    const client: Client = {
+      stream() {
+        turn++
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield `turn ${turn}`
+          },
+          finalResponse: async () => {
+            // Turn 1: truncated, Turn 2: complete
+            const truncated = turn === 1
+            return {
+              output: [messageItem(`turn ${turn}`)],
+              output_text: `turn ${turn}`,
+              incomplete_details: truncated
+                ? { reason: 'max_output_tokens' }
+                : null,
+            } as unknown as OpenAIResponse
+          },
+        }
+      },
+    }
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const text = await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+    })
+    // Continue runs within one tool iteration; non-truncated turn 2 exits the
+    // while loop, then the main loop breaks (no tool calls).
+    expect(text).toBe('turn 2')
+    // One "Continue." message (only turn 1 was truncated)
+    const continues = history.filter(
+      (h) => (h as { content?: string }).content === 'Continue.',
+    )
+    expect(continues).toHaveLength(1)
+  })
+})

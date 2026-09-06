@@ -112,6 +112,8 @@ export async function runAgent(
     })
   let finalText = ''
   let prevHadTools = false
+  const OVERFLOW_RETRIES = 3
+  const CONTINUE_RETRIES = 3
 
   for (let i = 0; i < config.maxToolIterations; i++) {
     // Before each request, shrink the history if it's near the model's context
@@ -130,21 +132,49 @@ export async function runAgent(
     // text with a blank line. In live mode the single tool line persists in
     // place across turns, so a newline here would strand it above the redraw.
     if (prevHadTools && !live) sink.write('\n')
-    let response: OpenAIResponse
+    let response!: OpenAIResponse
     try {
       ;({ text: finalText, response } = await runOnce())
     } catch (err) {
-      // The request exceeded the context window. Compact and retry once; if that
-      // still overflows (or the breaker is tripped) let it fail normally.
-      if (
-        opts.context &&
-        isContextOverflowError(err) &&
-        (await opts.context.onOverflow(client, config, history))
-      ) {
-        ;({ text: finalText, response } = await runOnce())
+      // The request exceeded the context window. Compact and retry up to
+      // OVERFLOW_RETRIES times; if compaction doesn't help (or the breaker
+      // trips), let it fail normally.
+      if (opts.context && isContextOverflowError(err)) {
+        let overflowOk = false
+        for (let retry = 0; retry < OVERFLOW_RETRIES; retry++) {
+          if (!(await opts.context.onOverflow(client, config, history))) break
+          try {
+            ;({ text: finalText, response } = await runOnce())
+            overflowOk = true
+            break
+          } catch (retryErr) {
+            if (
+              !isContextOverflowError(retryErr) ||
+              retry === OVERFLOW_RETRIES - 1
+            )
+              throw retryErr
+          }
+        }
+        if (!overflowOk) throw err
       } else {
         throw err
       }
+    }
+    // A3: Max output tokens recovery — when the response is truncated, inject
+    // a "Continue." prompt and retry the turn so the model can finish.
+    let continueRetries = 0
+    while (
+      response.incomplete_details?.reason === 'max_output_tokens' &&
+      continueRetries < CONTINUE_RETRIES
+    ) {
+      continueRetries++
+      opts.logger.debug(
+        'response truncated (max_output_tokens), retrying (%d/%d)',
+        continueRetries,
+        CONTINUE_RETRIES,
+      )
+      history.push({ role: 'user', content: 'Continue.' })
+      ;({ text: finalText, response } = await runOnce())
     }
     // Recalibrate the token estimate against the provider's real usage.
     opts.context?.observe(response.usage, history)

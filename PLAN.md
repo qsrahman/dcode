@@ -10,6 +10,8 @@ each lands as code + tests + docs + a focused commit.
 This document is the source of truth for features, architecture, and
 conventions — keep it in sync after every phase.
 
+Status: **A3 + A7 complete** (max-output recovery + multi-retry compaction).
+
 ## 1. Vision
 
 A small, modular, locally-run coding agent you drive from a terminal:
@@ -199,6 +201,8 @@ See §17 for deferred candidates.
 | P12 | Symbol search (`find_symbol` / `find_references`, ripgrep-lite) | **Planned** (see §20) |
 | P13 | `apply_patch` (atomic multi-file unified-diff apply); `multi_edit` down-payment | **Planned** (see §21, §21.5) |
 | P14 | File inputs (let the model read local PDFs/images) | **Candidate** (see §27) |
+| A3 | Max output tokens recovery ("Continue." injection) | **Done** (see §28) |
+| A7 | Multi-retry compaction (overflow retry loop) | **Done** (see §29) |
 
 Landed outside the numbered phases (no new locked decisions; see §6):
 
@@ -1252,3 +1256,74 @@ a failing UI, or a diagram.
 **Candidate** (not yet scheduled). Additive capability, not a simplification —
 it earns its place only if reading PDFs/images is a real workflow need, and it
 must clear the two tensions in §27.2 first.
+
+---
+
+## 28. A3 Specification (max output tokens recovery) — implemented
+
+### 28.1 Goal
+When the model's response is truncated due to output token limits, inject a
+"Continue." user message and retry, so the model can finish its answer.
+
+### 28.2 Design
+After each `runTurn` completes, check `response.incomplete_details?.reason ===
+'max_output_tokens'`. If truncated:
+1. Push `{ role: 'user', content: 'Continue.' }` to history.
+2. Retry the turn (call `runOnce()` again).
+3. Repeat up to `CONTINUE_RETRIES = 3` times.
+4. Reset the counter on each non-truncated response (via the while loop
+   exiting).
+
+This runs within a single iteration of the main tool loop — after the continue
+loop finishes, the normal tool-call check and history push happen as usual.
+
+### 28.3 Tests
+- Truncated → "Continue." injected → next turn gets the rest.
+- 3 consecutive truncations → stop retrying, return last text.
+- Non-truncated response → no "Continue." injected.
+- Counter resets after a successful non-truncated turn.
+
+### 28.4 Files
+- `src/agent/loop.ts` — while loop after `runOnce()`
+
+---
+
+## 29. A7 Specification (multi-retry compaction) — implemented
+
+### 29.1 Goal
+When a context overflow occurs, compact and retry up to 3 times (instead of
+just once), giving the compaction cascade more chances to find headroom.
+
+### 29.2 Design
+Replace the single `if (isContextOverflowError) { onOverflow(); retry() }` with
+a loop:
+
+```ts
+for (let retry = 0; retry < OVERFLOW_RETRIES; retry++) {
+  if (!(await opts.context.onOverflow(client, config, history))) break
+  try {
+    ({ text, response } = await runOnce())
+    break  // success
+  } catch (retryErr) {
+    if (!isContextOverflowError(retryErr) || retry === OVERFLOW_RETRIES - 1)
+      throw retryErr
+  }
+}
+```
+
+`OVERFLOW_RETRIES = 3`. The existing `ContextManager.onOverflow` circuit breaker
+(`CIRCUIT_BREAKER = 3`) still applies independently — it tracks consecutive
+compaction failures, while this loop tracks overflow retry attempts.
+
+Also widened `isContextOverflowError` to detect plain `Error` objects with
+`status === 413` (not just `OpenAI.APIError` instances), so non-OpenAI
+providers and test mocks are handled correctly.
+
+### 29.3 Tests
+- Overflow → compact → retry succeeds (2 failures, 1 success).
+- All 3 retries fail → error propagates.
+- Non-overflow errors → no retry.
+
+### 29.4 Files
+- `src/agent/loop.ts` — overflow catch block
+- `src/agent/client.ts` — `isContextOverflowError` widened

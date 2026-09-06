@@ -32,13 +32,21 @@ export function isContextOverflowError(err: unknown): boolean {
   if (err instanceof OpenAI.APIError) {
     if (err.status === 413) return true
     if (err.code === 'context_length_exceeded') return true
-    if (
-      /context.length.exceeded|maximum context length|token limit|context window/i.test(
-        err.message,
-      )
-    ) {
-      return true
-    }
+  }
+  // Also check plain Error objects with status/code properties (e.g. from
+  // non-OpenAI providers or test mocks).
+  if (
+    err instanceof Error &&
+    'status' in err &&
+    (err as { status: number }).status === 413
+  )
+    return true
+  if (
+    /context.length.exceeded|maximum context length|token limit|context window/i.test(
+      err instanceof Error ? err.message : String(err),
+    )
+  ) {
+    return true
   }
   return false
 }
