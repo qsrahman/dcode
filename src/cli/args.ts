@@ -40,6 +40,9 @@ const FLAGS: FlagSpec[] = [
 
 type ParseArgsOptions = NonNullable<Parameters<typeof parseArgs>[0]>['options']
 
+// The `short` key must be omitted entirely when there's no short flag —
+// parseArgs rejects `short: undefined` ("must be of type string"), so a ternary
+// is required rather than always spreading `short: f.short`.
 const OPTIONS = Object.fromEntries(
   FLAGS.map((f) => [
     f.name,
