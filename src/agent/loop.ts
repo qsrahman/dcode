@@ -5,18 +5,7 @@ import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
 import { runTurn, runTool } from './run.ts'
-import {
-  renderToolResult,
-  renderToolOutput,
-  renderProgressLine,
-  renderCategorySummary,
-  newTally,
-  tallyResult,
-} from '../ui/tools.ts'
-
-// Carriage return + erase-line: rewrites the current terminal line in place,
-// used to update the live tool counter without scrolling. TTY-only (see use).
-const CLEAR_LINE = '\r\x1b[2K'
+import { createToolProgress } from '../ui/tools.ts'
 import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import type {
@@ -24,8 +13,15 @@ import type {
   ResponseInputItem,
 } from 'openai/resources/responses/responses'
 import { toResponseInputItems } from 'openai/lib/responses/ResponseInputItems'
-import { isCI } from '@clack/prompts'
 import { ContextManager } from './context/manager.ts'
+
+type TurnResult = { text: string; response: OpenAIResponse }
+
+// A context overflow is recovered by compacting and retrying; a truncated
+// response by injecting "Continue." and retrying. Both are bounded so a
+// pathological turn can't retry forever.
+const OVERFLOW_RETRIES = 3
+const CONTINUE_RETRIES = 3
 
 // Agent loop: run turns, execute any tool calls the model makes, feed the
 // results back, and repeat up to `maxToolIterations` (decision D). Every turn
@@ -65,54 +61,22 @@ export async function runAgent(
   // Durable system guidance lives in the Responses API `instructions` field,
   // not in the conversation `history`, so it isn't trimmed or replayed as a turn.
   const instructions = opts.instructions ?? buildSystemPrompt()
-  // Interactive default: one live tool counter for the whole query that
-  // freezes into a single bounded category summary, above the streamed answer.
-  // Piped output and --verbose keep the stable per-tool lines instead — a log
-  // wants one record per call, and only a TTY can rewrite a line in place.
-  // CI is excluded even when it presents a TTY: its captured log has no cursor,
-  // so the in-place `\r\x1b[2K` redraws would land as literal escape noise.
-  const live = Boolean(process.stdout.isTTY) && !isCI() && !config.verbose
-  // The tally spans the whole query, accumulating across every tool turn, so a
-  // multi-turn query collapses to one summary rather than one line per turn.
-  let pending = newTally()
-  const redraw = (current: string) => {
-    sink.write(
-      CLEAR_LINE +
-        renderProgressLine(
-          pending,
-          current,
-          Date.now() - pending.startedMs,
-          config.color,
-        ),
-    )
-  }
-  // Freeze the accumulated tools into a summary and start a fresh tally. Called
-  // just before the answer streams (via onBeforeText) and once more at the end
-  // to catch a query that finishes on tools without any closing text.
-  const freezeSummary = () => {
-    if (!live || pending.done === 0) return
-    // Trailing blank line separates the summary from the answer that streams
-    // in beneath it (freezeSummary runs just before the first answer chunk).
-    sink.write(
-      `${CLEAR_LINE}  ${renderCategorySummary(pending, Date.now() - pending.startedMs, config.color)}\n\n`,
-    )
-    pending = newTally()
-  }
-  // One streaming turn; hoisted so the context-overflow retry reuses it instead
-  // of duplicating the call.
-  const runOnce = () =>
+  // All terminal rendering of tool progress lives here (see ui/tools.ts). It
+  // freezes just before the first answer chunk (onBeforeText), reliably because
+  // intermediate reasoning turns emit no visible text.
+  const progress = createToolProgress(sink, config)
+  const runOnce = (): Promise<TurnResult> =>
     runTurn(client, config, history, {
       sink,
       logger: opts.logger,
       tools: responses,
       instructions,
       signal: opts.signal,
-      onBeforeText: freezeSummary,
+      onBeforeText: progress.freeze,
     })
+
   let finalText = ''
   let prevHadTools = false
-  const OVERFLOW_RETRIES = 3
-  const CONTINUE_RETRIES = 3
 
   for (let i = 0; i < config.maxToolIterations; i++) {
     // Before each request, shrink the history if it's near the model's context
@@ -127,102 +91,35 @@ export async function runAgent(
         )
       }
     }
-    // Non-live only: separate a completed per-tool block from the next turn's
-    // text with a blank line. In live mode the single tool line persists in
-    // place across turns, so a newline here would strand it above the redraw.
-    if (prevHadTools && !live) sink.write('\n')
-    let response!: OpenAIResponse
-    try {
-      ;({ text: finalText, response } = await runOnce())
-    } catch (err) {
-      // The request exceeded the context window. Compact and retry up to
-      // OVERFLOW_RETRIES times; if compaction doesn't help (or the breaker
-      // trips), let it fail normally.
-      if (opts.context && isContextOverflowError(err)) {
-        let overflowOk = false
-        for (let retry = 0; retry < OVERFLOW_RETRIES; retry++) {
-          if (!(await opts.context.onOverflow(client, config, history))) break
-          try {
-            ;({ text: finalText, response } = await runOnce())
-            overflowOk = true
-            break
-          } catch (retryErr) {
-            if (
-              !isContextOverflowError(retryErr) ||
-              retry === OVERFLOW_RETRIES - 1
-            )
-              throw retryErr
-          }
-        }
-        if (!overflowOk) throw err
-      } else {
-        throw err
-      }
-    }
-    // A3: Max output tokens recovery — when the response is truncated, inject
-    // a "Continue." prompt and retry the turn so the model can finish.
-    let continueRetries = 0
-    while (
-      response.incomplete_details?.reason === 'max_output_tokens' &&
-      continueRetries < CONTINUE_RETRIES
-    ) {
-      continueRetries++
-      opts.logger.debug(
-        'response truncated (max_output_tokens), retrying (%d/%d)',
-        continueRetries,
-        CONTINUE_RETRIES,
-      )
-      history.push({ role: 'user', content: 'Continue.' })
-      ;({ text: finalText, response } = await runOnce())
-    }
+    progress.separate(prevHadTools)
+
+    const { text, response } = await completeTurn({
+      runOnce,
+      context: opts.context,
+      client,
+      config,
+      history,
+      logger: opts.logger,
+    })
+    finalText = text
     // Recalibrate the token estimate against the provider's real usage.
     opts.context?.observe(response.usage, history)
-    // toResponseInputItems normalizes response.output into items safe to
-    // replay as the next turn's input, including reasoning items — required
-    // by reasoning models (the GPT-5 family, o-series) on every stateless
-    // turn (store: false, dcode's default against real OpenAI) that
-    // continues a tool call. A hand-rolled reconstruction that only kept
-    // function_call items silently dropped them.
-    //
-    // It doesn't strip `parsed_arguments` from function_call items, though —
-    // confirmed live: the API rejects a replayed function_call carrying it
-    // ("Unknown parameter: 'input[N].parsed_arguments'"). The field isn't
-    // even in the SDK's own ResponseFunctionToolCall type, so this is
-    // stripped explicitly rather than relying on the SDK's normalizer.
-    history.push(
-      ...toResponseInputItems(response.output ?? []).map(stripParsedArguments),
-    )
-    const calls = (response.output ?? []).filter(
-      (o): o is ResponseFunctionToolCall => o.type === 'function_call',
-    )
+    pushResponseOutput(history, response)
+
+    const calls = functionCalls(response)
     if (calls.length === 0) break
     prevHadTools = true
-    // Accumulate into the query-level tally; the live line redraws on each
-    // completion (no timer). The summary is frozen later, once, by
-    // freezeSummary — not per batch — so multi-turn queries stay one line.
-    const results = await runCalls(calls, registry, ctx, (r) => {
-      if (!live) return
-      tallyResult(pending, r.name, r.ok)
-      redraw(r.name)
-    })
-    for (const r of results) {
-      history.push({
-        type: 'function_call_output',
-        call_id: r.id,
-        output: r.output,
-      })
-      if (!live) {
-        sink.write(`${renderToolResult(r.name, r.ok, r.ms, config.color)}\n`)
-        if (config.verbose)
-          sink.write(`${renderToolOutput(r.name, r.output, config.color)}\n`)
-      }
-    }
+
+    const results = await runCalls(calls, registry, ctx, progress.onResult)
+    appendToolOutputs(history, results)
+    progress.renderBatch(results)
+
     // Abort only after every call has a recorded output, so history stays
     // balanced (no function_call without its function_call_output) and the
     // conversation can be resumed. handleLine catches this and logs `aborted`.
     // Freeze first so the tools that did run leave a clean summary behind.
     if (opts.signal?.aborted) {
-      freezeSummary()
+      progress.freeze()
       throw new Error('aborted')
     }
     // Still calling tools on the final permitted iteration: the loop is about
@@ -240,8 +137,110 @@ export async function runAgent(
   // Normally onBeforeText has already frozen the summary above the final
   // answer; this catches a query that ends on tools with no closing text
   // (an empty final answer, or the maxToolIterations ceiling above).
-  freezeSummary()
+  progress.freeze()
   return finalText
+}
+
+// Run one streaming turn, recovering from two provider-side conditions before
+// returning: a context overflow (compact and retry) and a truncated response
+// (max_output_tokens — inject "Continue." and retry so the model can finish).
+async function completeTurn(deps: {
+  runOnce: () => Promise<TurnResult>
+  context?: ContextManager
+  client: Client
+  config: Config
+  history: ResponseInput
+  logger: Logger
+}): Promise<TurnResult> {
+  const { runOnce, context, client, config, history, logger } = deps
+  let result: TurnResult
+  try {
+    result = await runOnce()
+  } catch (err) {
+    if (!(context && isContextOverflowError(err))) throw err
+    result = await recoverFromOverflow(
+      runOnce,
+      context,
+      client,
+      config,
+      history,
+      err,
+    )
+  }
+
+  let continues = 0
+  while (
+    result.response.incomplete_details?.reason === 'max_output_tokens' &&
+    continues < CONTINUE_RETRIES
+  ) {
+    continues++
+    logger.debug(
+      'response truncated (max_output_tokens), retrying (%d/%d)',
+      continues,
+      CONTINUE_RETRIES,
+    )
+    history.push({ role: 'user', content: 'Continue.' })
+    result = await runOnce()
+  }
+  return result
+}
+
+// Compact-and-retry after a context overflow. Returns the first turn that
+// succeeds; rethrows `original` when compaction can't free space (onOverflow
+// returns false, or the circuit breaker has tripped) or the retries run out.
+async function recoverFromOverflow(
+  runOnce: () => Promise<TurnResult>,
+  context: ContextManager,
+  client: Client,
+  config: Config,
+  history: ResponseInput,
+  original: unknown,
+): Promise<TurnResult> {
+  for (let retry = 0; retry < OVERFLOW_RETRIES; retry++) {
+    if (!(await context.onOverflow(client, config, history))) break
+    try {
+      return await runOnce()
+    } catch (err) {
+      if (!isContextOverflowError(err) || retry === OVERFLOW_RETRIES - 1)
+        throw err
+    }
+  }
+  throw original
+}
+
+// Replay a turn's output into history for the next request. toResponseInputItems
+// normalizes response.output into replayable items, INCLUDING reasoning items —
+// which reasoning models (the GPT-5 family, o-series) require on every stateless
+// turn (store: false, dcode's default against real OpenAI) that continues a tool
+// call; a hand-rolled reconstruction that kept only function_call items silently
+// dropped them. It does not strip `parsed_arguments` from function_call items,
+// though (see stripParsedArguments), so that is mapped off explicitly.
+function pushResponseOutput(
+  history: ResponseInput,
+  response: OpenAIResponse,
+): void {
+  history.push(
+    ...toResponseInputItems(response.output ?? []).map(stripParsedArguments),
+  )
+}
+
+function functionCalls(response: OpenAIResponse): ResponseFunctionToolCall[] {
+  return (response.output ?? []).filter(
+    (o): o is ResponseFunctionToolCall => o.type === 'function_call',
+  )
+}
+
+function appendToolOutputs(
+  history: ResponseInput,
+  results: ToolResult[],
+): void {
+  for (const r of results) {
+    history.push({
+      type: 'function_call_output',
+      call_id: r.id,
+      output: r.output,
+    })
+  }
 }
 
 // The Responses API rejects a function_call item replayed with a
