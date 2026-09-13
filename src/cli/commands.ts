@@ -177,17 +177,21 @@ export function createCommands(): CommandRegistry {
   })
   r.register({
     name: 'mcp',
-    description: 'show connected MCP servers and their tool counts',
+    description: 'show configured MCP servers, their status, and tool counts',
     handler: (session, _a, sink) => {
       if (session.mcp.servers.length === 0) {
         sink.write('no MCP servers configured\n')
         return 'ok'
       }
-      const lines = session.mcp.servers.map((s) =>
-        s.status === 'connected'
-          ? `  ${s.name.padEnd(20)} connected (${s.toolCount} tool${s.toolCount === 1 ? '' : 's'})`
-          : `  ${s.name.padEnd(20)} failed — ${s.error ?? 'unknown error'}`,
-      )
+      const lines = session.mcp.servers.map((s) => {
+        if (s.status === 'connected') {
+          return `  ${s.name.padEnd(20)} connected (${s.toolCount} tool${s.toolCount === 1 ? '' : 's'})`
+        }
+        if (s.status === 'disabled') {
+          return `  ${s.name.padEnd(20)} disabled (set enabled: true to connect)`
+        }
+        return `  ${s.name.padEnd(20)} failed — ${s.error ?? 'unknown error'}`
+      })
       sink.write(['MCP servers:', ...lines].join('\n') + '\n')
       return 'ok'
     },
@@ -253,7 +257,7 @@ export function createCommands(): CommandRegistry {
         `toolTimeout:  ${c.toolTimeout} ms`,
         `maxRetries:   ${c.maxRetries}`,
         `context:      window=${c.context.window} reserved=${c.context.reserved} keep=${c.context.keepTokens} prune=${c.context.prune} auto=${c.context.auto}`,
-        `mcpServers:   ${Object.keys(c.mcpServers).length} configured (see /mcp)`,
+        `mcpServers:   ${Object.keys(c.mcpServers).length} configured, ${Object.values(c.mcpServers).filter((s) => s.enabled).length} enabled (see /mcp)`,
       ]
       sink.write(lines.join('\n') + '\n')
       return 'ok'

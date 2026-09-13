@@ -22,7 +22,7 @@ const CONNECT_TIMEOUT_MS = 10_000
 
 export interface McpServerStatus {
   name: string
-  status: 'connected' | 'failed'
+  status: 'connected' | 'failed' | 'disabled'
   toolCount: number
   error?: string
 }
@@ -233,7 +233,10 @@ async function connectOne(
 // merge their tools into one list. A server that fails to connect or list
 // its tools is logged and skipped — one bad MCP server config must not stop
 // dcode from starting, matching how a missing BRAVE_API_KEY degrades
-// web_search rather than blocking startup.
+// web_search rather than blocking startup. A server with `enabled: false`
+// (the default — see schema.ts) is skipped the same way but without a
+// connection attempt at all, and recorded as 'disabled' rather than
+// 'failed' so `/mcp` can tell "off on purpose" apart from "broken".
 export async function connectMcpServers(
   configured: Record<string, McpServerConfig>,
   logger: Logger,
@@ -245,6 +248,10 @@ export async function connectMcpServers(
 
   await Promise.all(
     Object.entries(configured).map(async ([name, cfg]) => {
+      if (!cfg.enabled) {
+        servers.push({ name, status: 'disabled', toolCount: 0 })
+        return
+      }
       let client: Client
       try {
         client = await connectOne(name, cfg, logger)

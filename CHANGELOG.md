@@ -21,6 +21,16 @@
   the variable, rather than sending a literal `${VAR}` or blocking startup
   for every other configured server. See `tools/mcp/manager.ts`'s
   `expandEnvPlaceholder`.
+- MCP `mcpServers` config: each server entry gained an `enabled` field,
+  **defaulting to `false`**. A server sitting in the global config is
+  visible from every project dcode runs in, so it no longer connects the
+  moment it's added — opt in per server. `connectMcpServers` now skips a
+  disabled server before any connection attempt (no spawn, no dial) and
+  reports it via `McpManager.servers` as `status: 'disabled'`, distinct from
+  `'failed'`; `/mcp` shows it as `disabled (set enabled: true to connect)`,
+  and `/config`'s line now reads `N configured, M enabled`. **Breaking:** an
+  existing `mcpServers` entry with no `enabled` field stops connecting —
+  add `"enabled": true` to any server you want to keep running.
 
 ## [0.17.0] - 2026-09-14
 

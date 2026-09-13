@@ -1350,9 +1350,17 @@ exactly as ungated as every other tool).
 latency for the common case of nobody configuring one). Each entry is either:
 
 ```json
-{ "command": "npx", "args": ["-y", "some-mcp-server"], "env": { "FOO": "bar" } }
-{ "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
+{ "enabled": true, "command": "npx", "args": ["-y", "some-mcp-server"], "env": { "FOO": "bar" } }
+{ "enabled": true, "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
 ```
+
+`enabled` defaults to `false` — a global-config entry is visible from every
+project dcode runs in, so adding one must not silently start connecting to
+it; the opt-in is explicit per server. This also makes toggling a server
+cheap (flip the flag) without deleting/re-adding its whole config. A
+disabled server is skipped before any connection attempt (no spawn, no
+dial) and reported via `McpManager.servers` as `status: 'disabled'` rather
+than `'failed'`, so `/mcp` can tell "off on purpose" apart from "broken".
 
 `type: "local" | "remote"` can be given explicitly; when omitted it's inferred
 from whichever of `command`/`url` is present (`inferMcpType`, a
@@ -1427,8 +1435,9 @@ naming the variable, rather than silently sending a literal `${VAR}`.
 - `src/index.ts` — the one-shot path connects and closes MCP servers the same
   way, in the existing `try/finally` around `runOneShot` (a one-shot run is
   still a full session, just a short one).
-- `src/cli/commands.ts` — new `/mcp` command lists connected/failed servers
-  and their tool counts; `/config` gained an `mcpServers: N configured` line.
+- `src/cli/commands.ts` — new `/mcp` command lists each server's status
+  (connected/disabled/failed) and tool count; `/config` gained an
+  `mcpServers: N configured, M enabled` line.
 - `src/tools/local/exec.ts` — `safeEnv()` exported (was module-private) so
   `tools/mcp/manager.ts` can layer a stdio server's own configured `env` on
   top of the same ambient-secret-stripped base every other spawn in
@@ -1437,8 +1446,9 @@ naming the variable, rather than silently sending a literal `${VAR}`.
 
 ### 30.4 Tests
 - `tests/config/schema.test.ts` — `mcpServers` defaults, type inference from
-  `command`/`url`, explicit `type`, `.strict()` rejection of a typo'd key and
-  of a server with neither `command` nor `url`.
+  `command`/`url`, explicit `type`, `enabled` defaulting to `false` and
+  accepting an explicit `true`, `.strict()` rejection of a typo'd key and of
+  a server with neither `command` nor `url`.
 - `tests/tools/mcp/manager.test.ts` — the SDK's client-side surface
   (`Client`, `StdioClientTransport`, `StreamableHTTPClientTransport`) is
   mocked via `vi.mock` (same pattern `tests/agent/client.test.ts` uses for the
@@ -1447,16 +1457,22 @@ naming the variable, rather than silently sending a literal `${VAR}`.
   and tool merging, connect-failure and listTools-failure isolation (one bad
   server doesn't block the rest, and a connected-but-failed-listTools client
   still gets closed), collision numbering, a wrapped tool's `execute`
-  forwarding args + `ctx.signal` and flattening/erroring on its result, and
-  `close()` closing every client without throwing.
+  forwarding args + `ctx.signal` and flattening/erroring on its result,
+  `close()` closing every client without throwing, `${VAR}` header/env
+  expansion (and its unset-variable failure), and a dedicated `enabled flag`
+  group: a disabled server is skipped with zero connection attempts and
+  reported `status: 'disabled'`, an enabled server alongside it still
+  connects normally, and `close()` has nothing to close when every
+  configured server is disabled.
 - `tests/tools/registry.test.ts` — `toResponsesTool` uses `jsonSchema`
   verbatim when present.
 - `tests/tools/index.test.ts` — `createLocalTools`'s `mcpTools` param wires
   in alongside the built-ins and reaches the `task` tool's own description.
 - `tests/cli/repl.test.ts` — `createSession`/`startRepl` updated for the new
   `async` signature (the mocked-readline smoke tests now wait for the
-  interface to exist, since it's no longer created synchronously); `/mcp` and
-  `/config`'s new line.
+  interface to exist, since it's no longer created synchronously); `/mcp`
+  rendering all three statuses (connected/disabled/failed), and `/config`'s
+  `N configured, M enabled` line.
 
 ### 30.5 Status
 **Done.** Not carried forward from v1 scope: MCP prompts/resources, OAuth,

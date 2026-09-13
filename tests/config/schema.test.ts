@@ -98,6 +98,7 @@ describe('configSchema', () => {
       })
       expect(c.mcpServers.local).toEqual({
         type: 'local',
+        enabled: false,
         command: 'node',
         args: ['server.js'],
       })
@@ -114,9 +115,28 @@ describe('configSchema', () => {
       })
       expect(c.mcpServers.remote).toEqual({
         type: 'remote',
+        enabled: false,
         url: 'https://example.com/mcp',
         headers: { Authorization: 'Bearer x' },
       })
+    })
+
+    it('defaults enabled to false', () => {
+      const c = configSchema.parse({
+        mcpServers: {
+          local: { command: 'node' },
+          remote: { url: 'https://example.com/mcp' },
+        },
+      })
+      expect(c.mcpServers.local?.enabled).toBe(false)
+      expect(c.mcpServers.remote?.enabled).toBe(false)
+    })
+
+    it('accepts an explicit enabled: true', () => {
+      const c = configSchema.parse({
+        mcpServers: { local: { command: 'node', enabled: true } },
+      })
+      expect(c.mcpServers.local?.enabled).toBe(true)
     })
 
     it('defaults local args to an empty array', () => {

@@ -149,13 +149,14 @@ describe('handleLine new commands', () => {
     expect(await handleLine(s, '/mcp', { sink })).toBe('ok')
     expect(out.join('')).toBe('no MCP servers configured\n')
   })
-  it('/mcp lists connected and failed servers with their status', async () => {
+  it('/mcp lists connected, disabled, and failed servers with their status', async () => {
     const s = await makeSession()
     s.mcp = {
       tools: [],
       servers: [
         { name: 'good', status: 'connected', toolCount: 3 },
         { name: 'bad', status: 'failed', toolCount: 0, error: 'ECONNREFUSED' },
+        { name: 'off', status: 'disabled', toolCount: 0 },
       ],
       close: async () => {},
     }
@@ -166,6 +167,22 @@ describe('handleLine new commands', () => {
     expect(text).toContain('connected (3 tools)')
     expect(text).toContain('bad')
     expect(text).toContain('failed — ECONNREFUSED')
+    expect(text).toContain('off')
+    expect(text).toContain('disabled (set enabled: true to connect)')
+  })
+  it('/config reports how many configured servers are enabled', async () => {
+    // Set config.mcpServers directly on an already-created session rather
+    // than through makeSession (which would connect it for real via
+    // createSession) — /config only reads session.config, so there's
+    // nothing here that needs an actual connection attempt.
+    const s = await makeSession()
+    s.config.mcpServers = {
+      on: { type: 'local', enabled: true, command: 'node', args: [] },
+      off: { type: 'local', enabled: false, command: 'node', args: [] },
+    }
+    const { sink, out } = makeSink()
+    await handleLine(s, '/config', { sink })
+    expect(out.join('')).toContain('mcpServers:   2 configured, 1 enabled')
   })
   it('/undo removes the last exchange', async () => {
     const s = await makeSession()

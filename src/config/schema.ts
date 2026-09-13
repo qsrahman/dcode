@@ -5,9 +5,19 @@ import { z } from 'zod'
 // it, `inferMcpType` below fills it in from whichever of `command`/`url` is
 // present, so the common case doesn't have to spell out the obvious — the
 // same convention Claude Code's own `.mcp.json` uses.
+//
+// `enabled` defaults to `false`: a server entry sitting in the *global*
+// config is visible (and, if misconfigured, spawnable/dialable) from every
+// project dcode runs in, so adding one shouldn't silently start connecting
+// to it — the opt-in has to be explicit. This also makes it cheap to keep a
+// server's config around without it running: toggle `enabled` instead of
+// deleting and re-adding the whole entry.
+const enabledField = z.boolean().default(false)
+
 const mcpLocalServerSchema = z
   .object({
     type: z.literal('local'),
+    enabled: enabledField,
     command: z.string(),
     args: z.array(z.string()).default([]),
     // Merged on top of the tool process's own filtered env (safeEnv(), same
@@ -22,6 +32,7 @@ const mcpLocalServerSchema = z
 const mcpRemoteServerSchema = z
   .object({
     type: z.literal('remote'),
+    enabled: enabledField,
     url: z.string(),
     // Static headers only (e.g. a bearer token) — no OAuth flow. A remote
     // server that requires interactive auth isn't supported yet.

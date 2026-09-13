@@ -126,12 +126,23 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 
 const { connectMcpServers } = await import('../../../src/tools/mcp/manager.ts')
 
-function stdio(command: string, env?: Record<string, string>): McpServerConfig {
-  return { type: 'local', command, args: [], env }
+// `enabled: true` by default — most tests here exercise the connect/list/
+// call path, which now requires it (default is `false`, schema.ts); the
+// dedicated 'enabled flag' tests below override it explicitly.
+function stdio(
+  command: string,
+  env?: Record<string, string>,
+  enabled = true,
+): McpServerConfig {
+  return { type: 'local', command, args: [], env, enabled }
 }
 
-function http(url: string, headers?: Record<string, string>): McpServerConfig {
-  return { type: 'remote', url, headers }
+function http(
+  url: string,
+  headers?: Record<string, string>,
+  enabled = true,
+): McpServerConfig {
+  return { type: 'remote', url, headers, enabled }
 }
 
 const logger = createLogger(cfg())
@@ -145,6 +156,58 @@ beforeEach(() => {
   closedKeys = []
   connectedSignals = []
   connectedTransports = []
+})
+
+describe('enabled flag', () => {
+  it('skips a disabled server without attempting to connect, marking it "disabled"', async () => {
+    toolsFor['srv'] = [{ name: 'search', inputSchema: {} }]
+    const mgr = await connectMcpServers(
+      { srv: stdio('srv', undefined, false) },
+      logger,
+    )
+    expect(mgr.tools).toEqual([])
+    expect(mgr.servers).toEqual([
+      { name: 'srv', status: 'disabled', toolCount: 0 },
+    ])
+    // No connection was even attempted.
+    expect(connectedTransports).toHaveLength(0)
+  })
+
+  it('defaults to disabled when the config omits the field entirely', async () => {
+    // Mirrors what configSchema.parse({}) actually produces (enabled: false
+    // by default) rather than relying on the test helper's own default.
+    const mgr = await connectMcpServers(
+      { srv: { type: 'local', command: 'srv', args: [], enabled: false } },
+      logger,
+    )
+    expect(mgr.servers).toEqual([
+      { name: 'srv', status: 'disabled', toolCount: 0 },
+    ])
+  })
+
+  it('still connects enabled servers alongside disabled ones', async () => {
+    toolsFor['good'] = [{ name: 'z', inputSchema: {} }]
+    const mgr = await connectMcpServers(
+      { off: stdio('off', undefined, false), good: stdio('good') },
+      logger,
+    )
+    expect(mgr.tools.map((t) => t.name)).toEqual(['mcp__good__z'])
+    expect(mgr.servers).toEqual(
+      expect.arrayContaining([
+        { name: 'off', status: 'disabled', toolCount: 0 },
+        { name: 'good', status: 'connected', toolCount: 1 },
+      ]),
+    )
+  })
+
+  it('close() has nothing to close for a disabled-only config', async () => {
+    const mgr = await connectMcpServers(
+      { srv: stdio('srv', undefined, false) },
+      logger,
+    )
+    await expect(mgr.close()).resolves.toBeUndefined()
+    expect(closedKeys).toEqual([])
+  })
 })
 
 describe('connectMcpServers', () => {

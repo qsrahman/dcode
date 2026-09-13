@@ -210,14 +210,27 @@ all treat an MCP-sourced tool identically to a built-in. Two transports:
 ```json
 {
   "mcpServers": {
-    "local-server": { "command": "npx", "args": ["-y", "some-mcp-server"] },
+    "local-server": {
+      "enabled": true,
+      "command": "npx",
+      "args": ["-y", "some-mcp-server"]
+    },
     "remote-server": {
+      "enabled": true,
       "url": "https://example.com/mcp",
       "headers": { "Authorization": "Bearer ${MY_SERVER_TOKEN}" }
     }
   }
 }
 ```
+
+**`enabled` defaults to `false`** — a server sitting in `dcode.json` (the
+global config, so it's visible from every project dcode runs in) doesn't
+connect until you opt in. This also makes it cheap to keep a server's config
+around without it running: flip `enabled` instead of deleting and re-adding
+the whole entry. `/mcp` shows a disabled server as `disabled` rather than
+omitting it, and `/config` reports how many of the configured servers are
+actually enabled.
 
 `type` (`"local"` or `"remote"`) can be given explicitly but is usually
 inferred from whichever of `command`/`url` is present. A `local` server's
