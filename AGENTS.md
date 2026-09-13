@@ -71,8 +71,9 @@ Config is resolved with precedence **CLI > env > global (`~/.config/dcode/dcode.
   `dcode.json` instead).
 - CLI flags (`--model`, `--no-color`, `--verbose`) override the above.
 
-`config/config.ts` holds the pure `mergeConfigs` (tested) plus thin `loadConfig`
-and `buildConfig` wrappers.
+`config/config.ts` holds `buildConfig` (layers file + env + args in one place,
+tested) plus `readConfigFile` (path resolution + strict parse) and
+`globalConfigPath`/`normalizeBaseURL` helpers.
 
 Unknown input is rejected at every layer, not tolerated: `configSchema.strict()`
 rejects a typo'd config key (including inside `context`), and `parseCli` runs

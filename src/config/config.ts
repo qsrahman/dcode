@@ -25,28 +25,23 @@ export function normalizeBaseURL(url: string): string {
   return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`
 }
 
-// Config precedence (highest wins): CLI flags > env (OPENAI_*) > global
-// (~/.config/dcode/dcode.json) > schema defaults. An explicit --config <path> is
-// read instead of the global file (and a missing path is an error, so a typo
-// doesn't fail silently). dcode is a globally installed personal tool, so there
-// is no repo-local config discovery.
-export function loadConfig(path?: string): Partial<Config> {
+// Read the effective config file: an explicit --config <path> (a missing one is
+// an error, so a typo doesn't fail silently) or, when none is given, the global
+// XDG file (absent → schema defaults via `{}`). dcode is a globally installed
+// personal tool, so there is no repo-local config discovery.
+export function readConfigFile(path?: string): Partial<Config> {
   const target =
     path !== undefined ? resolve(process.cwd(), path) : globalConfigPath()
   if (!existsSync(target)) {
     if (path !== undefined) throw new Error(`Config file not found: ${target}`)
     return {}
   }
-  return readConfigFile(target)
-}
-
-function readConfigFile(abs: string): Partial<Config> {
-  const raw = readFileSync(abs, 'utf8')
+  const raw = readFileSync(target, 'utf8')
   let json: unknown
   try {
     json = JSON.parse(raw)
   } catch (err) {
-    throw new Error(`Invalid JSON in ${abs}: ${errorMessage(err)}`)
+    throw new Error(`Invalid JSON in ${target}: ${errorMessage(err)}`)
   }
   try {
     // .strict() catches typo'd keys (including inside `context`) — every field
@@ -54,38 +49,28 @@ function readConfigFile(abs: string): Partial<Config> {
     // rather than silently ignored.
     return configSchema.strict().parse(json)
   } catch (err) {
-    throw new Error(`Failed to load config ${abs}: ${errorMessage(err)}`)
+    throw new Error(`Failed to load config ${target}: ${errorMessage(err)}`)
   }
 }
 
-// Non-strict here is intentional, unlike readConfigFile's .strict() above:
-// `file`/`env` already passed through configSchema.strict()/known env-var
-// checks respectively, so by the time they reach this merge there's nothing
-// left to typo — a stray unknown key could only get here via a bug in this
-// module itself, which .strict() wouldn't meaningfully guard against anyway.
-export function mergeConfigs(
-  file: Partial<Config>,
-  env: Partial<Config>,
-  args: ParsedArgs,
-): Config {
-  const merged: Record<string, unknown> = { ...file, ...env }
+// Build the effective config from all sources. Precedence (highest wins): CLI
+// flags > env (OPENAI_*) > config file > schema defaults, layered by spreading
+// file then env into one object and applying args last.
+export function buildConfig(args: ParsedArgs): Config {
+  const merged: Record<string, unknown> = { ...readConfigFile(args.config) }
+  if (process.env.OPENAI_API_KEY) merged.apiKey = process.env.OPENAI_API_KEY
+  if (process.env.OPENAI_BASE_URL) merged.baseURL = process.env.OPENAI_BASE_URL
+  if (process.env.OPENAI_MODEL) merged.model = process.env.OPENAI_MODEL
+  if (process.env.BRAVE_API_KEY) merged.brave = process.env.BRAVE_API_KEY
   if (typeof merged.baseURL === 'string') {
     merged.baseURL = normalizeBaseURL(merged.baseURL)
   }
   if (args.model) merged.model = args.model
   if (args.noColor) merged.color = false
-  // verbose is CLI-only (not in configSchema), so attach it after parsing —
-  // the schema would strip it, and the strict file parse rejects it as a
-  // persisted key. `--verbose` remains the only way to turn it on.
+  // The parse is non-strict (unlike readConfigFile's .strict()): the file was
+  // already strict-parsed and env keys are a fixed known set, so nothing
+  // unknown can reach here except via a bug in this function. verbose is
+  // CLI-only (not in configSchema), so attach it after parsing — the schema
+  // would strip it, and the strict file parse rejects it as a persisted key.
   return { ...configSchema.parse(merged), verbose: args.verbose === true }
-}
-
-export function buildConfig(args: ParsedArgs): Config {
-  const file = loadConfig(args.config)
-  const env: Partial<Config> = {}
-  if (process.env.OPENAI_API_KEY) env.apiKey = process.env.OPENAI_API_KEY
-  if (process.env.OPENAI_BASE_URL) env.baseURL = process.env.OPENAI_BASE_URL
-  if (process.env.OPENAI_MODEL) env.model = process.env.OPENAI_MODEL
-  if (process.env.BRAVE_API_KEY) env.brave = process.env.BRAVE_API_KEY
-  return mergeConfigs(file, env, args)
 }

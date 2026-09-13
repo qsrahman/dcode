@@ -11,13 +11,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildConfig,
   globalConfigPath,
-  loadConfig,
-  mergeConfigs,
+  readConfigFile,
 } from '../../src/config/config.ts'
 
 import { parseCli } from '../../src/cli/args.ts'
 
-describe('loadConfig', () => {
+describe('readConfigFile', () => {
   let dir: string
   let globalHome: string
   const prevGlobalHome = process.env.XDG_CONFIG_HOME
@@ -40,19 +39,19 @@ describe('loadConfig', () => {
   it('parses a JSON config and keeps nested defaults', () => {
     const p = join(dir, 'dcode.json')
     writeFileSync(p, JSON.stringify({ model: 'gpt-4.1' }))
-    const cfg = loadConfig(p)
+    const cfg = readConfigFile(p)
     expect(cfg.model).toBe('gpt-4.1')
   })
 
   it('throws when an explicit --config path is missing', () => {
-    expect(() => loadConfig(join(dir, 'missing.json'))).toThrow(/not found/)
+    expect(() => readConfigFile(join(dir, 'missing.json'))).toThrow(/not found/)
   })
 
   it('returns {} when no default config file is found', () => {
     const prev = process.cwd()
     try {
       process.chdir(dir)
-      expect(loadConfig()).toEqual({})
+      expect(readConfigFile()).toEqual({})
     } finally {
       process.chdir(prev)
     }
@@ -61,7 +60,7 @@ describe('loadConfig', () => {
   it('rejects an invalid config value', () => {
     const p = join(dir, 'dcode.json')
     writeFileSync(p, JSON.stringify({ model: 123 }))
-    expect(() => loadConfig(p)).toThrow()
+    expect(() => readConfigFile(p)).toThrow()
   })
 
   it('falls back to a global config when no local file exists', () => {
@@ -72,7 +71,7 @@ describe('loadConfig', () => {
         globalConfigPath(),
         JSON.stringify({ model: 'global-model', baseURL: 'http://global' }),
       )
-      const cfg = loadConfig()
+      const cfg = readConfigFile()
       expect(cfg.model).toBe('global-model')
       expect(cfg.baseURL).toBe('http://global')
     } finally {
@@ -90,7 +89,7 @@ describe('loadConfig', () => {
       )
       const explicit = join(dir, 'explicit.json')
       writeFileSync(explicit, JSON.stringify({ model: 'explicit' }))
-      const cfg = loadConfig(explicit)
+      const cfg = readConfigFile(explicit)
       expect(cfg.model).toBe('explicit')
       expect(cfg.baseURL).toBeUndefined()
     } finally {
@@ -128,52 +127,11 @@ describe('globalConfigPath', () => {
   })
 })
 
-describe('mergeConfigs', () => {
-  const base = parseCli([])
-
-  it('applies schema defaults', () => {
-    const cfg = mergeConfigs({}, {}, base)
-    expect(cfg.model).toBe('gpt-5.4-mini')
-  })
-
-  it('lets the file override defaults', () => {
-    expect(mergeConfigs({ model: 'gpt-4.1' }, {}, base).model).toBe('gpt-4.1')
-  })
-
-  it('lets env override the file', () => {
-    expect(
-      mergeConfigs({ model: 'gpt-4.1' }, { model: 'gpt-x' }, base).model,
-    ).toBe('gpt-x')
-  })
-
-  it('lets --model override env', () => {
-    const cfg = mergeConfigs(
-      { model: 'gpt-4.1' },
-      { model: 'gpt-x' },
-      parseCli(['--model', 'cli']),
-    )
-    expect(cfg.model).toBe('cli')
-  })
-
-  it('appends /v1 to a bare-origin baseURL', () => {
-    const cfg = mergeConfigs({ baseURL: 'http://localhost:11434' }, {}, base)
-    expect(cfg.baseURL).toBe('http://localhost:11434/v1')
-  })
-
-  it('leaves a baseURL that already ends in /v1 unchanged', () => {
-    const cfg = mergeConfigs(
-      { baseURL: 'http://localhost:11434/v1/' },
-      {},
-      base,
-    )
-    expect(cfg.baseURL).toBe('http://localhost:11434/v1')
-  })
-})
-
 describe('buildConfig', () => {
   const prevEnv = process.env.OPENAI_MODEL
   const prevKey = process.env.OPENAI_API_KEY
   const prevBrave = process.env.BRAVE_API_KEY
+  const prevBaseURL = process.env.OPENAI_BASE_URL
   const prevCwd = process.cwd()
   const prevGlobalHome = process.env.XDG_CONFIG_HOME
   let dir: string
@@ -182,6 +140,7 @@ describe('buildConfig', () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-'))
     process.chdir(dir)
     process.env.XDG_CONFIG_HOME = dir
+    delete process.env.OPENAI_BASE_URL
     mkdirSync(dirname(globalConfigPath()), { recursive: true })
   })
   afterEach(() => {
@@ -195,6 +154,24 @@ describe('buildConfig', () => {
     else process.env.OPENAI_API_KEY = prevKey
     if (prevBrave === undefined) delete process.env.BRAVE_API_KEY
     else process.env.BRAVE_API_KEY = prevBrave
+    if (prevBaseURL === undefined) delete process.env.OPENAI_BASE_URL
+    else process.env.OPENAI_BASE_URL = prevBaseURL
+  })
+
+  it('appends /v1 to a bare-origin baseURL from the config file', () => {
+    writeFileSync(
+      globalConfigPath(),
+      JSON.stringify({ baseURL: 'http://localhost:11434' }),
+    )
+    expect(buildConfig(parseCli([])).baseURL).toBe('http://localhost:11434/v1')
+  })
+
+  it('leaves a baseURL that already ends in /v1 unchanged', () => {
+    writeFileSync(
+      globalConfigPath(),
+      JSON.stringify({ baseURL: 'http://localhost:11434/v1/' }),
+    )
+    expect(buildConfig(parseCli([])).baseURL).toBe('http://localhost:11434/v1')
   })
 
   it('reads OPENAI_MODEL from the environment', () => {

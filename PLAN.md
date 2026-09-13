@@ -67,7 +67,7 @@ src/
   cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
   cli/auth.ts         # validateApiKey + ensureApiKey: the whole startup key path (prompt -> check -> persist)
   config/schema.ts    # zod schema (Config), .strict()
-  config/config.ts    # loadConfig(path) + mergeConfigs(CLI, file, env) + normalizeBaseURL
+  config/config.ts    # buildConfig(args) [file+env+args] + readConfigFile(path) + normalizeBaseURL
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
   agent/system.ts     # buildSystemPrompt(config)
   agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
@@ -1167,10 +1167,11 @@ Status: **Done.** dcode targets a globally installed, general-purpose use rather
 than repo-based use, so automatic discovery of a local `./dcode.json` / `.dcode.json`
 in the working directory was removed. Config resolution is now
 `CLI > env (process) > global ~/.config/dcode/dcode.json > schema defaults`, with
-an explicit `--config <path>` replacing the global file. `loadConfig` no longer
-searches the cwd for config files; the loadConfig/mergeConfigs tests were updated
-(explicit `--config` file is used instead of global; the precedence integration
-test asserts global < env < cli). Guidance text in `src/index.ts` points to
+an explicit `--config <path>` replacing the global file. `readConfigFile` (which
+absorbed the former `loadConfig`) no longer searches the cwd for config files;
+the config tests were updated (explicit `--config` file is used instead of
+global; the precedence integration test asserts global < env < cli). The former
+`mergeConfigs` was folded into `buildConfig`. Guidance text in `src/index.ts` points to
 `/key` / the global file.
 
 ## 26. REPL ergonomics + parallel reads — implemented

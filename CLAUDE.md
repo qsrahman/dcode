@@ -207,14 +207,16 @@ parsing is strict, so an unknown flag is an error rather than being silently
 folded into the prompt positionals.
 
 Config resolution precedence is **CLI > env > global (`~/.config/dcode/dcode.json`) > schema defaults**,
-implemented as pure `mergeConfigs` in `config/config.ts` with `config/schema.ts`
-(zod) as the source of truth for shape and defaults. The working-directory
-root is always `process.cwd()` (there is no configurable `root`), read
-directly where the system prompt and tool context need it. `verbose` is a
-CLI-only runtime flag (`--verbose`), not a persisted config key: it lives on
-the runtime `Config` type but not in `configSchema`, so `mergeConfigs` attaches
-it from argv while the strict file parse rejects a `"verbose"` key in
-`dcode.json`. `loadConfig` parses the config file with
+implemented in `buildConfig` in `config/config.ts` (which layers file, env, and
+args in one place) with `config/schema.ts` (zod) as the source of truth for
+shape and defaults. The working-directory root is always `process.cwd()` (there
+is no configurable `root`), read directly where the system prompt and tool
+context need it. `verbose` is a CLI-only runtime flag (`--verbose`), not a
+persisted config key: it lives on the runtime `Config` type but not in
+`configSchema`, so `buildConfig` attaches it from argv while the strict file
+parse rejects a `"verbose"` key in `dcode.json`. `readConfigFile` (which
+`buildConfig` calls, and which absorbed the old `loadConfig` path resolution)
+parses the config file with
 `configSchema.strict()` (not `.partial()` — every field already tolerates
 absence via `.optional()`/`.default()`), so a typo'd key in `dcode.json` fails
 loudly instead of being silently ignored; the nested `context` object is
