@@ -1,6 +1,6 @@
 {
   "name": "dcode",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "A CLI-based AI coding agent built on the OpenAI Responses SDK.",
   "type": "module",
   "bin": {
@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@vscode/ripgrep": "^1.18.0",
     "execa": "^10.0.1",
     "marked": "^15.0.12",

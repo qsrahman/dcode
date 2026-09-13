@@ -5,16 +5,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `dcode` — a CLI-based AI coding agent built on the OpenAI Responses SDK. Runs
-locally via Node's type stripping (no build step). Phases P0–P11 are complete
-(one-shot, REPL, tool-using agent loop, read-only + mutating local tools,
-in-session todo list, context-window management, global key storage), plus
-three additions outside the numbered phases: streamed markdown rendering,
-`ask_user`, and sub-agents (the `task` tool). P5 (declarative permissions)
-was cancelled and its gate/approval machinery removed — all tool calls run
-unconditionally. P9's scoped `git` tool was implemented and then removed
-(it added no safety over the ungated `run_shell`); git is reached via
-`run_shell`. P6 (MCP) is the next major phase; P12 (symbol search) and P13
-(apply_patch) are planned. See PLAN.md §8.
+locally via Node's type stripping (no build step). Phases P0–P11 and P6 are
+complete (one-shot, REPL, tool-using agent loop, read-only + mutating local
+tools, in-session todo list, context-window management, global key storage,
+MCP integration), plus three additions outside the numbered phases: streamed
+markdown rendering, `ask_user`, and sub-agents (the `task` tool). P5
+(declarative permissions) was cancelled and its gate/approval machinery
+removed — all tool calls run unconditionally, MCP tools included. P9's scoped
+`git` tool was implemented and then removed (it added no safety over the
+ungated `run_shell`); git is reached via `run_shell`. P12 (symbol search) and
+P13 (apply_patch) are planned. See PLAN.md §8.
 
 **Read [AGENTS.md](./AGENTS.md) and [PLAN.md](./PLAN.md) before changing code.**
 AGENTS.md has the full developer guide (stack constraints, code style, config
@@ -169,11 +169,31 @@ tools moved to ripgrep). `web_search`'s Brave
 key comes from `ctx.config.brave` only — `buildConfig` already resolves
 `BRAVE_API_KEY` (env) over the stored config file into it before any tool
 runs, so the tool itself doesn't re-read `process.env`.
-`createLocalTools(tasks, client)` is the single hub that registers all
-built-in tools into the `ToolRegistry` and is used by both `runOneShot` and
-the REPL; it takes the session's `Client` because the `task` tool reuses it
-for sub-agents, and registers `task` last so it can close over the finished
-registry by reference.
+`createLocalTools(tasks, client, mcpTools?)` is the single hub that registers
+all built-in tools (plus whatever MCP tools the caller already connected —
+see below) into the `ToolRegistry` and is used by both `runOneShot` and the
+REPL; it takes the session's `Client` because the `task` tool reuses it for
+sub-agents, and registers `task` last (after MCP tools) so it can both close
+over the finished registry by reference *and* have its own generated
+description (`describeAgentTypes`) reflect the full tool set, MCP tools
+included, rather than a snapshot frozen before they were added.
+
+MCP integration (P6): `tools/mcp/manager.ts`'s `connectMcpServers(config.
+mcpServers, logger)` connects every configured server (stdio, spawned via the
+official `@modelcontextprotocol/sdk` client; or streamable HTTP with static
+headers — no OAuth) in parallel at startup, wraps each server's tools as
+ordinary `ToolDefinition`s named `mcp__<server>__<tool>`, and is called
+before `createLocalTools` in both `index.ts` (one-shot) and `cli/repl.ts`'s
+`createSession` (REPL) — decision I (PLAN.md §6): session-lived, closed on
+exit/SIGINT via `McpManager.close()`. A server that fails to connect or list
+its tools is logged as a warning and skipped, the same degrade-gracefully
+posture `web_search` has for a missing Brave key, so one bad server config
+can't block startup. `ToolDefinition` gained an optional `jsonSchema` field
+for this: an MCP tool's input schema is already JSON Schema from the server,
+so `toResponsesTool` uses it verbatim instead of round-tripping through a
+hand-built zod schema (`parameters` on an MCP tool is just a permissive
+passthrough for runtime parsing — the server, not dcode, is authoritative on
+argument shape). See PLAN.md §30.
 
 Sub-agents: `agent/subagent.ts` defines the agent types (`general`,
 `explore`) as a tool-name allow-list plus a system prompt, and
@@ -197,9 +217,12 @@ list). Sub-agent sessions are never resumable — every call starts from a
 fresh history.
 
 The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
-keeping a module-local `Session` (`{ config, client, logger, history, tools }`)
-and dispatching slash commands (`parseCommand`/`dispatch` in `commands.ts`)
-before falling through to a model turn.
+keeping a module-local `Session` (`{ config, client, logger, history, tools,
+mcp }`) and dispatching slash commands (`parseCommand`/`dispatch` in
+`commands.ts`) before falling through to a model turn. `createSession` is
+`async` (connecting MCP servers is), and `startRepl` wraps the REPL loop in
+`try { … } finally { await session.mcp.close() }` so every exit path closes
+connected servers.
 
 `index.ts` wires CLI args -> config -> `ensureApiKey` -> either `runOneShot`
 (prompt given, with its own `ToolRegistry`) or `startRepl` (no prompt, builds
@@ -235,8 +258,8 @@ written out as a literal: zod returns a `.default()` value verbatim without
 re-parsing it, so a literal would be a second copy of the field defaults that
 could diverge from them silently.
 
-See PLAN.md §5 for the full target module tree (including mutating tools and
-MCP modules not yet built) and §10+ for the current phase's detailed spec.
+See PLAN.md §5 for the full target module tree and §10+ for each phase's
+detailed spec.
 
 ## Testing
 

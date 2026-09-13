@@ -11,9 +11,13 @@ export const CHILD_MAX_BUFFER = 10 * 1024 * 1024
 // Don't let child processes inherit secret-looking environment variables
 // (API keys, tokens): `run_shell` could otherwise `printenv` them straight
 // into tool output and the model context. Keep ordinary runtime vars (PATH,
-// HOME, LANG, …) so commands still work.
+// HOME, LANG, …) so commands still work. Exported for tools/mcp/manager.ts,
+// which spawns stdio MCP servers as its own trusted child processes and
+// wants the same ambient-secret stripping as every other spawn in
+// tools/local/ (an MCP server's own explicitly configured env is layered on
+// top of this, not filtered by it — see manager.ts).
 const SECRET_RE = /KEY|SECRET|TOKEN|PASSWORD|PASS|CREDENTIAL|PRIVATE/i
-function safeEnv(): NodeJS.ProcessEnv {
+export function safeEnv(): Record<string, string> {
   const env: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && !SECRET_RE.test(k)) env[k] = v

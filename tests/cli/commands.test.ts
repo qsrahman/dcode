@@ -13,6 +13,7 @@ describe('command registry', () => {
       'model',
       'reset',
       'tools',
+      'mcp',
       'clear',
       'compact',
       'context',

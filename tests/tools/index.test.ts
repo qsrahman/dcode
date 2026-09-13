@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { createLocalTools } from '../../src/tools/index.ts'
 import { TaskStore } from '../../src/agent/todo-store.ts'
 import type { Client } from '../../src/agent/client.ts'
 import { unknownAgentTools } from '../../src/agent/subagent.ts'
+import type { ToolDefinition } from '../../src/agent/types.ts'
 
 const mockClient: Client = {
   stream() {
@@ -75,6 +77,46 @@ describe('createLocalTools', () => {
       .then(() => {
         expect(store.list()).toHaveLength(1)
       })
+  })
+})
+
+// MCP tools (tools/mcp/manager.ts) are connected separately (async, per-
+// server fallible) and passed in already-built, rather than connected inside
+// createLocalTools itself — these tests stand in for that with a plain
+// ToolDefinition, the same shape connectMcpServers produces.
+describe('createLocalTools with MCP tools', () => {
+  function fakeMcpTool(name: string): ToolDefinition {
+    return {
+      name,
+      description: 'an mcp tool',
+      parameters: z.record(z.string(), z.unknown()),
+      execute: async () => 'ok',
+    }
+  }
+
+  it('registers the given MCP tools alongside the built-ins', () => {
+    const registry = createLocalTools(new TaskStore(), mockClient, [
+      fakeMcpTool('mcp__srv__search'),
+    ])
+    expect(registry.get('mcp__srv__search')).toBeDefined()
+    expect(registry.list()).toHaveLength(21) // 20 built-ins + 1 MCP tool
+  })
+
+  it("includes MCP tools in the task tool's own description", () => {
+    const registry = createLocalTools(new TaskStore(), mockClient, [
+      fakeMcpTool('mcp__srv__search'),
+    ])
+    // The task tool is registered last specifically so its generated
+    // description (describeAgentTypes) reflects tools registered before it —
+    // MCP tools included. general's tool set is a deny-list of just ['task'],
+    // so a newly connected MCP tool reaches it (and so this description)
+    // automatically, the same way any other newly-registered tool does.
+    expect(registry.get('task')!.description).toContain('mcp__srv__search')
+  })
+
+  it('defaults to no MCP tools when none are given', () => {
+    const registry = createLocalTools(new TaskStore(), mockClient)
+    expect(registry.list().some((t) => t.name.startsWith('mcp__'))).toBe(false)
   })
 })
 

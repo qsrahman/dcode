@@ -17,7 +17,7 @@ import { createLogger } from '../../src/util/log.ts'
 import { cfg, fakeClient, makeSink } from '../helpers.ts'
 import { getVersion } from '../../src/util/version.ts'
 
-function makeSession(over: Partial<Config> = {}): Session {
+function makeSession(over: Partial<Config> = {}): Promise<Session> {
   const config = cfg(over)
   return createSession(config, createLogger(config))
 }
@@ -45,32 +45,32 @@ describe('parseCommand', () => {
 
 describe('handleLine commands', () => {
   it('/version writes the version', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/version', { sink })).toBe('ok')
     expect(out.join('')).toContain(`dcode v${getVersion()}`)
   })
   it('/help writes the command list', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/help', { sink })
     expect(out.join('')).toContain('Commands')
   })
   it('/model sets the session model', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/model gpt-x', { sink })).toBe('ok')
     expect(s.config.model).toBe('gpt-x')
     expect(out.join('')).toBe('model set to gpt-x\n')
   })
   it('/model with no args prints the current model', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/model', { sink })
     expect(out.join('')).toContain('model: gpt-5')
   })
   it('/reset without confirm refuses and leaves history untouched', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     s.history.push({ role: 'user', content: 'x' })
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/reset', { sink })).toBe('ok')
@@ -79,7 +79,7 @@ describe('handleLine commands', () => {
     expect(out.join('')).toContain('/reset confirm')
   })
   it('/reset confirm drops the conversation', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     s.history.push({ role: 'user', content: 'x' })
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/reset confirm', { sink })).toBe('ok')
@@ -87,20 +87,20 @@ describe('handleLine commands', () => {
     expect(out.join('')).toBe('session reset\n')
   })
   it('unknown command is reported', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/nope', { sink })
     expect(out.join('')).toContain('unknown command')
   })
   it('empty input is a no-op', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink } = makeSink()
     const before = s.history.length
     expect(await handleLine(s, '   ', { sink })).toBe('ok')
     expect(s.history.length).toBe(before)
   })
   it('/exit returns the exit signal', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink } = makeSink()
     expect(await handleLine(s, '/exit', { sink })).toBe('exit')
   })
@@ -108,7 +108,7 @@ describe('handleLine commands', () => {
 
 describe('handleLine new commands', () => {
   it('/tasks lists in-session tasks', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     s.tasks.replace([
       { content: 'write tests', status: 'pending', priority: 'medium' },
       { content: 'update docs', status: 'pending', priority: 'low' },
@@ -120,13 +120,13 @@ describe('handleLine new commands', () => {
     expect(text).toContain('[pending] [low] update docs')
   })
   it('/tasks reports when empty', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/tasks', { sink })
     expect(out.join('')).toBe('no tasks\n')
   })
   it('/todo lists in-session tasks (alias of /tasks)', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     s.tasks.replace([
       { content: 'write tests', status: 'pending', priority: 'high' },
     ])
@@ -135,15 +135,40 @@ describe('handleLine new commands', () => {
     expect(out.join('')).toContain('[pending] [high] write tests')
   })
   it('/config prints effective configuration', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/config', { sink })
     const text = out.join('')
     expect(text).toContain(`model:        ${s.config.model}`)
     expect(text).toContain('context:')
+    expect(text).toContain('mcpServers:   0 configured')
+  })
+  it('/mcp reports no servers configured by default', async () => {
+    const s = await makeSession()
+    const { sink, out } = makeSink()
+    expect(await handleLine(s, '/mcp', { sink })).toBe('ok')
+    expect(out.join('')).toBe('no MCP servers configured\n')
+  })
+  it('/mcp lists connected and failed servers with their status', async () => {
+    const s = await makeSession()
+    s.mcp = {
+      tools: [],
+      servers: [
+        { name: 'good', status: 'connected', toolCount: 3 },
+        { name: 'bad', status: 'failed', toolCount: 0, error: 'ECONNREFUSED' },
+      ],
+      close: async () => {},
+    }
+    const { sink, out } = makeSink()
+    await handleLine(s, '/mcp', { sink })
+    const text = out.join('')
+    expect(text).toContain('good')
+    expect(text).toContain('connected (3 tools)')
+    expect(text).toContain('bad')
+    expect(text).toContain('failed — ECONNREFUSED')
   })
   it('/undo removes the last exchange', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     s.history.push({ role: 'user', content: 'first' })
     s.history.push({ role: 'assistant', content: 'a1' })
     s.history.push({ role: 'user', content: 'second' })
@@ -156,7 +181,7 @@ describe('handleLine new commands', () => {
     ])
   })
   it('/undo is a no-op on empty history', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/undo', { sink })
     expect(out.join('')).toBe('nothing to undo\n')
@@ -166,7 +191,7 @@ describe('handleLine new commands', () => {
 
 describe('handleLine prompt turn', () => {
   it('runs a turn, records history, and writes output', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     s.client = fakeClient('hi there')
     const { sink, out } = makeSink()
     expect(await handleLine(s, 'hello', { sink })).toBe('ok')
@@ -179,7 +204,7 @@ describe('handleLine prompt turn', () => {
   })
 
   it('asPrompt sends slash-prefixed text as a prompt, not a command', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     s.client = fakeClient('ok')
     const { sink, out } = makeSink()
     // Leading '/' would normally parse as a command; asPrompt (set for /edit
@@ -280,14 +305,35 @@ describe('startRepl (smoke, mocked boundaries)', () => {
   }
   let writeSpy: ReturnType<typeof vi.spyOn>
 
-  function start(): Promise<void> {
+  // Returns the still-pending `done` promise wrapped in an object rather than
+  // returned directly — an async function auto-flattens a returned promise
+  // (Promise<Promise<void>> collapses to Promise<void>), which here would
+  // make awaiting start() itself block until the whole REPL session ends,
+  // instead of just until the readline interface is ready.
+  //
+  // That wait is necessary now (and wasn't before): startRepl awaits
+  // createSession, which connects any configured MCP servers (see
+  // tools/mcp/manager.ts) before creating the interface — so, unlike before,
+  // the FakeInterface is no longer guaranteed to exist the instant start()
+  // is called, even with no servers configured.
+  async function start(): Promise<{ done: Promise<void> }> {
     writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
     const config = cfg()
-    return startRepl(config, createLogger(config))
+    const before = readlineInstanceCount()
+    const done = startRepl(config, createLogger(config))
+    await vi.waitFor(() => {
+      if (readlineInstanceCount() <= before) throw new Error('not ready')
+    })
+    return { done }
+  }
+
+  function readlineInstanceCount(): number {
+    return (readline as unknown as { __instances: unknown[] }).__instances
+      .length
   }
 
   it('drives a line sequence and exits on /exit', async () => {
-    const done = start()
+    const { done } = await start()
     const rl = lastFake()
     rl.emit('/version')
     rl.emit('say hi')
@@ -299,7 +345,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
   })
 
   it('buffers lines typed while busy and drains them in order', async () => {
-    const done = start()
+    const { done } = await start()
     const rl = lastFake()
     rl.emit('first')
     // Arrives synchronously while the first turn is still running.
@@ -314,7 +360,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
   })
 
   it('processes a /exit typed while busy and closes the REPL', async () => {
-    const done = start()
+    const { done } = await start()
     const rl = lastFake()
     rl.emit('working')
     rl.emit('/exit')
@@ -327,7 +373,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
   // no feedback, no exit — which reads as "the terminal is frozen" rather
   // than "there's nothing to interrupt right now."
   it('a single idle SIGINT does not exit', async () => {
-    const done = start()
+    const { done } = await start()
     const rl = lastFake()
     rl.emit('SIGINT')
     expect(rl.closed).toBe(false)
@@ -336,7 +382,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
   })
 
   it('two idle SIGINTs in quick succession exit the REPL, matching the bash/Python convention', async () => {
-    const done = start()
+    const { done } = await start()
     const rl = lastFake()
     rl.emit('SIGINT')
     rl.emit('SIGINT')
@@ -345,7 +391,7 @@ describe('startRepl (smoke, mocked boundaries)', () => {
   })
 
   it('prints the hint once at startup, not after every turn', async () => {
-    const done = start()
+    const { done } = await start()
     const rl = lastFake()
     rl.emit('one')
     rl.emit('two')
@@ -369,7 +415,7 @@ describe('REPL commands /save and /limit', () => {
   })
 
   it('/limit sets maxToolIterations at runtime', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/limit 5', { sink })).toBe('ok')
     expect(s.config.maxToolIterations).toBe(5)
@@ -377,7 +423,7 @@ describe('REPL commands /save and /limit', () => {
   })
 
   it('/limit rejects non-positive input', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const { sink, out } = makeSink()
     await handleLine(s, '/limit abc', { sink })
     await handleLine(s, '/limit 0', { sink })
@@ -385,7 +431,7 @@ describe('REPL commands /save and /limit', () => {
   })
 
   it('/model rebuilds the client so the new model takes effect', async () => {
-    const s = makeSession()
+    const s = await makeSession()
     const before = s.client
     const { sink } = makeSink()
     await handleLine(s, '/model gpt-4o', { sink })
@@ -396,7 +442,7 @@ describe('REPL commands /save and /limit', () => {
   it('/save writes a JSON transcript and refuses to overwrite', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
     process.chdir(dir)
-    const s = makeSession()
+    const s = await makeSession()
     s.history.push({ role: 'user', content: 'hi' })
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/save', { sink })).toBe('ok')
@@ -410,7 +456,7 @@ describe('REPL commands /save and /limit', () => {
   it('/save writes Markdown when the path ends in .md', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
     process.chdir(dir)
-    const s = makeSession()
+    const s = await makeSession()
     s.history.push({ role: 'user', content: 'hi' })
     const { sink } = makeSink()
     await handleLine(s, '/save notes.md', { sink })
@@ -422,7 +468,7 @@ describe('REPL commands /save and /limit', () => {
   it('/save creates parent directories for a nested path', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
     process.chdir(dir)
-    const s = makeSession()
+    const s = await makeSession()
     s.history.push({ role: 'user', content: 'hi' })
     const { sink } = makeSink()
     await handleLine(s, '/save sub/notes.json', { sink })
@@ -432,7 +478,7 @@ describe('REPL commands /save and /limit', () => {
   it('a throwing command handler does not crash the REPL', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
     process.chdir(dir)
-    const s = makeSession()
+    const s = await makeSession()
     // Plant a file where the parent dir should go so mkdirSync fails, exercising
     // the dispatch error guard in handleLine.
     writeFileSync(join(dir, 'blocker'), 'x')

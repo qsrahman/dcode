@@ -1,5 +1,29 @@
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-14
+
+### Added
+- **P6: MCP integration.** dcode connects to MCP servers configured under the
+  new `mcpServers` config field and exposes each server's tools to the agent
+  loop as ordinary tools — the agent loop, `task` sub-agent filtering, and
+  `/tools` all treat them identically to built-in tools. Both transports the
+  official `@modelcontextprotocol/sdk` client supports out of the box are
+  wired up: `stdio` (spawned locally; `command`/`args`/`env`, the latter
+  merged on top of the same ambient-secret-stripped env every other spawn in
+  `tools/local/` gets) and `http` (streamable HTTP; `url` + static `headers`
+  for e.g. a bearer token — no OAuth flow). A config entry can omit `type`
+  and let it infer from whether `command` or `url` is present. Servers are
+  connected in parallel at startup (REPL and one-shot alike) and closed on
+  exit/SIGINT (decision I, PLAN.md §6); a server that fails to connect or
+  list its tools is logged as a warning and skipped rather than blocking
+  startup. Tool names are qualified as `mcp__<server>__<tool>` to avoid
+  collisions across servers; a result's content parts are flattened to text
+  (images/audio/binary resources are described, not dumped), and a
+  `CallToolResult` with `isError: true` is thrown so it takes the same
+  `ok:false` path as any other tool failure. New `/mcp` REPL command lists
+  connected servers and their tool counts; `/config` now reports how many
+  servers are configured. See `tools/mcp/manager.ts` and PLAN.md §30.
+
 ### Changed
 - The global config location now follows the XDG Base Directory spec:
   `$XDG_CONFIG_HOME/dcode/dcode.json` (default `~/.config/dcode/dcode.json`),
@@ -29,6 +53,22 @@
   opencode and Claude Code likewise bound history by tokens, not item count.
   **Breaking:** config is parsed with `.strict()`, so a `"maxHistoryItems"`
   key left in `dcode.json` is now rejected as unknown — remove it.
+
+### Fixed
+- `kill_process` threw an unhandled `TypeError: Unknown signal: 9` when sent
+  a bare numeric signal string, even though its own schema allows one —
+  `ChildProcess.kill()` only accepts a numeric signal as an actual `number`.
+- `/help` and the REPL prompt called `styleText` directly instead of through
+  `util/color.ts`'s `paintFor`, so both ignored `--no-color`/`config.color`.
+- `/key set`/`unset` silently discarded the rest of `dcode.json` (model,
+  baseURL, context tuning, the other provider's key) if the file was ever
+  corrupted, instead of failing loudly the way `readConfigFile` does for the
+  same failure.
+- `grep`'s `context` lines were rendered identically to match lines; they now
+  use `-` vs `:` (ripgrep's own convention) so they're distinguishable.
+- `BRAVE_ENDPOINT` was read from `process.env` at module load, bypassing the
+  config precedence (`CLI > env > file`) `BRAVE_API_KEY` already goes
+  through; it's now a proper `braveEndpoint` config field.
 
 ## [0.16.0] - 2026-09-05
 

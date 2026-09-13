@@ -80,7 +80,7 @@ src/
   agent/types.ts      # ToolDefinition<P>, ToolContext (incl. depth), ToolCall, ToolResult, ResponseItemFields
   agent/todo-store.ts # TaskStore: in-session todo list (replace/list — the model sends the whole list)
   agent/subagent.ts   # AGENT_TYPES (general, explore): per-type ToolPolicy ({allow} | {deny}) + system prompt; describeAgentTypes/unknownAgentTools
-  tools/index.ts      # createLocalTools(tasks, client): hub that registers all built-in tools into the registry
+  tools/index.ts      # createLocalTools(tasks, client, mcpTools?): hub that registers all built-in tools (+ any already-connected MCP tools, P6) into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema; defineTool (infers a tool's arg type from its schema)
   tools/local/        # local tool set, split by concern:
     paths.ts          #   resolvePath, withFsError, ensureParentDir — path confinement (realpath-checked against symlink escapes) + shared fs error/mkdir idioms
@@ -93,7 +93,7 @@ src/
     question.ts       #   ask_user (@clack/prompts; refuses when stdin isn't a TTY)
     task.ts           #   task (sub-agent: filtered tool registry + own TaskStore, depth-limited to 1)
     web.ts            #   web_search (Brave; key from ctx.config.brave only), web_fetch
-  tools/mcp/manager.ts  # connect servers, cache tools, callTool (P6, not yet built)
+  tools/mcp/manager.ts  # connectMcpServers: connect configured servers (stdio/http), wrap their tools as ToolDefinitions, close() on exit/SIGINT (P6, §30)
   ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
   ui/tools.ts            # tool-call rendering: interactive TTY = a per-query live counter that freezes into a bounded category summary (renderProgressLine/renderCategorySummary/TurnTally); piped/--verbose = per-call lines (renderToolResult/renderToolOutput)
   types/marked-terminal.d.ts # local ambient types (marked-terminal ships none; @types/marked-terminal on npm is stale/mismatched)
@@ -192,7 +192,7 @@ See §17 for deferred candidates.
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | **Done** |
  | P4 | Mutating local tools (write_file/edit_file/run_shell) | **Done** — see §12 |
  | P5 | Declarative permissions + modes | **Cancelled** (removed on `experiment`) |
-| P6 | MCP integration | |
+| P6 | MCP integration | **Done** — see §30 |
  | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 | P8 | Task list (in-session: create/list/update) | **Done** |
 | P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done, then removed** — the scoped allow-list added no safety over `run_shell` (which is ungated anyway) while costing a whole tool slot; git is reached via `run_shell` |
@@ -1328,3 +1328,123 @@ providers and test mocks are handled correctly.
 ### 29.4 Files
 - `src/agent/loop.ts` — overflow catch block
 - `src/agent/client.ts` — `isContextOverflowError` widened
+
+## 30. P6 Specification (MCP integration) — implemented
+
+### 30.1 Scope
+Connect dcode to MCP (Model Context Protocol) servers and expose their tools
+to the agent loop the same way as built-in tools — no new capability at the
+loop/registry level, just a second source of `ToolDefinition`s. Uses the
+official `@modelcontextprotocol/sdk` client (AGENTS.md: don't hand-roll a
+JSON-RPC/transport layer a library already provides), not a custom protocol
+implementation.
+
+**Out of scope for v1:** MCP prompts/resources (tools only — dcode has no
+concept of either), OAuth-authenticated remote servers (static headers only),
+SSE transport (deprecated upstream in favor of streamable HTTP), and
+per-server approval/permission gating (P5 was cancelled; MCP tools run
+exactly as ungated as every other tool).
+
+### 30.2 Config (`schema.ts`)
+`mcpServers: Record<string, McpServerConfig>`, default `{}` (no added startup
+latency for the common case of nobody configuring one). Each entry is either:
+
+```json
+{ "command": "npx", "args": ["-y", "some-mcp-server"], "env": { "FOO": "bar" } }
+{ "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
+```
+
+`type: "stdio" | "http"` can be given explicitly; when omitted it's inferred
+from whichever of `command`/`url` is present (`inferMcpType`, a
+`z.preprocess` ahead of a `z.discriminatedUnion`), matching the convention
+Claude Code's own `.mcp.json` uses so the common case doesn't have to spell
+out the obvious. Each variant is `.strict()`, same as `context`, so a typo'd
+key inside one server's config fails loudly rather than vanishing.
+
+### 30.3 Module changes
+- `src/tools/mcp/manager.ts` (new) — `connectMcpServers(configured, logger):
+  Promise<McpManager>`. For each server: build a `Transport`
+  (`StdioClientTransport` or `StreamableHTTPClientTransport`), `new Client(...)
+  .connect(transport, { signal: AbortSignal.timeout(10_000) })`, then
+  `listTools()`. Every configured server connects in parallel — independent
+  processes/connections, so one slow server shouldn't delay the others — and a
+  server that fails either step is logged as a warning and skipped (recorded
+  in `McpManager.servers` with `status: 'failed'` and the error text) rather
+  than blocking startup, the same degrade-gracefully posture `web_search`
+  already has for a missing `BRAVE_API_KEY`. A stdio server's stderr is piped
+  (not the SDK default of `inherit`, which would land directly on dcode's own
+  stderr) and routed through the debug log, prefixed by server name.
+  - Each listed tool is wrapped via `defineTool` into a `ToolDefinition`
+    named `mcp__<server>__<tool>` (`qualifiedToolName`/`sanitizeName`,
+    collision-numbered by `uniqueName` so a sanitization collision can't
+    silently drop a tool), `parallel: false` (MCP doesn't distinguish
+    read-only vs mutating tools the way dcode's own `parallel` flag does, so
+    every MCP tool is treated as side-effecting), and `execute` that calls
+    `client.callTool({name, arguments}, undefined, {signal: ctx.signal})`,
+    flattens the result's `content` array to text (`contentToText` — text
+    parts pass through, images/audio/binary resources are described rather
+    than dumped or dropped), and throws when the result carries `isError:
+    true` so a tool-level MCP failure takes the same `ok:false` path through
+    `runTool` as any other tool's failure.
+  - `McpManager.close()` closes every connected client, never throwing (a
+    server that's already gone or wedged must not block shutdown).
+- `src/agent/types.ts` — `ToolDefinition` gained an optional `jsonSchema:
+  Record<string, unknown>` field. An MCP tool's `inputSchema` is already JSON
+  Schema from the server; round-tripping it through a hand-built zod schema
+  back to JSON Schema (`z.toJSONSchema`) would be lossy for no benefit, so
+  `tools/registry.ts`'s `toResponsesTool` uses `jsonSchema` verbatim when
+  present instead of deriving one from `parameters` (which, for an MCP tool,
+  is just a permissive `z.record(z.string(), z.unknown())` passthrough — the
+  MCP server, not dcode, is authoritative on argument shape).
+- `src/tools/index.ts` — `createLocalTools(tasks, client, mcpTools = [])`
+  takes the already-connected MCP tools (connecting is async and
+  per-server-fallible, so it happens before this call, which stays
+  synchronous) and registers them *before* the `task` tool, not after: the
+  task tool's own description is generated once from the resolved tool sets
+  (`describeAgentTypes`), so registering it last is what lets that
+  description include MCP tools too instead of freezing a stale snapshot
+  from before they were connected.
+- `src/cli/repl.ts` — `createSession` is now `async`: it calls
+  `connectMcpServers(config.mcpServers, logger)` before building the tool
+  registry, and `Session` gained an `mcp: McpManager` field. `startRepl` wraps
+  the REPL loop (factored out as `runRepl`) in `try { … } finally { await
+  session.mcp.close() }` so every exit path (`/exit`, the idle-double-Ctrl-C
+  path) closes connected servers — decision I (PLAN.md §6).
+- `src/index.ts` — the one-shot path connects and closes MCP servers the same
+  way, in the existing `try/finally` around `runOneShot` (a one-shot run is
+  still a full session, just a short one).
+- `src/cli/commands.ts` — new `/mcp` command lists connected/failed servers
+  and their tool counts; `/config` gained an `mcpServers: N configured` line.
+- `src/tools/local/exec.ts` — `safeEnv()` exported (was module-private) so
+  `tools/mcp/manager.ts` can layer a stdio server's own configured `env` on
+  top of the same ambient-secret-stripped base every other spawn in
+  `tools/local/` uses, rather than either replacing it (losing PATH/HOME/etc.)
+  or duplicating the filtering logic.
+
+### 30.4 Tests
+- `tests/config/schema.test.ts` — `mcpServers` defaults, type inference from
+  `command`/`url`, explicit `type`, `.strict()` rejection of a typo'd key and
+  of a server with neither `command` nor `url`.
+- `tests/tools/mcp/manager.test.ts` — the SDK's client-side surface
+  (`Client`, `StdioClientTransport`, `StreamableHTTPClientTransport`) is
+  mocked via `vi.mock` (same pattern `tests/agent/client.test.ts` uses for the
+  OpenAI SDK) so these are fast unit tests, not subprocess/network
+  integration: qualified naming, description fallback, parallel connection
+  and tool merging, connect-failure and listTools-failure isolation (one bad
+  server doesn't block the rest, and a connected-but-failed-listTools client
+  still gets closed), collision numbering, a wrapped tool's `execute`
+  forwarding args + `ctx.signal` and flattening/erroring on its result, and
+  `close()` closing every client without throwing.
+- `tests/tools/registry.test.ts` — `toResponsesTool` uses `jsonSchema`
+  verbatim when present.
+- `tests/tools/index.test.ts` — `createLocalTools`'s `mcpTools` param wires
+  in alongside the built-ins and reaches the `task` tool's own description.
+- `tests/cli/repl.test.ts` — `createSession`/`startRepl` updated for the new
+  `async` signature (the mocked-readline smoke tests now wait for the
+  interface to exist, since it's no longer created synchronously); `/mcp` and
+  `/config`'s new line.
+
+### 30.5 Status
+**Done.** Not carried forward from v1 scope: MCP prompts/resources, OAuth,
+SSE transport, per-server tool policy/approval (there is no permission layer
+at all — P5 was cancelled).

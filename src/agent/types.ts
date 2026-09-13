@@ -18,6 +18,15 @@ export interface ToolDefinition<P = unknown> {
   name: string
   description: string
   parameters: z.ZodType<P>
+  // Raw JSON Schema to advertise to the Responses API instead of one derived
+  // from `parameters` via z.toJSONSchema. Used by MCP tools (tools/mcp/
+  // manager.ts): an MCP server already hands back its tool's input schema as
+  // JSON Schema, and round-tripping that through a hand-built zod schema back
+  // to JSON Schema would be lossy for no benefit — `parameters` there is just
+  // a permissive passthrough for runtime parsing, since the MCP server (not
+  // dcode) is authoritative on argument shape. Every built-in tool leaves
+  // this unset and keeps deriving its schema from `parameters` as before.
+  jsonSchema?: Record<string, unknown>
   execute(args: P, ctx: ToolContext): Promise<string>
   // `false` forces the call to run sequentially (in emission order) rather than
   // being batched with other parallel-eligible calls via Promise.all. Mutating

@@ -9,6 +9,7 @@ import type { ToolRegistry } from '../tools/registry.ts'
 import { CommandRegistry } from './registry.ts'
 import type { ContextManager } from '../agent/context/manager.ts'
 import type { TaskStore } from '../agent/todo-store.ts'
+import type { McpManager } from '../tools/mcp/manager.ts'
 import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../util/version.ts'
 import { access, mkdir, writeFile } from 'node:fs/promises'
@@ -31,6 +32,7 @@ export interface Session {
   context: ContextManager
   tasks: TaskStore
   root: string
+  mcp: McpManager
 }
 
 // 'edit' asks the REPL loop to open the user's editor and submit the result as
@@ -174,6 +176,23 @@ export function createCommands(): CommandRegistry {
     },
   })
   r.register({
+    name: 'mcp',
+    description: 'show connected MCP servers and their tool counts',
+    handler: (session, _a, sink) => {
+      if (session.mcp.servers.length === 0) {
+        sink.write('no MCP servers configured\n')
+        return 'ok'
+      }
+      const lines = session.mcp.servers.map((s) =>
+        s.status === 'connected'
+          ? `  ${s.name.padEnd(20)} connected (${s.toolCount} tool${s.toolCount === 1 ? '' : 's'})`
+          : `  ${s.name.padEnd(20)} failed — ${s.error ?? 'unknown error'}`,
+      )
+      sink.write(['MCP servers:', ...lines].join('\n') + '\n')
+      return 'ok'
+    },
+  })
+  r.register({
     name: 'clear',
     description: 'clear the screen',
     handler: (_s, _a, sink) => {
@@ -234,6 +253,7 @@ export function createCommands(): CommandRegistry {
         `toolTimeout:  ${c.toolTimeout} ms`,
         `maxRetries:   ${c.maxRetries}`,
         `context:      window=${c.context.window} reserved=${c.context.reserved} keep=${c.context.keepTokens} prune=${c.context.prune} auto=${c.context.auto}`,
+        `mcpServers:   ${Object.keys(c.mcpServers).length} configured (see /mcp)`,
       ]
       sink.write(lines.join('\n') + '\n')
       return 'ok'

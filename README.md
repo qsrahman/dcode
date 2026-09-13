@@ -3,10 +3,10 @@
 A CLI-based AI coding agent built on the OpenAI Responses SDK. Runs locally, no
 build step (Node 26 runs TypeScript directly).
 
-> Status: **P11 complete** — one-shot, the interactive REPL, the tool-using
-> agent loop (read-only and mutating tools), an in-session todo list,
-> sub-agents, and automatic context-window management all work. See
-> [PLAN.md](./PLAN.md) for the full roadmap.
+> Status: **P11 + P6 complete** — one-shot, the interactive REPL, the
+> tool-using agent loop (read-only and mutating tools), an in-session todo
+> list, sub-agents, automatic context-window management, and MCP server
+> integration all work. See [PLAN.md](./PLAN.md) for the full roadmap.
 
 > **⚠️ Security warning — tools are ungated.** dcode has **no permission
 > architecture**. Every tool, including mutating ones (`write_file`, `edit_file`,
@@ -16,7 +16,9 @@ build step (Node 26 runs TypeScript directly).
 > The model can edit files and execute arbitrary shell commands in
 > the working directory entirely on its own initiative. **Use with caution:**
 > point dcode only at sandboxed or disposable directories, and review its
-> actions. A declarative permissions/modes system was planned (P5) but cancelled.
+> actions. A declarative permissions/modes system was planned (P5) but
+> cancelled. This includes MCP servers: any tool a configured server exposes
+> runs exactly as ungated as dcode's own built-in tools.
 
 ## Requirements
 
@@ -70,14 +72,16 @@ dcode -- "--this reads as a prompt, not a flag"
 
 ### REPL slash commands
 
-`/help` `/key` `/model` `/tools` `/clear` `/reset` `/compact` `/context` `/tasks`
-`/todo` `/config` `/undo` `/version` `/limit` `/edit` `/save` `/exit`
+`/help` `/key` `/model` `/tools` `/mcp` `/clear` `/reset` `/compact` `/context`
+`/tasks` `/todo` `/config` `/undo` `/version` `/limit` `/edit` `/save` `/exit`
 
  (`/clear` clears the screen; `/reset` drops the conversation history and
  requires an explicit `/reset confirm` — there is no undo, so it refuses a
  bare `/reset` and points at `/save`. `/model`
  with no argument prints the current model; `/model <id>` switches it. `/tools`
- lists the tools the agent can call. `/compact` summarizes the oldest part of the
+ lists the tools the agent can call (built-in and MCP-sourced alike); `/mcp`
+ lists configured MCP servers and whether each connected, with its tool count
+ (or the connection error, if it didn't). `/compact` summarizes the oldest part of the
  conversation into a short summary to free context; `/context` shows the estimated
  token usage against the model's window. `/tasks` lists the in-session task list;
  `/config` prints the effective configuration; `/undo` removes the last user
@@ -196,6 +200,41 @@ a row the session stops recovering and requests fail until you `/reset` or
 `/compact`. Only disable `auto` for short or one-shot sessions that never approach
 the window; leave it on (the default) otherwise.
 
+## MCP servers
+
+dcode connects to any MCP (Model Context Protocol) servers named under
+`mcpServers` in `dcode.json` and exposes their tools to the agent alongside
+its own built-in ones — the loop, `task`'s sub-agent filtering, and `/tools`
+all treat an MCP-sourced tool identically to a built-in. Two transports:
+
+```json
+{
+  "mcpServers": {
+    "local-server": { "command": "npx", "args": ["-y", "some-mcp-server"] },
+    "remote-server": {
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+`type` (`"stdio"` or `"http"`) can be given explicitly but is usually inferred
+from whichever of `command`/`url` is present. A `stdio` server's `env` is
+merged on top of dcode's own filtered environment (the same ambient
+secret-stripping `run_shell` gets), so the server keeps PATH/HOME/etc. while
+still receiving whatever secret it needs explicitly. An `http` server takes
+only static `headers` — there is no OAuth flow.
+
+Every configured server connects in parallel at startup (both one-shot and
+REPL) and is closed on exit or Ctrl-C. A server that fails to connect or list
+its tools is logged as a warning and skipped rather than blocking startup —
+check `/mcp` to see which servers connected and how many tools each exposed.
+Tool names are qualified as `mcp__<server>__<tool>` to avoid collisions
+across servers. **The same "no permission layer" warning above applies in
+full:** an MCP tool runs exactly as ungated as `run_shell` the moment the
+model calls it, so only configure servers you trust.
+
 ## Configuration (`dcode.json`)
 
 JSON, loaded from `--config <path>` or a default location. Example:
@@ -243,7 +282,7 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 | P3 | Tool core + read-only tools + async loop | **Done** |
 | P4 | Mutating local tools | **Done** |
 | P5 | Declarative permissions + modes | **Cancelled** |
-| P6 | MCP integration | |
+| P6 | MCP integration | **Done** |
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 | P8 | Task list (in-session: create/list/update) | **Done** |
 | P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |

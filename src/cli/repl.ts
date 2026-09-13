@@ -5,6 +5,7 @@ import { TaskStore } from '../agent/todo-store.ts'
 import { ContextManager } from '../agent/context/manager.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
+import { connectMcpServers } from '../tools/mcp/manager.ts'
 import type { RunSink } from '../agent/run.ts'
 import { type Logger, errorMessage, isAbortError } from '../util/log.ts'
 import {
@@ -19,18 +20,28 @@ import { paintFor } from '../util/color.ts'
 
 const HINT = 'Ask anything, /help for commands...'
 
-export function createSession(config: Config, logger: Logger): Session {
+// Async because connecting configured MCP servers (decision I: spawn/connect
+// at startup) is: stdio servers are spawned, HTTP servers are dialed, and
+// each is given up to CONNECT_TIMEOUT_MS before being skipped with a warning
+// (see tools/mcp/manager.ts). With no servers configured (the default) this
+// resolves immediately — no added startup latency for the common case.
+export async function createSession(
+  config: Config,
+  logger: Logger,
+): Promise<Session> {
   const tasks = new TaskStore()
   const client = createClient(config)
+  const mcp = await connectMcpServers(config.mcpServers, logger)
   return {
     config,
     logger,
     client,
     history: [],
-    tools: createLocalTools(tasks, client),
+    tools: createLocalTools(tasks, client, mcp.tools),
     context: new ContextManager(config.context, logger, tasks),
     tasks,
     root: process.cwd(),
+    mcp,
   }
 }
 
@@ -116,7 +127,19 @@ async function composeInEditor(
 }
 
 export async function startRepl(config: Config, logger: Logger): Promise<void> {
-  const session = createSession(config, logger)
+  const session = await createSession(config, logger)
+  try {
+    await runRepl(session)
+  } finally {
+    // Decision I: session-lived, closed on exit — covers both the 'exit'
+    // command and the idle-double-Ctrl-C path, since both end runRepl's
+    // loop (by returning, or by rl.close() ending the async iterator) rather
+    // than the process itself, so this always runs before startRepl returns.
+    await session.mcp.close()
+  }
+}
+
+async function runRepl(session: Session): Promise<void> {
   // Session-scoped, not a module-level constant: it has to read config.color
   // (see util/color.ts's paintFor) rather than styleText's own auto-detection,
   // or --no-color could never suppress it.

@@ -33,6 +33,26 @@ describe('ToolRegistry', () => {
     expect(rt.parameters.required).toEqual(['path'])
   })
 
+  // MCP tools (tools/mcp/manager.ts) carry the server's own JSON Schema
+  // directly rather than one derived from `parameters` — this is what makes
+  // that possible without a lossy JSON-Schema -> zod -> JSON-Schema round trip.
+  it('uses jsonSchema verbatim instead of deriving one from parameters when present', () => {
+    const raw = {
+      type: 'object',
+      properties: { q: { type: 'string', description: 'query' } },
+      required: ['q'],
+    }
+    const tool = {
+      name: 'mcp__srv__search',
+      description: 'd',
+      parameters: z.record(z.string(), z.unknown()),
+      jsonSchema: raw,
+      execute: async () => '',
+    }
+    const rt = toResponsesTool(tool) as any
+    expect(rt.parameters).toBe(raw)
+  })
+
   it('converts nested objects, optional, enum, array via zod', () => {
     const tool = {
       name: 't',

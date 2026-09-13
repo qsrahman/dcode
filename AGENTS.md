@@ -143,10 +143,23 @@ it reports on stdout rather than the sink being written to.
 `ctx.signal` via `withDeadline`. Losing that race **abandons** the tool
 promise — nothing can force a tool to stop from the outside — so a tool that
 spawns or connects must also take `ctx.signal` itself (`baseExecOptions`'
-`cancelSignal`, `fetchSafely`'s combined signal) if the underlying resource is
-to be released rather than merely orphaned. A tool that blocks on input must
+`cancelSignal`, `fetchSafely`'s combined signal, `client.callTool`'s
+`RequestOptions.signal` for MCP tools) if the underlying resource is to be
+released rather than merely orphaned. A tool that blocks on input must
 refuse up front when it can't succeed (see `ask_user`'s TTY check) rather than
 relying on the deadline to tidy up.
+
+MCP tools (`tools/mcp/manager.ts`, connected via `connectMcpServers` before
+`createLocalTools` is called — see `index.ts`/`cli/repl.ts`) are the one case
+where a `ToolDefinition`'s JSON Schema doesn't come from `defineTool`'s
+`parameters` zod schema: an MCP server already hands back its tool's input
+schema as JSON Schema, so re-deriving one via `z.toJSONSchema` would be a
+lossy round trip for no benefit. Use `ToolDefinition.jsonSchema` (a raw JSON
+Schema object) for that case instead — `toResponsesTool` prefers it over
+`parameters` when both are present — and keep `parameters` a permissive
+passthrough (`z.record(z.string(), z.unknown())`), since the MCP server, not
+dcode, is authoritative on argument shape. Every built-in tool leaves
+`jsonSchema` unset and keeps deriving its schema from `parameters` as before.
 
 ## Security model
 

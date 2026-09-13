@@ -86,4 +86,65 @@ describe('configSchema', () => {
       compactAt: 0.85,
     })
   })
+
+  describe('mcpServers', () => {
+    it('defaults to no configured servers', () => {
+      expect(configSchema.parse({}).mcpServers).toEqual({})
+    })
+
+    it('infers type: stdio from a command field', () => {
+      const c = configSchema.parse({
+        mcpServers: { local: { command: 'node', args: ['server.js'] } },
+      })
+      expect(c.mcpServers.local).toEqual({
+        type: 'stdio',
+        command: 'node',
+        args: ['server.js'],
+      })
+    })
+
+    it('infers type: http from a url field', () => {
+      const c = configSchema.parse({
+        mcpServers: {
+          remote: {
+            url: 'https://example.com/mcp',
+            headers: { Authorization: 'Bearer x' },
+          },
+        },
+      })
+      expect(c.mcpServers.remote).toEqual({
+        type: 'http',
+        url: 'https://example.com/mcp',
+        headers: { Authorization: 'Bearer x' },
+      })
+    })
+
+    it('defaults stdio args to an empty array', () => {
+      const c = configSchema.parse({
+        mcpServers: { local: { command: 'node' } },
+      })
+      expect(c.mcpServers.local).toMatchObject({ args: [] })
+    })
+
+    it('accepts an explicit type without inference', () => {
+      const c = configSchema.parse({
+        mcpServers: { local: { type: 'stdio', command: 'node' } },
+      })
+      expect(c.mcpServers.local?.type).toBe('stdio')
+    })
+
+    // .strict() on each server variant, same as context: a typo'd field
+    // inside one server's config should fail loudly, not vanish silently.
+    it('.strict() rejects an unknown key inside a server entry', () => {
+      expect(() =>
+        configSchema.strict().parse({
+          mcpServers: { local: { command: 'node', comand: 'typo' } },
+        }),
+      ).toThrow()
+    })
+
+    it('rejects a server entry with neither command nor url', () => {
+      expect(() => configSchema.parse({ mcpServers: { bad: {} } })).toThrow()
+    })
+  })
 })

@@ -1,5 +1,50 @@
 import { z } from 'zod'
 
+// One configured MCP server, either spawned locally (stdio) or reached over
+// HTTP. `type` picks the transport; when the config omits it, `inferMcpType`
+// below fills it in from whichever of `command`/`url` is present, so the
+// common case doesn't have to spell out the obvious — the same convention
+// Claude Code's own `.mcp.json` uses.
+const mcpStdioServerSchema = z
+  .object({
+    type: z.literal('stdio'),
+    command: z.string(),
+    args: z.array(z.string()).default([]),
+    // Merged on top of the tool process's own filtered env (safeEnv(), same
+    // ambient-secret stripping every other spawn in tools/local/ gets) rather
+    // than replacing it — an MCP server commonly needs its own explicitly
+    // configured secret (its own API key), which is exactly what this field
+    // is for, while still inheriting PATH/HOME/etc.
+    env: z.record(z.string(), z.string()).optional(),
+  })
+  .strict()
+
+const mcpHttpServerSchema = z
+  .object({
+    type: z.literal('http'),
+    url: z.string(),
+    // Static headers only (e.g. a bearer token) — no OAuth flow. A remote
+    // server that requires interactive auth isn't supported yet.
+    headers: z.record(z.string(), z.string()).optional(),
+  })
+  .strict()
+
+function inferMcpType(val: unknown): unknown {
+  if (val && typeof val === 'object' && !('type' in val)) {
+    const v = val as Record<string, unknown>
+    if (typeof v.url === 'string') return { ...v, type: 'http' }
+    if (typeof v.command === 'string') return { ...v, type: 'stdio' }
+  }
+  return val
+}
+
+const mcpServerSchema = z.preprocess(
+  inferMcpType,
+  z.discriminatedUnion('type', [mcpStdioServerSchema, mcpHttpServerSchema]),
+)
+
+export type McpServerConfig = z.infer<typeof mcpServerSchema>
+
 const contextSchema = z
   .object({
     // Proactive context management before each request: prune old tool outputs,
@@ -78,6 +123,10 @@ export const configSchema = z.object({
   // fraction of that budget at which compaction kicks in *proactively* (before a
   // context-length error), so the model stays comfortably under the limit.
   context: contextSchema.default(() => contextSchema.parse({})),
+  // Named MCP servers to connect to at startup (decision I: session-lived,
+  // closed on exit/SIGINT — see tools/mcp/manager.ts). Empty by default: no
+  // startup latency or spawned processes unless the user opts in.
+  mcpServers: z.record(z.string(), mcpServerSchema).default({}),
 })
 
 // `verbose` is a CLI-only runtime flag (`--verbose`), never a persisted config

@@ -18,6 +18,8 @@ export function defineTool<P>(def: {
   // `false` forces sequential execution. See ToolDefinition.parallel.
   parallel?: boolean
   parameters: z.ZodType<P>
+  // See ToolDefinition.jsonSchema — only MCP-sourced tools pass this.
+  jsonSchema?: Record<string, unknown>
   execute(args: P, ctx: ToolContext): Promise<string>
 }): ToolDefinition<P> {
   return def
@@ -55,13 +57,16 @@ export class ToolRegistry {
 }
 
 // zod v4's built-in converter emits a JSON Schema (draft 2020-12) that the
-// Responses API accepts; strict:false keeps arg parsing lenient.
+// Responses API accepts; strict:false keeps arg parsing lenient. A tool that
+// already carries a raw JSON Schema (jsonSchema — MCP tools) uses that
+// instead of deriving one from `parameters`, since it's the server's own
+// authoritative schema, not something dcode defined.
 export function toResponsesTool(tool: ToolDefinition): ResponsesTool {
   return {
     type: 'function',
     name: tool.name,
     description: tool.description,
-    parameters: z.toJSONSchema(tool.parameters),
+    parameters: tool.jsonSchema ?? z.toJSONSchema(tool.parameters),
     strict: false,
   } as ResponsesTool
 }

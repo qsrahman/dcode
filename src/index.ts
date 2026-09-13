@@ -8,6 +8,7 @@ import { createClient } from './agent/client.ts'
 import { TaskStore } from './agent/todo-store.ts'
 import { runOneShot } from './agent/loop.ts'
 import { createLocalTools } from './tools/index.ts'
+import { connectMcpServers } from './tools/mcp/manager.ts'
 import { createLogger, errorMessage, isAbortError } from './util/log.ts'
 import { getVersion } from './util/version.ts'
 import { ensureApiKey } from './cli/auth.ts'
@@ -54,7 +55,12 @@ export async function main(): Promise<void> {
     }
     const client = createClient(config)
     const tasks = new TaskStore()
-    const tools = createLocalTools(tasks, client)
+    // Decision I: MCP servers are spawned/connected at startup and closed on
+    // exit here too — a one-shot run is still a full session, just a short
+    // one, so it gets the same tools a REPL session would (see cli/repl.ts's
+    // createSession for the REPL-side equivalent of this same sequence).
+    const mcp = await connectMcpServers(config.mcpServers, logger)
+    const tools = createLocalTools(tasks, client, mcp.tools)
     const ac = new AbortController()
     const onSigint = () => ac.abort()
     process.on('SIGINT', onSigint)
@@ -70,6 +76,7 @@ export async function main(): Promise<void> {
       throw err
     } finally {
       process.off('SIGINT', onSigint)
+      await mcp.close()
     }
   } catch (err) {
     logger.error(errorMessage(err))
