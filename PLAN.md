@@ -1354,12 +1354,16 @@ latency for the common case of nobody configuring one). Each entry is either:
 { "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
 ```
 
-`type: "stdio" | "http"` can be given explicitly; when omitted it's inferred
+`type: "local" | "remote"` can be given explicitly; when omitted it's inferred
 from whichever of `command`/`url` is present (`inferMcpType`, a
 `z.preprocess` ahead of a `z.discriminatedUnion`), matching the convention
 Claude Code's own `.mcp.json` uses so the common case doesn't have to spell
 out the obvious. Each variant is `.strict()`, same as `context`, so a typo'd
-key inside one server's config fails loudly rather than vanishing.
+key inside one server's config fails loudly rather than vanishing. Named
+`local`/`remote` rather than `stdio`/`http` — those are the config field's
+own values, describing what the user is choosing (a server on this machine
+vs. one elsewhere); the underlying transport names stay where they belong,
+in `manager.ts` (`StdioClientTransport`, `StreamableHTTPClientTransport`).
 
 A `headers`/`env` value that is *exactly* `${VAR_NAME}` is expanded from
 `process.env` at connect time (`expandEnvPlaceholder` in manager.ts, applied

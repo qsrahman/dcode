@@ -92,18 +92,18 @@ describe('configSchema', () => {
       expect(configSchema.parse({}).mcpServers).toEqual({})
     })
 
-    it('infers type: stdio from a command field', () => {
+    it('infers type: local from a command field', () => {
       const c = configSchema.parse({
         mcpServers: { local: { command: 'node', args: ['server.js'] } },
       })
       expect(c.mcpServers.local).toEqual({
-        type: 'stdio',
+        type: 'local',
         command: 'node',
         args: ['server.js'],
       })
     })
 
-    it('infers type: http from a url field', () => {
+    it('infers type: remote from a url field', () => {
       const c = configSchema.parse({
         mcpServers: {
           remote: {
@@ -113,13 +113,13 @@ describe('configSchema', () => {
         },
       })
       expect(c.mcpServers.remote).toEqual({
-        type: 'http',
+        type: 'remote',
         url: 'https://example.com/mcp',
         headers: { Authorization: 'Bearer x' },
       })
     })
 
-    it('defaults stdio args to an empty array', () => {
+    it('defaults local args to an empty array', () => {
       const c = configSchema.parse({
         mcpServers: { local: { command: 'node' } },
       })
@@ -128,9 +128,9 @@ describe('configSchema', () => {
 
     it('accepts an explicit type without inference', () => {
       const c = configSchema.parse({
-        mcpServers: { local: { type: 'stdio', command: 'node' } },
+        mcpServers: { local: { type: 'local', command: 'node' } },
       })
-      expect(c.mcpServers.local?.type).toBe('stdio')
+      expect(c.mcpServers.local?.type).toBe('local')
     })
 
     // .strict() on each server variant, same as context: a typo'd field

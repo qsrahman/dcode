@@ -127,11 +127,11 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 const { connectMcpServers } = await import('../../../src/tools/mcp/manager.ts')
 
 function stdio(command: string, env?: Record<string, string>): McpServerConfig {
-  return { type: 'stdio', command, args: [], env }
+  return { type: 'local', command, args: [], env }
 }
 
 function http(url: string, headers?: Record<string, string>): McpServerConfig {
-  return { type: 'http', url, headers }
+  return { type: 'remote', url, headers }
 }
 
 const logger = createLogger(cfg())

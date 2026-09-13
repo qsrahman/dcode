@@ -1,13 +1,13 @@
 import { z } from 'zod'
 
-// One configured MCP server, either spawned locally (stdio) or reached over
-// HTTP. `type` picks the transport; when the config omits it, `inferMcpType`
-// below fills it in from whichever of `command`/`url` is present, so the
-// common case doesn't have to spell out the obvious — the same convention
-// Claude Code's own `.mcp.json` uses.
-const mcpStdioServerSchema = z
+// One configured MCP server, either spawned locally (over stdio) or reached
+// over HTTP ("remote"). `type` picks the transport; when the config omits
+// it, `inferMcpType` below fills it in from whichever of `command`/`url` is
+// present, so the common case doesn't have to spell out the obvious — the
+// same convention Claude Code's own `.mcp.json` uses.
+const mcpLocalServerSchema = z
   .object({
-    type: z.literal('stdio'),
+    type: z.literal('local'),
     command: z.string(),
     args: z.array(z.string()).default([]),
     // Merged on top of the tool process's own filtered env (safeEnv(), same
@@ -19,9 +19,9 @@ const mcpStdioServerSchema = z
   })
   .strict()
 
-const mcpHttpServerSchema = z
+const mcpRemoteServerSchema = z
   .object({
-    type: z.literal('http'),
+    type: z.literal('remote'),
     url: z.string(),
     // Static headers only (e.g. a bearer token) — no OAuth flow. A remote
     // server that requires interactive auth isn't supported yet.
@@ -32,15 +32,15 @@ const mcpHttpServerSchema = z
 function inferMcpType(val: unknown): unknown {
   if (val && typeof val === 'object' && !('type' in val)) {
     const v = val as Record<string, unknown>
-    if (typeof v.url === 'string') return { ...v, type: 'http' }
-    if (typeof v.command === 'string') return { ...v, type: 'stdio' }
+    if (typeof v.url === 'string') return { ...v, type: 'remote' }
+    if (typeof v.command === 'string') return { ...v, type: 'local' }
   }
   return val
 }
 
 const mcpServerSchema = z.preprocess(
   inferMcpType,
-  z.discriminatedUnion('type', [mcpStdioServerSchema, mcpHttpServerSchema]),
+  z.discriminatedUnion('type', [mcpLocalServerSchema, mcpRemoteServerSchema]),
 )
 
 export type McpServerConfig = z.infer<typeof mcpServerSchema>

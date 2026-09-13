@@ -83,7 +83,7 @@ function expandEnvPlaceholders(
 }
 
 function makeTransport(server: string, cfg: McpServerConfig): Transport {
-  if (cfg.type === 'http') {
+  if (cfg.type === 'remote') {
     const headers = cfg.headers
       ? expandEnvPlaceholders(cfg.headers, `mcpServers.${server}.headers`)
       : undefined

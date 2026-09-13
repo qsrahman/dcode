@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Changed
+- MCP `mcpServers` config: the `type` discriminant is now `"local"` /
+  `"remote"` instead of `"stdio"` / `"http"` — clearer for a config field the
+  average user sets (or omits and lets infer), the underlying-transport name
+  stays where it belongs, in the code that actually talks stdio/HTTP.
+  Inference from `command`/`url` is unaffected. **Breaking:** an explicit
+  `"type": "stdio"` or `"type": "http"` in `dcode.json` is now rejected by
+  the strict parse — switch to `"local"`/`"remote"`, or just omit `type` and
+  let it infer.
+
 ### Added
 - MCP `mcpServers` config: a `headers` (http) or `env` (stdio) value that is
   *exactly* `${VAR_NAME}` is expanded from `process.env` at connect time —

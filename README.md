@@ -219,11 +219,11 @@ all treat an MCP-sourced tool identically to a built-in. Two transports:
 }
 ```
 
-`type` (`"stdio"` or `"http"`) can be given explicitly but is usually inferred
-from whichever of `command`/`url` is present. A `stdio` server's `env` is
-merged on top of dcode's own filtered environment (the same ambient
+`type` (`"local"` or `"remote"`) can be given explicitly but is usually
+inferred from whichever of `command`/`url` is present. A `local` server's
+`env` is merged on top of dcode's own filtered environment (the same ambient
 secret-stripping `run_shell` gets), so the server keeps PATH/HOME/etc. while
-still receiving whatever secret it needs explicitly. An `http` server takes
+still receiving whatever secret it needs explicitly. A `remote` server takes
 only static `headers` — there is no OAuth flow. A `headers`/`env` value that
 is *exactly* `${VAR_NAME}` (whole value, not embedded in a larger string) is
 expanded from your shell's environment at connect time instead of being read
