@@ -1,5 +1,4 @@
 import { createInterface } from 'node:readline/promises'
-import { styleText } from 'node:util'
 import type { Config } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
 import { TaskStore } from '../agent/todo-store.ts'
@@ -16,9 +15,9 @@ import {
 } from './commands.ts'
 import { createCompleter } from './completer.ts'
 import { openInEditor, resolveEditor, NO_EDITOR_MESSAGE } from './editor.ts'
+import { paintFor } from '../util/color.ts'
 
 const HINT = 'Ask anything, /help for commands...'
-const PROMPT = styleText('cyan', '> ')
 
 export function createSession(config: Config, logger: Logger): Session {
   const tasks = new TaskStore()
@@ -118,6 +117,10 @@ async function composeInEditor(
 
 export async function startRepl(config: Config, logger: Logger): Promise<void> {
   const session = createSession(config, logger)
+  // Session-scoped, not a module-level constant: it has to read config.color
+  // (see util/color.ts's paintFor) rather than styleText's own auto-detection,
+  // or --no-color could never suppress it.
+  const PROMPT = paintFor(session.config.color).cyan('> ')
 
   const rl = createInterface({
     input: process.stdin,

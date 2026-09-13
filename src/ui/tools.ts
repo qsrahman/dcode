@@ -112,8 +112,7 @@ export function renderToolResult(
 ): string {
   const p = paintFor(color)
   const status = ok ? p.green('✓') : p.red('✗')
-  const secs = (ms / 1000).toFixed(1)
-  return `› ${p.cyan(name)}: ${status} ${ok ? 'done' : 'failed'} (${p.dim(secs + 's')})`
+  return `› ${p.cyan(name)}: ${status} ${ok ? 'done' : 'failed'} (${p.dim(secs(ms))})`
 }
 
 const RULE = '─'.repeat(40)

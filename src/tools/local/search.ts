@@ -200,12 +200,16 @@ const grepTool = () =>
 
 // Returns null for an event that carries neither a path nor line content in
 // any decodable form — skipped rather than emitted as a half-formed line.
+// Match lines use `:` and context lines use `-` after the line number,
+// mirroring ripgrep's own CLI convention — without this, a `context`-line
+// result was indistinguishable from an actual match once rendered.
 function formatRgLine(root: string, evt: RgEvent): string | null {
   const path = rgText(evt.data?.path)
   const lines = rgText(evt.data?.lines)
   if (path === undefined || lines === undefined) return null
   const rel = toRootRelative(root, path)
-  return `${rel}:${evt.data?.line_number}: ${lines.replace(/\n$/, '')}`
+  const sep = evt.type === 'context' ? '-' : ':'
+  return `${rel}${sep}${evt.data?.line_number}${sep} ${lines.replace(/\n$/, '')}`
 }
 
 const globTool = () =>

@@ -13,8 +13,7 @@ export function htmlToMarkdown(html: string): string {
   return htmlMarkdown.translate(html).trim()
 }
 
-const BRAVE_ENDPOINT =
-  process.env.BRAVE_ENDPOINT ?? 'https://api.search.brave.com/res/v1/web/search'
+const DEFAULT_BRAVE_ENDPOINT = 'https://api.search.brave.com/res/v1/web/search'
 
 interface BraveResult {
   title: string
@@ -58,7 +57,7 @@ const webSearchTool = () =>
           'BRAVE_API_KEY is not set; cannot search the web (store it with: /key set brave <key>)',
         )
       }
-      const url = new URL(BRAVE_ENDPOINT)
+      const url = new URL(ctx.config.braveEndpoint ?? DEFAULT_BRAVE_ENDPOINT)
       url.searchParams.set('q', args.query)
       url.searchParams.set('count', String(args.count ?? 5))
       url.searchParams.set('text_decorations', 'false')

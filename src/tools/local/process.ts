@@ -13,6 +13,16 @@ const PROC_MAX_OUTPUT = 64 * 1024
 // entry holding up to PROC_MAX_OUTPUT of buffered output.
 const PROC_MAX_ENTRIES = 50
 
+// kill_process's schema accepts either a signal name ("SIGTERM") or a bare
+// numeric string ("9") — but Node's ChildProcess.kill() only accepts a
+// numeric signal as an actual `number`, not a numeric string; passed a
+// string like "9" it throws `TypeError: Unknown signal: 9` synchronously
+// instead of returning false, which would otherwise skip the tool's
+// intended 'failed' outcome and leak a raw Node error to the model.
+function toKillSignal(sig: string): NodeJS.Signals | number {
+  return /^[0-9]+$/.test(sig) ? Number(sig) : (sig as NodeJS.Signals)
+}
+
 interface ManagedProcess {
   handle: string
   cmd: string
@@ -68,7 +78,7 @@ class ProcessManager {
       exited: false,
       exitCode: null,
       exitSignal: null,
-      kill: (sig) => subprocess.kill(sig as NodeJS.Signals),
+      kill: (sig) => subprocess.kill(toKillSignal(sig)),
     }
     const onData = (d: Buffer) => {
       proc.output += d.toString('utf8')

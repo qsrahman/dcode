@@ -343,9 +343,11 @@ describe('read-only tools', () => {
       { pattern: 'MATCH', context: 1 },
       ctx,
     )
-    expect(out).toContain('a.txt:1: x')
+    // Context lines use `-` (ripgrep's own convention); only the actual
+    // match line uses `:`.
+    expect(out).toContain('a.txt-1- x')
     expect(out).toContain('a.txt:2: MATCH')
-    expect(out).toContain('a.txt:3: y')
+    expect(out).toContain('a.txt-3- y')
   })
 })
 

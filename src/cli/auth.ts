@@ -17,9 +17,15 @@ export type ApiKeyStatus = 'valid' | 'invalid' | 'unknown'
 // bound it so a stalled network can't hang startup indefinitely.
 const VALIDATE_TIMEOUT_MS = 10_000
 
+// The default endpoint when config.baseURL is unset — one literal, shared by
+// the actual request (normalized to carry /v1) and the display message below
+// (shown as-is), so the two can't drift apart the way they used to when each
+// spelled it out separately.
+const DEFAULT_ENDPOINT = 'https://api.openai.com'
+
 // Cheap liveness/auth check: a single models listing with the configured key.
 export async function validateApiKey(config: Config): Promise<ApiKeyStatus> {
-  const base = normalizeBaseURL(config.baseURL ?? 'https://api.openai.com')
+  const base = normalizeBaseURL(config.baseURL ?? DEFAULT_ENDPOINT)
   try {
     const res = await fetch(`${base}/models`, {
       headers: { Authorization: `Bearer ${config.apiKey}` },
@@ -33,8 +39,6 @@ export async function validateApiKey(config: Config): Promise<ApiKeyStatus> {
     return 'unknown'
   }
 }
-
-const DEFAULT_ENDPOINT = 'https://api.openai.com/'
 
 const NO_KEY_HELP = `OPENAI_API_KEY is not set — dcode needs an OpenAI-compatible API key to run.
 

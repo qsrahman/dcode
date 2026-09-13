@@ -7,6 +7,7 @@ import {
 } from 'node:fs'
 import { dirname } from 'node:path'
 import { globalConfigPath } from '../config/config.ts'
+import { errorMessage } from '../util/log.ts'
 
 // Secrets live only in the per-user global config. A friendly provider name maps
 // to the config field that holds its key. The allowlist is deliberately small so
@@ -41,10 +42,22 @@ export function keyField(provider: keyof typeof PROVIDERS): 'apiKey' | 'brave' {
 function readGlobalRaw(): Record<string, unknown> {
   const p = globalConfigPath()
   if (!existsSync(p)) return {}
+  let raw: string
   try {
-    return JSON.parse(readFileSync(p, 'utf8')) as Record<string, unknown>
-  } catch {
-    return {}
+    raw = readFileSync(p, 'utf8')
+  } catch (err) {
+    throw new Error(`Failed to read ${p}: ${errorMessage(err)}`)
+  }
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch (err) {
+    // Never swallow this and write back {}: setGlobalKey/unsetGlobalKey
+    // serialize whatever this returns straight back to disk, so silently
+    // treating a corrupted file as empty would discard every other field in
+    // it (model, baseURL, context tuning, the other provider's key) the next
+    // time /key set|unset runs. Fail loudly instead, matching how
+    // config/config.ts's readConfigFile treats the same failure mode.
+    throw new Error(`Invalid JSON in ${p}: ${errorMessage(err)}`)
   }
 }
 

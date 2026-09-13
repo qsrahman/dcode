@@ -44,6 +44,11 @@ export const configSchema = z.object({
   baseURL: z.string().optional(),
   apiKey: z.string().optional(),
   brave: z.string().optional(),
+  // Override for Brave's search endpoint (tests, proxies). Resolved the same
+  // way as `brave` itself: through config, not read from process.env at the
+  // call site, so /key-style runtime overrides and CLI>env>file precedence
+  // apply to it too instead of it being frozen at module load.
+  braveEndpoint: z.string().optional(),
   color: z.boolean().default(true),
   maxToolIterations: z.number().int().positive().default(16),
   maxToolOutputBytes: z.number().int().positive().default(32768),

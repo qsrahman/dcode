@@ -1,5 +1,5 @@
-import { styleText } from 'node:util'
 import type { Config } from '../config/schema.ts'
+import { paintFor } from '../util/color.ts'
 import type { Client, ResponseInput } from '../agent/client.ts'
 import type { RunSink } from '../agent/run.ts'
 import type { Logger } from '../util/log.ts'
@@ -86,7 +86,9 @@ function listTasks(
 // actual commands (no separate description map to keep in sync). Closes over
 // the module-level COMMANDS singleton rather than taking a registry
 // parameter — its one caller below always passes that same singleton.
-function buildHelp(): string {
+// `color` comes from the session's config, not styleText's own auto-detection
+// (see util/color.ts's paintFor) — otherwise --no-color couldn't suppress it.
+function buildHelp(color: boolean): string {
   const defs = COMMANDS.list().sort((a, b) => a.name.localeCompare(b.name))
   // Derived from the actual longest name rather than a fixed width, so a
   // future command with a name longer than the old hardcoded 8 can't
@@ -98,7 +100,7 @@ function buildHelp(): string {
       : ''
     return `  /${c.name.padEnd(width)} ${c.description}${aliasNote}`
   })
-  return styleText('dim', ['Commands:', ...lines].join('\n'))
+  return paintFor(color).dim(['Commands:', ...lines].join('\n'))
 }
 
 export function createCommands(): CommandRegistry {
@@ -106,8 +108,8 @@ export function createCommands(): CommandRegistry {
   r.register({
     name: 'help',
     description: 'show this help',
-    handler: (_s, _a, sink) => {
-      sink.write(buildHelp() + '\n')
+    handler: (session, _a, sink) => {
+      sink.write(buildHelp(session.config.color) + '\n')
       return 'ok'
     },
   })
