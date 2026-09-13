@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
-import type { ParsedArgs } from '../cli/args.ts'
+import type { CliOptions } from '../cli/args.ts'
 import { configSchema, type Config } from './schema.ts'
 import { errorMessage } from '../util/log.ts'
 
@@ -56,7 +56,7 @@ export function readConfigFile(path?: string): Partial<Config> {
 // Build the effective config from all sources. Precedence (highest wins): CLI
 // flags > env (OPENAI_*) > config file > schema defaults, layered by spreading
 // file then env into one object and applying args last.
-export function buildConfig(args: ParsedArgs): Config {
+export function buildConfig(args: CliOptions): Config {
   const merged: Record<string, unknown> = { ...readConfigFile(args.config) }
   if (process.env.OPENAI_API_KEY) merged.apiKey = process.env.OPENAI_API_KEY
   if (process.env.OPENAI_BASE_URL) merged.baseURL = process.env.OPENAI_BASE_URL

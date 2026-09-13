@@ -1,6 +1,6 @@
 import { parseArgs } from 'node:util'
 
-export interface ParsedArgs {
+export interface CliOptions {
   prompt?: string
   model?: string
   config?: string
@@ -68,7 +68,7 @@ export function formatFlags(): string {
 // its value into the positionals, running the default model against the
 // prompt "gpt-4 do a thing". This matches the config file, which already
 // rejects unknown keys via configSchema.strict().
-export function parseCli(argv: string[]): ParsedArgs {
+export function parseCli(argv: string[]): CliOptions {
   let values: Record<string, unknown>
   let positionals: string[]
   try {

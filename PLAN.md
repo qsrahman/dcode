@@ -62,7 +62,7 @@ Node 26 strips types but does **not** transform. Therefore:
 ```
 src/
   index.ts            # entry: parse CLI -> build config -> ensureApiKey -> one-shot or REPL
-  cli/args.ts         # FLAGS table -> parseArgs options + formatFlags() for --help; parseCli(argv) -> ParsedArgs (strict: an unknown flag is an error)
+  cli/args.ts         # FLAGS table -> parseArgs options + formatFlags() for --help; parseCli(argv) -> CliOptions (strict: an unknown flag is an error)
   cli/repl.ts         # readline loop; builds the Session and drives runAgent
   cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
   cli/auth.ts         # validateApiKey + ensureApiKey: the whole startup key path (prompt -> check -> persist)
