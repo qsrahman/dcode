@@ -27,7 +27,7 @@ export async function main(): Promise<void> {
   // A defaults logger is created up front so the catch block can report
   // arg/config parse failures. The real, config-driven logger isn't built
   // until buildConfig succeeds, and that call can itself throw.
-  let logger = createLogger(configSchema.parse({}))
+  let logger = createLogger({ ...configSchema.parse({}), verbose: false })
   try {
     const args = parseCli(process.argv.slice(2))
     if (args.version) {

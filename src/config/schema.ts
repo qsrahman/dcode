@@ -44,8 +44,6 @@ export const configSchema = z.object({
   baseURL: z.string().optional(),
   apiKey: z.string().optional(),
   brave: z.string().optional(),
-  root: z.string().optional(),
-  verbose: z.boolean().default(false),
   color: z.boolean().default(true),
   maxToolIterations: z.number().int().positive().default(16),
   maxToolOutputBytes: z.number().int().positive().default(32768),
@@ -76,4 +74,10 @@ export const configSchema = z.object({
   // context-length error), so the model stays comfortably under the limit.
   context: contextSchema.default(() => contextSchema.parse({})),
 })
-export type Config = z.infer<typeof configSchema>
+
+// `verbose` is a CLI-only runtime flag (`--verbose`), never a persisted config
+// key: it lives on the runtime Config type but not in `configSchema`, so the
+// strict `dcode.json` parse rejects a `"verbose"` key while `mergeConfigs`
+// still sets it from argv. `root` was removed entirely — the working directory
+// is always `process.cwd()` (see `resolveRoot`).
+export type Config = z.infer<typeof configSchema> & { verbose: boolean }

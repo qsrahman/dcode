@@ -2,7 +2,10 @@ import { configSchema, type Config } from '../src/config/schema.ts'
 import type { Client, OpenAIResponse } from '../src/agent/client.ts'
 
 export function cfg(over: Partial<Config> = {}): Config {
-  return configSchema.parse(over)
+  // verbose is CLI-only and not part of configSchema, so peel it off before
+  // parsing and re-attach it (default false), mirroring mergeConfigs.
+  const { verbose = false, ...rest } = over
+  return { ...configSchema.parse(rest), verbose }
 }
 
 // Mirrors the real Responses API's invariant that `output_text` is derived

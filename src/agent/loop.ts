@@ -54,7 +54,7 @@ export async function runAgent(
   const sink = opts.sink ?? process.stdout
   const registry = opts.tools ?? new ToolRegistry()
   const ctx: ToolContext = {
-    root: resolveRoot(config),
+    root: resolveRoot(),
     config,
     logger: opts.logger,
     signal: opts.signal,
@@ -65,7 +65,7 @@ export async function runAgent(
     : undefined
   // Durable system guidance lives in the Responses API `instructions` field,
   // not in the conversation `history`, so it isn't trimmed or replayed as a turn.
-  const instructions = opts.instructions ?? buildSystemPrompt(config)
+  const instructions = opts.instructions ?? buildSystemPrompt()
   // Interactive default: one live tool counter for the whole query that
   // freezes into a single bounded category summary, above the streamed answer.
   // Piped output and --verbose keep the stable per-tool lines instead — a log

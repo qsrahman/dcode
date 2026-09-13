@@ -226,7 +226,6 @@ export function createCommands(): CommandRegistry {
         `model:        ${c.model}`,
         `baseURL:      ${c.baseURL ?? '(default)'}`,
         `stateful:     ${c.stateful}`,
-        `verbose:      ${c.verbose}`,
         `keys:         ${keysLine} (values hidden)`,
         `maxTools:     ${c.maxToolIterations}`,
         `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
@@ -252,18 +251,6 @@ export function createCommands(): CommandRegistry {
       }
       h.splice(lastUser)
       sink.write('undid last exchange\n')
-      return 'ok'
-    },
-  })
-  r.register({
-    name: 'verbose',
-    description: 'toggle verbose mode (on|off)',
-    handler: (session, args, sink) => {
-      const arg = args.trim()
-      if (arg === 'on') session.config.verbose = true
-      else if (arg === 'off') session.config.verbose = false
-      else session.config.verbose = !session.config.verbose
-      sink.write(`verbose: ${session.config.verbose ? 'on' : 'off'}\n`)
       return 'ok'
     },
   })

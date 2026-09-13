@@ -1,4 +1,3 @@
-import type { Config } from '../config/schema.ts'
 import { resolveRoot } from '../config/config.ts'
 
 export const BASE_SYSTEM_PROMPT = `You are dcode, an expert AI coding agent that runs in the user's terminal. You help with software engineering tasks by inspecting and modifying the user's codebase.
@@ -42,8 +41,8 @@ You have tools to inspect and modify the working directory; their names, descrip
 - Write math in Unicode (∑ ∫ √ π α β θ ± × ÷ ≤ ≥ ≈ ∈ ∞, x² x₁, a/b for fractions), never LaTeX — this terminal doesn't render \`$...$\`, \`\\frac{}{}\`, or other LaTeX/KaTeX syntax; it shows literal backslashes and dollar signs instead.
 - Be concise and direct.`
 
-export function buildSystemPrompt(config: Config): string {
-  const root = resolveRoot(config)
+export function buildSystemPrompt(): string {
+  const root = resolveRoot()
   const today = new Date().toISOString().slice(0, 10)
   return `${BASE_SYSTEM_PROMPT}\n\nWorking directory: ${root}\nCurrent date: ${today}`
 }

@@ -71,7 +71,7 @@ dcode -- "--this reads as a prompt, not a flag"
 ### REPL slash commands
 
 `/help` `/key` `/model` `/tools` `/clear` `/reset` `/compact` `/context` `/tasks`
-`/todo` `/config` `/undo` `/verbose` `/version` `/limit` `/edit` `/save` `/exit`
+`/todo` `/config` `/undo` `/version` `/limit` `/edit` `/save` `/exit`
 
  (`/clear` clears the screen; `/reset` drops the conversation history and
  requires an explicit `/reset confirm` — there is no undo, so it refuses a
@@ -83,9 +83,7 @@ dcode -- "--this reads as a prompt, not a flag"
  `/config` prints the effective configuration; `/undo` removes the last user
  exchange (prompt + response); `/save [path.md|path.json]` writes the
  transcript out (refusing to overwrite an existing file); `/limit <n>` sets
- `maxToolIterations` (the per-query tool-call ceiling) at runtime; `/verbose`
- toggles verbose mode, optionally
- `/verbose on|off`. `/edit` opens your `$VISUAL`/`$EDITOR` on a scratch
+ `maxToolIterations` (the per-query tool-call ceiling) at runtime. `/edit` opens your `$VISUAL`/`$EDITOR` on a scratch
  buffer and sends whatever you write when the editor closes — handy for
  composing long or multi-line prompts, which paste into the line editor as
  separate submissions otherwise; it reports how to set an editor if neither

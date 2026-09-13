@@ -162,17 +162,6 @@ describe('handleLine new commands', () => {
     expect(out.join('')).toBe('nothing to undo\n')
     expect(s.history.length).toBe(0)
   })
-  it('/verbose toggles and accepts on/off', async () => {
-    const s = makeSession()
-    s.config.verbose = false
-    const { sink, out } = makeSink()
-    await handleLine(s, '/verbose', { sink })
-    expect(s.config.verbose).toBe(true)
-    expect(out.join('')).toContain('verbose: on')
-    await handleLine(s, '/verbose off', { sink })
-    expect(s.config.verbose).toBe(false)
-    expect(out.join('')).toContain('verbose: off')
-  })
 })
 
 describe('handleLine prompt turn', () => {
@@ -369,7 +358,12 @@ describe('startRepl (smoke, mocked boundaries)', () => {
 
 describe('REPL commands /save and /limit', () => {
   let dir: string | undefined
+  // /save writes under the session root, which is now always process.cwd()
+  // (the `root` config field was removed) — so these tests chdir into a temp
+  // dir instead of passing `root`, and restore the cwd afterward.
+  const origCwd = process.cwd()
   afterEach(() => {
+    process.chdir(origCwd)
     if (dir) rmSync(dir, { recursive: true, force: true })
     dir = undefined
   })
@@ -401,7 +395,8 @@ describe('REPL commands /save and /limit', () => {
 
   it('/save writes a JSON transcript and refuses to overwrite', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
-    const s = makeSession({ root: dir })
+    process.chdir(dir)
+    const s = makeSession()
     s.history.push({ role: 'user', content: 'hi' })
     const { sink, out } = makeSink()
     expect(await handleLine(s, '/save', { sink })).toBe('ok')
@@ -414,7 +409,8 @@ describe('REPL commands /save and /limit', () => {
 
   it('/save writes Markdown when the path ends in .md', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
-    const s = makeSession({ root: dir })
+    process.chdir(dir)
+    const s = makeSession()
     s.history.push({ role: 'user', content: 'hi' })
     const { sink } = makeSink()
     await handleLine(s, '/save notes.md', { sink })
@@ -425,7 +421,8 @@ describe('REPL commands /save and /limit', () => {
 
   it('/save creates parent directories for a nested path', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
-    const s = makeSession({ root: dir })
+    process.chdir(dir)
+    const s = makeSession()
     s.history.push({ role: 'user', content: 'hi' })
     const { sink } = makeSink()
     await handleLine(s, '/save sub/notes.json', { sink })
@@ -434,7 +431,8 @@ describe('REPL commands /save and /limit', () => {
 
   it('a throwing command handler does not crash the REPL', async () => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-save-'))
-    const s = makeSession({ root: dir })
+    process.chdir(dir)
+    const s = makeSession()
     // Plant a file where the parent dir should go so mkdirSync fails, exercising
     // the dispatch error guard in handleLine.
     writeFileSync(join(dir, 'blocker'), 'x')

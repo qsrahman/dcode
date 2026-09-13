@@ -1,6 +1,15 @@
 ## [Unreleased]
 
 ### Removed
+- The `root` config field. The working directory is now always `process.cwd()`
+  (`resolveRoot()` takes no argument); nothing exposed `root` via CLI or env, so
+  it was only ever a `dcode.json` key. **Breaking:** a `"root"` key in
+  `dcode.json` is now rejected by the strict parse — remove it.
+- `verbose` as a persisted config key and the `/verbose` REPL command. The
+  `--verbose` CLI flag is unchanged and still enables debug diagnostics and
+  per-call tool echoes, but verbose is now CLI-only: it lives on the runtime
+  `Config` type, not in `configSchema`, so a `"verbose"` key in `dcode.json` is
+  rejected and there is no longer a runtime toggle for it.
 - The fixed history item-count cap (`maxHistoryItems` config field and
   `cli/repl.ts`'s `trimHistory`). History is now bounded solely by
   `ContextManager`'s token-budget compaction (prune old tool outputs, then

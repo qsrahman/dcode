@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { styleText, stripVTControlCharacters } from 'node:util'
-import { configSchema } from '../../src/config/schema.ts'
 import { createLogger, errorMessage } from '../../src/util/log.ts'
+import { cfg } from '../helpers.ts'
 
 function writeSpy() {
   return vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
@@ -12,14 +12,14 @@ describe('createLogger', () => {
 
   it('debug is silent when verbose is off', () => {
     const spy = writeSpy()
-    const log = createLogger(configSchema.parse({ verbose: false }))
+    const log = createLogger(cfg({ verbose: false }))
     log.debug('x')
     expect(spy).not.toHaveBeenCalled()
   })
 
   it('debug writes to stderr when verbose is on', () => {
     const spy = writeSpy()
-    const log = createLogger(configSchema.parse({ verbose: true }))
+    const log = createLogger(cfg({ verbose: true }))
     log.debug('hello', 42)
     expect(spy).toHaveBeenCalledTimes(1)
     expect(stripVTControlCharacters(spy.mock.calls[0]![0] as string)).toContain(
@@ -29,7 +29,7 @@ describe('createLogger', () => {
 
   it('warn and error always write regardless of verbose', () => {
     const spy = writeSpy()
-    const log = createLogger(configSchema.parse({ verbose: false }))
+    const log = createLogger(cfg({ verbose: false }))
     log.warn('careful')
     log.error('boom')
     expect(spy).toHaveBeenCalledTimes(2)
@@ -43,9 +43,7 @@ describe('createLogger', () => {
 
   it('emits no ANSI codes when color is off', () => {
     const spy = writeSpy()
-    const log = createLogger(
-      configSchema.parse({ verbose: true, color: false }),
-    )
+    const log = createLogger(cfg({ verbose: true, color: false }))
     log.error('plain')
     const out = spy.mock.calls[0]![0] as string
     expect(out).not.toContain('\u001b')
@@ -54,7 +52,7 @@ describe('createLogger', () => {
 
   it('color:true output strips back to the plain text', () => {
     const spy = writeSpy()
-    const log = createLogger(configSchema.parse({ verbose: true, color: true }))
+    const log = createLogger(cfg({ verbose: true, color: true }))
     log.warn('hi')
     expect(stripVTControlCharacters(spy.mock.calls[0]![0] as string)).toContain(
       '[warn] hi',
@@ -68,7 +66,7 @@ describe('createLogger', () => {
   // present, not just "harmless if absent".
   it('color:true actually emits ANSI codes, not just plain text that survives stripping', () => {
     const spy = writeSpy()
-    const log = createLogger(configSchema.parse({ verbose: true, color: true }))
+    const log = createLogger(cfg({ verbose: true, color: true }))
     log.warn('hi')
     const out = spy.mock.calls[0]![0] as string
     expect(out).not.toBe(stripVTControlCharacters(out))

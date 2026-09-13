@@ -20,7 +20,6 @@ describe('command registry', () => {
       'todo',
       'config',
       'undo',
-      'verbose',
       'key',
       'limit',
       'save',

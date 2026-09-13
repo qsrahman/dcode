@@ -32,7 +32,7 @@ export function createSession(config: Config, logger: Logger): Session {
     tools: createLocalTools(tasks, client),
     context: new ContextManager(config.context, logger, tasks),
     tasks,
-    root: resolveRoot(config),
+    root: resolveRoot(),
   }
 }
 

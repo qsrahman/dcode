@@ -74,7 +74,7 @@ export const AGENT_TYPES: Record<string, AgentType> = {
     description:
       'General-purpose agent for researching complex questions and executing multi-step tasks. Use this when you need to delegate work to a sub-agent.',
     tools: GENERAL_TOOLS,
-    buildPrompt: (config) => buildSystemPrompt(config),
+    buildPrompt: () => buildSystemPrompt(),
   },
   explore: {
     name: 'explore',

@@ -1,34 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { configSchema } from '../../src/config/schema.ts'
 import {
   BASE_SYSTEM_PROMPT,
   buildSystemPrompt,
 } from '../../src/agent/system.ts'
 
 describe('buildSystemPrompt', () => {
-  it('includes the configured root', () => {
-    const config = configSchema.parse({ root: '/tmp/work' })
-    expect(buildSystemPrompt(config)).toContain('Working directory: /tmp/work')
-  })
-
-  it('falls back to process.cwd() when root is unset', () => {
-    const config = configSchema.parse({})
-    expect(buildSystemPrompt(config)).toContain(
-      `Working directory: ${process.cwd()}`,
-    )
+  it('uses process.cwd() as the working directory', () => {
+    expect(buildSystemPrompt()).toContain(`Working directory: ${process.cwd()}`)
   })
 
   it('includes the current date so recency guidance is actionable', () => {
-    const prompt = buildSystemPrompt(configSchema.parse({}))
-    expect(prompt).toMatch(/Current date: \d{4}-\d{2}-\d{2}/)
+    expect(buildSystemPrompt()).toMatch(/Current date: \d{4}-\d{2}-\d{2}/)
   })
 
   it('embeds the base instructions', () => {
-    const config = configSchema.parse({})
-    expect(buildSystemPrompt(config)).toContain(BASE_SYSTEM_PROMPT)
+    expect(buildSystemPrompt()).toContain(BASE_SYSTEM_PROMPT)
   })
 
-  const prompt = buildSystemPrompt(configSchema.parse({}))
+  const prompt = buildSystemPrompt()
 
   it('tells the model to use its (system-supplied) tools', () => {
     expect(prompt).toContain('tools')

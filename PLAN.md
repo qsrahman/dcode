@@ -385,7 +385,7 @@ what's written below — see §11.12.
 - **`tools/registry.ts` (new).** `register`/`get`/`list` + `toResponsesTool(tool)`
   (zod → JSON Schema). Returns `OpenAI.Responses.Tool[]` for the client.
 - **`tools/local/fs.ts` (new).** `read_file`, `list_dir`, `grep`, `stat`, `glob`; path-confined
-  to `config.root`.
+  to the working root (`ctx.root`, always `process.cwd()` — the `root` config field was removed).
 - **`agent/loop.ts`.** Renders tool status lines inline via `renderToolResult(name, ok, ms)`.
 - **`cli/repl.ts`.** Add `/tools` dispatch (lists registered tools).
 - **`agent/client.ts`.** `stream` gains `tools?` and returns `ModelStream` (below).
@@ -421,8 +421,8 @@ is an alternative but more churn).
   self-corrects; the loop never throws on a tool failure.
 - `maxToolIterations` default 16 (decision D); `toolTimeout` (currently unused)
   gates each `runTool` execution in P3.
-- Path confinement: tools resolve against `config.root` and reject traversal
-  outside (decision G/H). (§6 G updated to name the `root` field.)
+- Path confinement: tools resolve against the working root (`ctx.root`, always
+  `process.cwd()`) and reject traversal outside (decision G/H).
 
 ### 11.6 Tool interface & registry
 ```ts
@@ -490,8 +490,8 @@ lives inline in `agent/loop.ts` (its only consumer).
    switched to zod v4's built-in `z.toJSONSchema`, which emits a compatible
    JSON Schema (draft 2020-12) and removed the need to maintain a converter.
 2. **`strict: false`** on tool schemas.
-3. **Workdir confinement uses `config.root`** (the actual schema field); §6 G's
-   `--cwd` wording updated to `root`.
+3. **Workdir confinement uses `ctx.root`** (always `process.cwd()`; the
+   configurable `root` field was later removed).
 4. **`toolTimeout`** is applied as the per-tool execution timeout inside `runTool`.
 5. **`Client.stream` shape: Option B** (string stream + `finalResponse()`, minimal
     churn; the event-driven Option A is not used).

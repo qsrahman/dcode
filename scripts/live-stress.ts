@@ -258,7 +258,7 @@ async function main(): Promise<void> {
 
   console.log(
     `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +
-      `root=${config.root ?? process.cwd()} maxToolIterations=${config.maxToolIterations}`,
+      `root=${process.cwd()} maxToolIterations=${config.maxToolIterations}`,
   )
   // A leftover placeholder key ("ollama") is harmless against a local endpoint
   // but 401s against OpenAI's default baseURL with a confusing message. Warn

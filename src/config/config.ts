@@ -5,8 +5,11 @@ import type { ParsedArgs } from '../cli/args.ts'
 import { configSchema, type Config } from './schema.ts'
 import { errorMessage } from '../util/log.ts'
 
-export function resolveRoot(config: Pick<Config, 'root'>): string {
-  return config.root ?? process.cwd()
+// The effective working-directory root — always the process cwd. Kept as a
+// single named function (rather than inlining process.cwd() everywhere) so the
+// system prompt and tool context resolve the root the same way.
+export function resolveRoot(): string {
+  return process.cwd()
 }
 
 // Location of the per-user global config. Defaults to
@@ -77,8 +80,10 @@ export function mergeConfigs(
   }
   if (args.model) merged.model = args.model
   if (args.noColor) merged.color = false
-  if (args.verbose) merged.verbose = true
-  return configSchema.parse(merged)
+  // verbose is CLI-only (not in configSchema), so attach it after parsing —
+  // the schema would strip it, and the strict file parse rejects it as a
+  // persisted key. `--verbose` remains the only way to turn it on.
+  return { ...configSchema.parse(merged), verbose: args.verbose === true }
 }
 
 export function buildConfig(args: ParsedArgs): Config {
