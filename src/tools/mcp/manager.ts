@@ -42,12 +42,58 @@ export interface McpManager {
 // real validation.
 const mcpArgsSchema = z.record(z.string(), z.unknown())
 
-function makeTransport(cfg: McpServerConfig): Transport {
+// A value that is *exactly* `${VAR_NAME}` is replaced with process.env.
+// VAR_NAME, read fresh at connect time — never persisted, never logged. This
+// is what lets a header or stdio env value reference a secret kept in the
+// shell instead of sitting in dcode.json in the clear, the same
+// keep-secrets-out-of-the-config-file principle `/key` already serves for
+// the OpenAI/Brave keys. Deliberately whole-value-only (no partial
+// interpolation inside a larger string): that keeps the syntax trivial to
+// parse and to reason about, at the cost of not supporting e.g. `Bearer
+// ${TOKEN}` in one string — a header value that needs a "Bearer " prefix has
+// to fold it into the env var itself. Unset throws rather than silently
+// sending a literal `${VAR}` or an empty string to the server/child process,
+// which would either look like a broken placeholder or, worse, a
+// silently-unauthenticated request.
+const ENV_PLACEHOLDER = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/
+
+function expandEnvPlaceholder(value: string, context: string): string {
+  const m = ENV_PLACEHOLDER.exec(value)
+  if (!m) return value
+  const varName = m[1]!
+  const resolved = process.env[varName]
+  if (resolved === undefined) {
+    throw new Error(
+      `${context} references \${${varName}}, but that environment variable is not set`,
+    )
+  }
+  return resolved
+}
+
+function expandEnvPlaceholders(
+  values: Record<string, string>,
+  contextPrefix: string,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(values).map(([k, v]) => [
+      k,
+      expandEnvPlaceholder(v, `${contextPrefix}.${k}`),
+    ]),
+  )
+}
+
+function makeTransport(server: string, cfg: McpServerConfig): Transport {
   if (cfg.type === 'http') {
+    const headers = cfg.headers
+      ? expandEnvPlaceholders(cfg.headers, `mcpServers.${server}.headers`)
+      : undefined
     return new StreamableHTTPClientTransport(new URL(cfg.url), {
-      requestInit: cfg.headers ? { headers: cfg.headers } : undefined,
+      requestInit: headers ? { headers } : undefined,
     })
   }
+  const explicitEnv = cfg.env
+    ? expandEnvPlaceholders(cfg.env, `mcpServers.${server}.env`)
+    : {}
   return new StdioClientTransport({
     command: cfg.command,
     args: cfg.args,
@@ -56,7 +102,7 @@ function makeTransport(cfg: McpServerConfig): Transport {
     // needs its own secret (an API key) passed explicitly, which is exactly
     // what `env` in the config is for, while PATH/HOME/etc. still come
     // through and ambient secret-looking vars stay stripped.
-    env: { ...safeEnv(), ...(cfg.env ?? {}) },
+    env: { ...safeEnv(), ...explicitEnv },
     stderr: 'pipe',
   })
 }
@@ -157,7 +203,7 @@ async function connectOne(
   cfg: McpServerConfig,
   logger: Logger,
 ): Promise<Client> {
-  const transport = makeTransport(cfg)
+  const transport = makeTransport(name, cfg)
   // Piped rather than the SDK's default "inherit": a misbehaving stdio
   // server's stderr would otherwise land directly on dcode's own stderr,
   // indistinguishable from dcode's own diagnostics. Routed through the debug

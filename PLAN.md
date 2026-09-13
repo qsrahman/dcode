@@ -1361,6 +1361,16 @@ Claude Code's own `.mcp.json` uses so the common case doesn't have to spell
 out the obvious. Each variant is `.strict()`, same as `context`, so a typo'd
 key inside one server's config fails loudly rather than vanishing.
 
+A `headers`/`env` value that is *exactly* `${VAR_NAME}` is expanded from
+`process.env` at connect time (`expandEnvPlaceholder` in manager.ts, applied
+in `makeTransport` — not in the schema, since expansion is a runtime concern,
+not a shape/validation one): `"headers": {"Authorization": "${TOKEN}"}` keeps
+the actual secret out of `dcode.json` entirely, the same principle `/key`
+serves for the OpenAI/Brave keys. Whole-value-only, no partial interpolation;
+an unset variable fails just that server's connection (caught by the same
+per-server try/catch `connectMcpServers` already has) with a clear error
+naming the variable, rather than silently sending a literal `${VAR}`.
+
 ### 30.3 Module changes
 - `src/tools/mcp/manager.ts` (new) — `connectMcpServers(configured, logger):
   Promise<McpManager>`. For each server: build a `Transport`

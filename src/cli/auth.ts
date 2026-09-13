@@ -67,7 +67,15 @@ async function promptForApiKey(): Promise<string> {
     return ''
   }
   if (!entered) return ''
-  return entered.trim()
+  // @clack/prompts@1.8.0's own .d.mts still returns `Promise<string | symbol>`
+  // here, but the `isCancel` it re-exports from @clack/core@1.5.0 (its own
+  // pinned dependency) narrows to `value is typeof CANCEL_SYMBOL`, a specific
+  // symbol type — not assignable *from* the generic `symbol` in the return
+  // type, so TS can't exclude it and `entered` doesn't narrow past the guard
+  // above. A real upstream type mismatch between those two packages at their
+  // currently-pinned versions, not a runtime ambiguity: `isCancel` already
+  // ruled out the only non-string case here.
+  return (entered as string).trim()
 }
 
 // The whole startup auth path, in one place: find a key (prompting on a TTY

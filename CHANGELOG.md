@@ -1,5 +1,17 @@
 ## [Unreleased]
 
+### Added
+- MCP `mcpServers` config: a `headers` (http) or `env` (stdio) value that is
+  *exactly* `${VAR_NAME}` is expanded from `process.env` at connect time —
+  never persisted, never logged — so a server's secret (e.g. an API key) can
+  live in the shell instead of sitting in `dcode.json` in the clear, the same
+  principle `/key` already serves for the OpenAI/Brave keys. Whole-value-only
+  (no partial interpolation inside a larger string). An unset referenced
+  variable fails just that one server's connection with a clear error naming
+  the variable, rather than sending a literal `${VAR}` or blocking startup
+  for every other configured server. See `tools/mcp/manager.ts`'s
+  `expandEnvPlaceholder`.
+
 ## [0.17.0] - 2026-09-14
 
 ### Added

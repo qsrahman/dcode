@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createLogger } from '../../../src/util/log.ts'
 import { cfg } from '../../helpers.ts'
 import type { McpServerConfig } from '../../../src/config/schema.ts'
@@ -31,12 +31,22 @@ let callToolCalls: {
 }[]
 let closedKeys: string[]
 let connectedSignals: unknown[]
+let connectedTransports: {
+  params?: Record<string, unknown>
+  url?: URL
+  opts?: Record<string, unknown>
+}[]
 
 function keyFor(transport: {
-  params?: { command?: string }
+  params?: Record<string, unknown>
   url?: URL
 }): string {
-  return transport.params?.command ?? transport.url?.toString() ?? 'unknown'
+  const command = transport.params?.command
+  return (
+    (typeof command === 'string' ? command : undefined) ??
+    transport.url?.toString() ??
+    'unknown'
+  )
 }
 
 class FakeStdioClientTransport {
@@ -56,8 +66,14 @@ class FakeStreamableHTTPClientTransport {
   }
 }
 
+interface FakeTransport {
+  params?: Record<string, unknown>
+  url?: URL
+  opts?: Record<string, unknown>
+}
+
 class FakeClient {
-  transport?: { params?: { command?: string }; url?: URL }
+  transport?: FakeTransport
   info: unknown
   opts: unknown
   constructor(info: unknown, opts: unknown) {
@@ -65,11 +81,12 @@ class FakeClient {
     this.opts = opts
   }
   async connect(
-    transport: { params?: { command?: string }; url?: URL },
+    transport: FakeTransport,
     connectOpts: { signal?: unknown },
   ): Promise<void> {
     this.transport = transport
     connectedSignals.push(connectOpts.signal)
+    connectedTransports.push(transport)
     if (connectShouldFail[keyFor(transport)]) {
       throw new Error(`connect failed: ${keyFor(transport)}`)
     }
@@ -109,8 +126,12 @@ vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
 
 const { connectMcpServers } = await import('../../../src/tools/mcp/manager.ts')
 
-function stdio(command: string): McpServerConfig {
-  return { type: 'stdio', command, args: [] }
+function stdio(command: string, env?: Record<string, string>): McpServerConfig {
+  return { type: 'stdio', command, args: [], env }
+}
+
+function http(url: string, headers?: Record<string, string>): McpServerConfig {
+  return { type: 'http', url, headers }
 }
 
 const logger = createLogger(cfg())
@@ -123,6 +144,7 @@ beforeEach(() => {
   callToolCalls = []
   closedKeys = []
   connectedSignals = []
+  connectedTransports = []
 })
 
 describe('connectMcpServers', () => {
@@ -208,6 +230,72 @@ describe('connectMcpServers', () => {
     expect(new Set(names).size).toBe(2)
     expect(names).toContain('mcp__a_b__t')
     expect(names.some((n) => n === 'mcp__a_b__t_2')).toBe(true)
+  })
+
+  describe('${VAR} env placeholders in headers/env', () => {
+    afterEach(() => vi.unstubAllEnvs())
+
+    it('expands a header value that is exactly ${VAR} from process.env', async () => {
+      vi.stubEnv('CONTEXT7_API_KEY', 'secret-value')
+      toolsFor['https://example.com/mcp'] = []
+      await connectMcpServers(
+        {
+          context7: http('https://example.com/mcp', {
+            CONTEXT7_API_KEY: '${CONTEXT7_API_KEY}',
+          }),
+        },
+        logger,
+      )
+      const transport = connectedTransports[0]!
+      expect(transport.opts?.requestInit).toEqual({
+        headers: { CONTEXT7_API_KEY: 'secret-value' },
+      })
+    })
+
+    it('expands a stdio env value the same way, on top of the filtered ambient env', async () => {
+      vi.stubEnv('MY_SECRET', 'shh')
+      toolsFor['srv'] = []
+      await connectMcpServers(
+        { srv: stdio('srv', { MY_SECRET: '${MY_SECRET}' }) },
+        logger,
+      )
+      const transport = connectedTransports[0]!
+      expect(transport.params?.env).toMatchObject({ MY_SECRET: 'shh' })
+    })
+
+    it('leaves a plain (non-placeholder) value untouched', async () => {
+      toolsFor['https://example.com/mcp'] = []
+      await connectMcpServers(
+        {
+          context7: http('https://example.com/mcp', {
+            Authorization: 'Bearer literal-token',
+          }),
+        },
+        logger,
+      )
+      const transport = connectedTransports[0]!
+      expect(transport.opts?.requestInit).toEqual({
+        headers: { Authorization: 'Bearer literal-token' },
+      })
+    })
+
+    it('fails that one server (not the whole batch) when the referenced variable is unset', async () => {
+      toolsFor['ok-server'] = [{ name: 'x', inputSchema: {} }]
+      const mgr = await connectMcpServers(
+        {
+          missing: http('https://example.com/mcp', {
+            CONTEXT7_API_KEY: '${DEFINITELY_NOT_SET_XYZ}',
+          }),
+          ok: stdio('ok-server'),
+        },
+        logger,
+      )
+      expect(mgr.tools.map((t) => t.name)).toEqual(['mcp__ok__x'])
+      const failed = mgr.servers.find((s) => s.name === 'missing')
+      expect(failed?.status).toBe('failed')
+      expect(failed?.error).toContain('DEFINITELY_NOT_SET_XYZ')
+      expect(failed?.error).toContain('not set')
+    })
   })
 
   describe('a wrapped tool', () => {

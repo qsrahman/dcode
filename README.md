@@ -213,7 +213,7 @@ all treat an MCP-sourced tool identically to a built-in. Two transports:
     "local-server": { "command": "npx", "args": ["-y", "some-mcp-server"] },
     "remote-server": {
       "url": "https://example.com/mcp",
-      "headers": { "Authorization": "Bearer <token>" }
+      "headers": { "Authorization": "Bearer ${MY_SERVER_TOKEN}" }
     }
   }
 }
@@ -224,7 +224,12 @@ from whichever of `command`/`url` is present. A `stdio` server's `env` is
 merged on top of dcode's own filtered environment (the same ambient
 secret-stripping `run_shell` gets), so the server keeps PATH/HOME/etc. while
 still receiving whatever secret it needs explicitly. An `http` server takes
-only static `headers` — there is no OAuth flow.
+only static `headers` — there is no OAuth flow. A `headers`/`env` value that
+is *exactly* `${VAR_NAME}` (whole value, not embedded in a larger string) is
+expanded from your shell's environment at connect time instead of being read
+literally — so a server's secret can live outside `dcode.json` entirely; an
+unset variable fails just that server's connection with a clear error rather
+than sending a broken literal or blocking every other configured server.
 
 Every configured server connects in parallel at startup (both one-shot and
 REPL) and is closed on exit or Ctrl-C. A server that fails to connect or list

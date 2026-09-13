@@ -53,7 +53,11 @@ async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
     const custom = await text({ message: q.question })
     if (isCancel(custom)) return cancelled()
     if (!custom) return []
-    return [custom]
+    // See the comment in cli/auth.ts's promptForApiKey: @clack/prompts@1.8.0's
+    // return type and its own pinned @clack/core@1.5.0's isCancel guard don't
+    // line up, so `custom` doesn't narrow to `string` here even though
+    // isCancel already ruled out the only non-string case.
+    return [custom as string]
   }
   return [result as string]
 }
