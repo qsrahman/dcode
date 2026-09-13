@@ -19,7 +19,7 @@ describe('main: API key handling', () => {
   // written via /key) doesn't satisfy the "no key configured" scenario.
   beforeEach(() => {
     tmpHome = mkdtempSync(join(tmpdir(), 'dcode-itest-'))
-    vi.stubEnv('DCODE_CONFIG_HOME', tmpHome)
+    vi.stubEnv('XDG_CONFIG_HOME', tmpHome)
   })
 
   afterEach(() => {

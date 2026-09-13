@@ -34,7 +34,7 @@ persist them in `dcode.json` via `/key` for a global install):
 | `OPENAI_BASE_URL` | Override the API base URL (OpenAI-compatible endpoints). |
 | `OPENAI_MODEL` | Default model id when not set in config or `--model`. |
 | `BRAVE_API_KEY` | Brave Search key for `web_search` (or store it with `/key set brave`). |
-| `DCODE_CONFIG_HOME` | Directory holding the global `dcode.json` (default `~/.config/dcode`). |
+| `XDG_CONFIG_HOME` | Base config directory (default `~/.config`); the global config lives at `$XDG_CONFIG_HOME/dcode/dcode.json`. A relative value is ignored per the XDG spec. |
 
 ## Install (from source)
 
@@ -212,7 +212,8 @@ JSON, loaded from `--config <path>` or a default location. Example:
 ```
 
 Config resolution precedence is: CLI flags > env (`OPENAI_*`) > global
-`DCODE_CONFIG_HOME`/`~/.config/dcode/dcode.json` > schema defaults. An explicit
+`$XDG_CONFIG_HOME/dcode/dcode.json` (default `~/.config/dcode/dcode.json`) >
+schema defaults. An explicit
 `--config <path>` replaces the global file (and a missing path is an error). The
 global config is the canonical store for a globally installed `dcode`, so a fixed
 `model`/`baseURL`/`apiKey` applies no matter which directory you run it from.

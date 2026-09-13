@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Changed
+- The global config location now follows the XDG Base Directory spec:
+  `$XDG_CONFIG_HOME/dcode/dcode.json` (default `~/.config/dcode/dcode.json`),
+  replacing the bespoke `DCODE_CONFIG_HOME`. Note the semantics differ —
+  `XDG_CONFIG_HOME` is the base config dir (parent of `dcode/`), not the dcode
+  dir itself; a relative value is ignored per the spec. **Breaking:** switch
+  `DCODE_CONFIG_HOME` to `XDG_CONFIG_HOME` and account for the extra `dcode/`
+  path segment.
+
 ### Removed
 - The `root` config field. The working directory is now always `process.cwd()`
   (`resolveRoot()` takes no argument); nothing exposed `root` via CLI or env, so

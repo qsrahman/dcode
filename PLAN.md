@@ -1123,7 +1123,7 @@ Status: **Done.** Lets a globally installed `dcode` persist secrets across
 directories without editing JSON or exporting env vars per shell.
 
 - `src/cli/keys.ts` (new): `setGlobalKey`/`unsetGlobalKey` write a single secret
-  into `~/.config/dcode/dcode.json` (relocatable via `DCODE_CONFIG_HOME`), with
+  into `~/.config/dcode/dcode.json` (relocatable via `XDG_CONFIG_HOME`), with
   the file at `0600` and its directory at `0700`. A small provider allowlist
   (`openai` → `apiKey`, `brave` → `brave`) stops `/key` from writing arbitrary
   config keys.

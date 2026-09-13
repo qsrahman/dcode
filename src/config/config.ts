@@ -1,18 +1,19 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import type { ParsedArgs } from '../cli/args.ts'
 import { configSchema, type Config } from './schema.ts'
 import { errorMessage } from '../util/log.ts'
 
-// Location of the per-user global config. Defaults to
-// ~/.config/dcode/dcode.json (XDG-style) but can be relocated via
-// DCODE_CONFIG_HOME (used for testing and for users who prefer another spot).
+// Location of the per-user global config, following the XDG Base Directory
+// spec: `$XDG_CONFIG_HOME/dcode/dcode.json`, with $XDG_CONFIG_HOME defaulting
+// to ~/.config. A relative $XDG_CONFIG_HOME is ignored (the spec requires an
+// absolute path), so a stray value can't point the config at a cwd-relative
+// path.
 export function globalConfigPath(): string {
-  const base = process.env.DCODE_CONFIG_HOME
-    ? resolve(process.env.DCODE_CONFIG_HOME)
-    : resolve(homedir(), '.config', 'dcode')
-  return join(base, 'dcode.json')
+  const xdg = process.env.XDG_CONFIG_HOME
+  const base = xdg && isAbsolute(xdg) ? xdg : join(homedir(), '.config')
+  return join(base, 'dcode', 'dcode.json')
 }
 
 // The OpenAI SDK appends resource paths (`/responses`, `/models`) to `baseURL`,

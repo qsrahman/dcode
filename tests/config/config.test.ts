@@ -1,6 +1,12 @@
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import {
+  mkdirSync,
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+} from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildConfig,
@@ -14,18 +20,21 @@ import { parseCli } from '../../src/cli/args.ts'
 describe('loadConfig', () => {
   let dir: string
   let globalHome: string
-  const prevGlobalHome = process.env.DCODE_CONFIG_HOME
+  const prevGlobalHome = process.env.XDG_CONFIG_HOME
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-'))
     globalHome = mkdtempSync(join(tmpdir(), 'dcode-global-'))
-    process.env.DCODE_CONFIG_HOME = globalHome
+    process.env.XDG_CONFIG_HOME = globalHome
+    // XDG path is $XDG_CONFIG_HOME/dcode/dcode.json — create the subdir so the
+    // direct writeFileSync(globalConfigPath()) calls below have a parent.
+    mkdirSync(dirname(globalConfigPath()), { recursive: true })
   })
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true })
     rmSync(globalHome, { recursive: true, force: true })
-    if (prevGlobalHome === undefined) delete process.env.DCODE_CONFIG_HOME
-    else process.env.DCODE_CONFIG_HOME = prevGlobalHome
+    if (prevGlobalHome === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prevGlobalHome
   })
 
   it('parses a JSON config and keeps nested defaults', () => {
@@ -91,17 +100,31 @@ describe('loadConfig', () => {
 })
 
 describe('globalConfigPath', () => {
-  const prevGlobalHome = process.env.DCODE_CONFIG_HOME
+  const prevGlobalHome = process.env.XDG_CONFIG_HOME
   afterEach(() => {
-    if (prevGlobalHome === undefined) delete process.env.DCODE_CONFIG_HOME
-    else process.env.DCODE_CONFIG_HOME = prevGlobalHome
+    if (prevGlobalHome === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prevGlobalHome
   })
 
-  it('honors DCODE_CONFIG_HOME', () => {
+  it('honors XDG_CONFIG_HOME ($XDG_CONFIG_HOME/dcode/dcode.json)', () => {
     const home = mkdtempSync(join(tmpdir(), 'dcode-home-'))
-    process.env.DCODE_CONFIG_HOME = home
-    expect(globalConfigPath()).toBe(join(home, 'dcode.json'))
+    process.env.XDG_CONFIG_HOME = home
+    expect(globalConfigPath()).toBe(join(home, 'dcode', 'dcode.json'))
     rmSync(home, { recursive: true, force: true })
+  })
+
+  it('defaults to ~/.config/dcode/dcode.json when XDG_CONFIG_HOME is unset', () => {
+    delete process.env.XDG_CONFIG_HOME
+    expect(globalConfigPath()).toBe(
+      join(homedir(), '.config', 'dcode', 'dcode.json'),
+    )
+  })
+
+  it('ignores a relative XDG_CONFIG_HOME (spec requires an absolute path)', () => {
+    process.env.XDG_CONFIG_HOME = 'relative/config'
+    expect(globalConfigPath()).toBe(
+      join(homedir(), '.config', 'dcode', 'dcode.json'),
+    )
   })
 })
 
@@ -152,19 +175,20 @@ describe('buildConfig', () => {
   const prevKey = process.env.OPENAI_API_KEY
   const prevBrave = process.env.BRAVE_API_KEY
   const prevCwd = process.cwd()
-  const prevGlobalHome = process.env.DCODE_CONFIG_HOME
+  const prevGlobalHome = process.env.XDG_CONFIG_HOME
   let dir: string
 
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'dcode-'))
     process.chdir(dir)
-    process.env.DCODE_CONFIG_HOME = dir
+    process.env.XDG_CONFIG_HOME = dir
+    mkdirSync(dirname(globalConfigPath()), { recursive: true })
   })
   afterEach(() => {
     process.chdir(prevCwd)
     rmSync(dir, { recursive: true, force: true })
-    if (prevGlobalHome === undefined) delete process.env.DCODE_CONFIG_HOME
-    else process.env.DCODE_CONFIG_HOME = prevGlobalHome
+    if (prevGlobalHome === undefined) delete process.env.XDG_CONFIG_HOME
+    else process.env.XDG_CONFIG_HOME = prevGlobalHome
     if (prevEnv === undefined) delete process.env.OPENAI_MODEL
     else process.env.OPENAI_MODEL = prevEnv
     if (prevKey === undefined) delete process.env.OPENAI_API_KEY
@@ -185,7 +209,7 @@ describe('buildConfig', () => {
 
   it('is unaffected by a global config when local is absent', () => {
     delete process.env.OPENAI_MODEL
-    expect(existsSync(join(dir, 'dcode.json'))).toBe(false)
+    expect(existsSync(globalConfigPath())).toBe(false)
     expect(buildConfig(parseCli([])).model).toBe('gpt-5.4-mini')
   })
 

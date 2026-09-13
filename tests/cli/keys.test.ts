@@ -18,17 +18,17 @@ import {
   unsetGlobalKey,
 } from '../../src/cli/keys.ts'
 
-const prev = process.env.DCODE_CONFIG_HOME
+const prev = process.env.XDG_CONFIG_HOME
 let home: string
 
 beforeEach(() => {
   home = join(tmpdir(), `dcode-keys-${Math.random().toString(36).slice(2)}`)
-  process.env.DCODE_CONFIG_HOME = home
+  process.env.XDG_CONFIG_HOME = home
 })
 afterEach(() => {
   rmSync(home, { recursive: true, force: true })
-  if (prev === undefined) delete process.env.DCODE_CONFIG_HOME
-  else process.env.DCODE_CONFIG_HOME = prev
+  if (prev === undefined) delete process.env.XDG_CONFIG_HOME
+  else process.env.XDG_CONFIG_HOME = prev
 })
 
 describe('key storage', () => {
