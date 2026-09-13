@@ -67,7 +67,7 @@ src/
   cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
   cli/auth.ts         # validateApiKey + ensureApiKey: the whole startup key path (prompt -> check -> persist)
   config/schema.ts    # zod schema (Config), .strict()
-  config/config.ts    # loadConfig(path) + mergeConfigs(CLI, file, env) + resolveRoot + normalizeBaseURL
+  config/config.ts    # loadConfig(path) + mergeConfigs(CLI, file, env) + normalizeBaseURL
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
   agent/system.ts     # buildSystemPrompt(config)
   agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)

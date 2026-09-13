@@ -1,5 +1,3 @@
-import { resolveRoot } from '../config/config.ts'
-
 export const BASE_SYSTEM_PROMPT = `You are dcode, an expert AI coding agent that runs in the user's terminal. You help with software engineering tasks by inspecting and modifying the user's codebase.
 
 You have tools to inspect and modify the working directory; their names, descriptions, and arguments are provided to you by the system. Operate only within the working directory and pass paths relative to its root.
@@ -42,7 +40,7 @@ You have tools to inspect and modify the working directory; their names, descrip
 - Be concise and direct.`
 
 export function buildSystemPrompt(): string {
-  const root = resolveRoot()
+  const root = process.cwd()
   const today = new Date().toISOString().slice(0, 10)
   return `${BASE_SYSTEM_PROMPT}\n\nWorking directory: ${root}\nCurrent date: ${today}`
 }

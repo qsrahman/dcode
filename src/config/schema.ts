@@ -79,5 +79,5 @@ export const configSchema = z.object({
 // key: it lives on the runtime Config type but not in `configSchema`, so the
 // strict `dcode.json` parse rejects a `"verbose"` key while `mergeConfigs`
 // still sets it from argv. `root` was removed entirely — the working directory
-// is always `process.cwd()` (see `resolveRoot`).
+// is always `process.cwd()`.
 export type Config = z.infer<typeof configSchema> & { verbose: boolean }

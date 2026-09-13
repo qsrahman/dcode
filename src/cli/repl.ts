@@ -6,7 +6,6 @@ import { TaskStore } from '../agent/todo-store.ts'
 import { ContextManager } from '../agent/context/manager.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
-import { resolveRoot } from '../config/config.ts'
 import type { RunSink } from '../agent/run.ts'
 import { type Logger, errorMessage, isAbortError } from '../util/log.ts'
 import {
@@ -32,7 +31,7 @@ export function createSession(config: Config, logger: Logger): Session {
     tools: createLocalTools(tasks, client),
     context: new ContextManager(config.context, logger, tasks),
     tasks,
-    root: resolveRoot(),
+    root: process.cwd(),
   }
 }
 

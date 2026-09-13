@@ -1,7 +1,6 @@
 import type { Client, OpenAIResponse, ResponseInput } from './client.ts'
 import { isContextOverflowError } from './client.ts'
 import type { Config } from '../config/schema.ts'
-import { resolveRoot } from '../config/config.ts'
 import { buildSystemPrompt } from './system.ts'
 import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
@@ -54,7 +53,7 @@ export async function runAgent(
   const sink = opts.sink ?? process.stdout
   const registry = opts.tools ?? new ToolRegistry()
   const ctx: ToolContext = {
-    root: resolveRoot(),
+    root: process.cwd(),
     config,
     logger: opts.logger,
     signal: opts.signal,

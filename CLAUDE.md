@@ -208,10 +208,9 @@ folded into the prompt positionals.
 
 Config resolution precedence is **CLI > env > global (`~/.config/dcode/dcode.json`) > schema defaults**,
 implemented as pure `mergeConfigs` in `config/config.ts` with `config/schema.ts`
-(zod) as the source of truth for shape and defaults. `resolveRoot()`
-(also in `config/config.ts`) is the single place that resolves the effective
-working-directory root — always `process.cwd()` (there is no configurable
-`root`) — used by both the system prompt and the tool context. `verbose` is a
+(zod) as the source of truth for shape and defaults. The working-directory
+root is always `process.cwd()` (there is no configurable `root`), read
+directly where the system prompt and tool context need it. `verbose` is a
 CLI-only runtime flag (`--verbose`), not a persisted config key: it lives on
 the runtime `Config` type but not in `configSchema`, so `mergeConfigs` attaches
 it from argv while the strict file parse rejects a `"verbose"` key in

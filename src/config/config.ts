@@ -5,13 +5,6 @@ import type { ParsedArgs } from '../cli/args.ts'
 import { configSchema, type Config } from './schema.ts'
 import { errorMessage } from '../util/log.ts'
 
-// The effective working-directory root — always the process cwd. Kept as a
-// single named function (rather than inlining process.cwd() everywhere) so the
-// system prompt and tool context resolve the root the same way.
-export function resolveRoot(): string {
-  return process.cwd()
-}
-
 // Location of the per-user global config. Defaults to
 // ~/.config/dcode/dcode.json (XDG-style) but can be relocated via
 // DCODE_CONFIG_HOME (used for testing and for users who prefer another spot).
