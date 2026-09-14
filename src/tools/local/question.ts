@@ -27,12 +27,16 @@ function interactive(): boolean {
   return Boolean(process.stdin.isTTY)
 }
 
-async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
-  const options = q.options.map((o) => ({
+function toClackOptions(q: z.infer<typeof questionSchema>) {
+  return q.options.map((o) => ({
     value: o.label,
     label: o.label,
     hint: o.description,
   }))
+}
+
+async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
+  const options = toClackOptions(q)
   const allowCustom = q.custom !== false
 
   if (allowCustom) {
@@ -65,11 +69,7 @@ async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
 async function askMultiple(
   q: z.infer<typeof questionSchema>,
 ): Promise<string[]> {
-  const options = q.options.map((o) => ({
-    value: o.label,
-    label: o.label,
-    hint: o.description,
-  }))
+  const options = toClackOptions(q)
 
   const result = await multiselect({
     message: q.question,

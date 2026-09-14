@@ -19,7 +19,7 @@ import {
   readProcessTool,
   killProcessTool,
 } from './local/process.ts'
-import { webTools } from './local/web.ts'
+import { webSearchTool, webFetchTool } from './local/web.ts'
 import { todoTool } from './local/todo.ts'
 import { askUserTool } from './local/question.ts'
 import { taskTool } from './local/task.ts'
@@ -56,7 +56,8 @@ export function createLocalTools(
     runProcessTool(),
     readProcessTool(),
     killProcessTool(),
-    ...webTools,
+    webSearchTool(),
+    webFetchTool(),
     todoTool(tasks),
     askUserTool(),
     ...mcpTools,

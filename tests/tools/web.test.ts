@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // the surrounding sandbox's job, not the tool's), so there is no DNS mock:
 // every test stubs global fetch directly.
 import {
-  webTools,
+  webSearchTool,
   webFetchTool,
   htmlToMarkdown,
 } from '../../src/tools/local/web.ts'
@@ -13,7 +13,7 @@ import type { ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'
 
-const tool = webTools[0]!
+const tool = webSearchTool()
 const fetchTool = webFetchTool()
 const ctx: ToolContext = {
   root: '/tmp',

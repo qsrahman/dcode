@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { NodeHtmlMarkdown } from 'node-html-markdown'
-import type { ToolDefinition } from '../../agent/types.ts'
 import { defineTool } from '../registry.ts'
 import { fetchSafely, readBounded } from './http.ts'
 import { errorMessage } from '../../util/log.ts'
@@ -30,7 +29,7 @@ const WEB_FETCH_MAX_BYTES = 5 * 1024 * 1024
 // call time so tool construction stays config-free; a missing key (or any API
 // failure) throws, which runTool feeds back to the model as an ok:false
 // outcome (decision D) — the same path every other tool uses.
-const webSearchTool = () =>
+export const webSearchTool = () =>
   defineTool({
     name: 'web_search',
     description:
@@ -172,5 +171,3 @@ export const webFetchTool = () =>
       return text + suffix
     },
   })
-
-export const webTools: ToolDefinition[] = [webSearchTool(), webFetchTool()]
