@@ -1269,20 +1269,27 @@ When the model's response is truncated due to output token limits, inject a
 ### 28.2 Design
 After each `runTurn` completes, check `response.incomplete_details?.reason ===
 'max_output_tokens'`. If truncated:
-1. Push `{ role: 'user', content: 'Continue.' }` to history.
-2. Retry the turn (call `runOnce()` again).
-3. Repeat up to `CONTINUE_RETRIES = 3` times.
-4. Reset the counter on each non-truncated response (via the while loop
-   exiting).
+1. Replay the truncated turn's own output into history (via
+   `pushResponseOutput`), so the retry is grounded in the partial answer — and
+   any tool calls it already emitted — instead of re-answering from scratch.
+   This is the same pattern the OpenAI agents SDK uses for the condition.
+2. Push `{ role: 'user', content: 'Continue.' }` to history.
+3. Retry the turn (`runOnce()` again). A "Continue." retry that itself hits a
+   context overflow is routed through the same compact-and-retry recovery as
+   the initial request (§29), rather than surfacing raw.
+4. Repeat up to `CONTINUE_RETRIES = 3` times.
+5. The counter resets on each non-truncated response (the while loop exits).
 
 This runs within a single iteration of the main tool loop — after the continue
 loop finishes, the normal tool-call check and history push happen as usual.
 
 ### 28.3 Tests
-- Truncated → "Continue." injected → next turn gets the rest.
+- Truncated → truncated output replayed → "Continue." injected → next turn
+  gets the rest.
 - 3 consecutive truncations → stop retrying, return last text.
 - Non-truncated response → no "Continue." injected.
 - Counter resets after a successful non-truncated turn.
+- Overflow during a "Continue." retry → recovery still applies.
 
 ### 28.4 Files
 - `src/agent/loop.ts` — while loop after `runOnce()`
@@ -1303,18 +1310,20 @@ a loop:
 for (let retry = 0; retry < OVERFLOW_RETRIES; retry++) {
   if (!(await opts.context.onOverflow(client, config, history))) break
   try {
-    ({ text, response } = await runOnce())
-    break  // success
+    return await runOnce()
   } catch (retryErr) {
-    if (!isContextOverflowError(retryErr) || retry === OVERFLOW_RETRIES - 1)
-      throw retryErr
+    if (!isContextOverflowError(retryErr)) throw retryErr
   }
 }
+throw original
 ```
 
 `OVERFLOW_RETRIES = 3`. The existing `ContextManager.onOverflow` circuit breaker
 (`CIRCUIT_BREAKER = 3`) still applies independently — it tracks consecutive
-compaction failures, while this loop tracks overflow retry attempts.
+compaction failures, while this loop tracks overflow retry attempts. The
+retried request is any single turn attempt: an overflow on the initial request
+*or* on a "Continue." retry (§28) both route here, since `completeTurn` wraps
+every attempt in the same recovery.
 
 Also widened `isContextOverflowError` to detect plain `Error` objects with
 `status === 413` (not just `OpenAI.APIError` instances), so non-OpenAI

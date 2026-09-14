@@ -25,30 +25,31 @@ export interface Client {
   ): ModelStream
 }
 
+// Common message wording some non-OpenAI providers/models use to signal the
+// same condition. Module-level so it isn't rebuilt on every call.
+const OVERFLOW_MESSAGE_RE =
+  /context.length.exceeded|maximum context length|token limit|context window/i
+
 // True when a request failed because the input exceeded the model's context
 // window. Drives the loop's compact-and-retry recovery. Matches OpenAI's 413
-// status and its `context_length_exceeded` error type / message wording.
+// status and its `context_length_exceeded` error type, plain Error objects
+// carrying a 413 status (non-OpenAI providers, test mocks), and the common
+// message wording.
 export function isContextOverflowError(err: unknown): boolean {
-  if (err instanceof OpenAI.APIError) {
-    if (err.status === 413) return true
-    if (err.code === 'context_length_exceeded') return true
-  }
-  // Also check plain Error objects with status/code properties (e.g. from
-  // non-OpenAI providers or test mocks).
+  const status =
+    err instanceof Error && 'status' in err
+      ? (err as { status?: number }).status
+      : undefined
+  if (status === 413) return true
   if (
-    err instanceof Error &&
-    'status' in err &&
-    (err as { status: number }).status === 413
-  )
-    return true
-  if (
-    /context.length.exceeded|maximum context length|token limit|context window/i.test(
-      err instanceof Error ? err.message : String(err),
-    )
+    err instanceof OpenAI.APIError &&
+    err.code === 'context_length_exceeded'
   ) {
     return true
   }
-  return false
+  return OVERFLOW_MESSAGE_RE.test(
+    err instanceof Error ? err.message : String(err),
+  )
 }
 
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here

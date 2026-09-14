@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Changed
+- Agent loop: a max-output-token truncation now replays the truncated partial
+  response (via `pushResponseOutput`, tool calls included) into history before
+  injecting `Continue.`, so a retry is grounded in what was already produced
+  instead of re-answering from scratch — and a `Continue.` retry that itself
+  overflows the context window is recovered through the same compact-and-retry
+  path as the initial request (see PLAN.md §28/§29).
 - MCP `mcpServers` config: the `type` discriminant is now `"local"` /
   `"remote"` instead of `"stdio"` / `"http"` — clearer for a config field the
   average user sets (or omits and lets infer), the underlying-transport name

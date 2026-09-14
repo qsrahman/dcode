@@ -1,11 +1,13 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { styleText, stripVTControlCharacters } from 'node:util'
+import OpenAI from 'openai'
 import { z } from 'zod'
 import type {
   Client,
   OpenAIResponse,
   ResponseInput,
 } from '../../src/agent/client.ts'
+import { isContextOverflowError } from '../../src/agent/client.ts'
 import { runAgent } from '../../src/agent/loop.ts'
 import { CapturingSink } from '../../src/agent/run.ts'
 import { renderToolResult, renderToolOutput } from '../../src/ui/tools.ts'
@@ -607,6 +609,48 @@ describe('runAgent — interactive tool summary', () => {
 
 // ── A7: Multi-retry compaction ─────────────────────────────────────────────
 
+describe('isContextOverflowError', () => {
+  it('matches a 413 OpenAI APIError and its context_length_exceeded code', () => {
+    expect(
+      isContextOverflowError(
+        new OpenAI.APIError(
+          413,
+          { code: 'context_length_exceeded' },
+          'too long',
+          undefined,
+        ),
+      ),
+    ).toBe(true)
+    // Some providers report the code on a non-413 status.
+    expect(
+      isContextOverflowError(
+        new OpenAI.APIError(
+          400,
+          { code: 'context_length_exceeded' },
+          'too long',
+          undefined,
+        ),
+      ),
+    ).toBe(true)
+  })
+
+  it('matches plain Error objects carrying a 413 status', () => {
+    const e = Object.assign(new Error('over budget'), { status: 413 })
+    expect(isContextOverflowError(e)).toBe(true)
+  })
+
+  it('falls back to message wording', () => {
+    expect(
+      isContextOverflowError(
+        new Error('prompt is too long: maximum context length is 128000'),
+      ),
+    ).toBe(true)
+    expect(isContextOverflowError(new Error('network timeout'))).toBe(false)
+    expect(isContextOverflowError('not an error')).toBe(false)
+    expect(isContextOverflowError(null)).toBe(false)
+  })
+})
+
 function makeOverflowError(): Error & { status: number; code: string } {
   const e = new Error('maximum context length exceeded') as Error & {
     status: number
@@ -854,5 +898,90 @@ describe('runAgent — max output tokens recovery (A3)', () => {
       (h) => (h as { content?: string }).content === 'Continue.',
     )
     expect(continues).toHaveLength(1)
+  })
+
+  it('replays the truncated partial before "Continue."', async () => {
+    let turn = 0
+    const client: Client = {
+      stream() {
+        turn++
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield turn === 1 ? 'partial' : 'done'
+          },
+          finalResponse: async () => {
+            if (turn === 1) {
+              return {
+                output: [messageItem('partial')],
+                output_text: 'partial',
+                incomplete_details: { reason: 'max_output_tokens' },
+              } as unknown as OpenAIResponse
+            }
+            return {
+              output: [messageItem('done')],
+              output_text: 'done',
+            } as unknown as OpenAIResponse
+          },
+        }
+      },
+    }
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const text = await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+    })
+    expect(text).toBe('done')
+    // The truncated turn was replayed as an assistant message, ordered before
+    // the "Continue." so the retry sees the partial answer.
+    const partialIdx = history.findIndex((h) => {
+      const item = h as { type?: string; content?: { text?: string }[] }
+      return (
+        item.type === 'message' &&
+        item.content?.some((c) => 'text' in c && c.text === 'partial') === true
+      )
+    })
+    const continueIdx = history.findIndex(
+      (h) => (h as { content?: string }).content === 'Continue.',
+    )
+    expect(partialIdx).toBeGreaterThan(-1)
+    expect(continueIdx).toBeGreaterThan(partialIdx)
+  })
+
+  it('recovers an overflow on a "Continue." retry via compaction', async () => {
+    let n = 0
+    const client: Client = {
+      stream() {
+        n++
+        // The retry after "Continue." overflows; the overflow recovery must
+        // kick in there too instead of surfacing the error raw.
+        if (n === 2) throw makeOverflowError()
+        return {
+          async *[Symbol.asyncIterator]() {
+            yield n === 1 ? 'partial' : 'done'
+          },
+          finalResponse: async () => {
+            if (n === 1) {
+              return {
+                output: [messageItem('partial')],
+                output_text: 'partial',
+                incomplete_details: { reason: 'max_output_tokens' },
+              } as unknown as OpenAIResponse
+            }
+            return {
+              output: [messageItem('done')],
+              output_text: 'done',
+            } as unknown as OpenAIResponse
+          },
+        }
+      },
+    }
+    const { context, overflowCount } = fakeContext()
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const text = await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+      context,
+    })
+    expect(text).toBe('done')
+    expect(overflowCount()).toBe(1)
+    expect(n).toBe(3)
   })
 })

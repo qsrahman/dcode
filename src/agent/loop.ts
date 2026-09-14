@@ -6,7 +6,7 @@ import type { Logger } from '../util/log.ts'
 import type { RunSink } from './run.ts'
 import { runTurn, runTool } from './run.ts'
 import { createToolProgress } from '../ui/tools.ts'
-import type { ToolContext, ToolResult } from './types.ts'
+import type { ToolContext, ToolDefinition, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import type {
   ResponseFunctionToolCall,
@@ -152,22 +152,28 @@ async function completeTurn(deps: {
   history: ResponseInput
   logger: Logger
 }): Promise<TurnResult> {
-  const { runOnce, context, client, config, history, logger } = deps
-  let result: TurnResult
-  try {
-    result = await runOnce()
-  } catch (err) {
-    if (!(context && isContextOverflowError(err))) throw err
-    result = await recoverFromOverflow(
-      runOnce,
-      context,
-      client,
-      config,
-      history,
-      err,
-    )
+  const { context, client, config, history, logger } = deps
+
+  // One request attempt, with an overflow routed into compact-and-retry. Used
+  // for both the initial request and every "Continue." retry, so a retry that
+  // itself overflows is recovered rather than surfacing raw.
+  const requestTurn = async (): Promise<TurnResult> => {
+    try {
+      return await deps.runOnce()
+    } catch (err) {
+      if (!(context && isContextOverflowError(err))) throw err
+      return recoverFromOverflow(
+        deps.runOnce,
+        context,
+        client,
+        config,
+        history,
+        err,
+      )
+    }
   }
 
+  let result = await requestTurn()
   let continues = 0
   while (
     result.response.incomplete_details?.reason === 'max_output_tokens' &&
@@ -179,13 +185,18 @@ async function completeTurn(deps: {
       continues,
       CONTINUE_RETRIES,
     )
+    // Replay what the truncated turn produced before "Continue.", so the
+    // retry is grounded in the partial answer (and any tool calls it already
+    // emitted) instead of re-answering from scratch — the pattern the OpenAI
+    // agents SDK uses for the same condition.
+    pushResponseOutput(history, result.response)
     history.push({ role: 'user', content: 'Continue.' })
-    result = await runOnce()
+    result = await requestTurn()
   }
   return result
 }
 
-// Compact-and-retry after a context overflow. Returns the first turn that
+// Compact-and-retry after a context overflow. Returns the first request that
 // succeeds; rethrows `original` when compaction can't free space (onOverflow
 // returns false, or the circuit breaker has tripped) or the retries run out.
 async function recoverFromOverflow(
@@ -201,8 +212,10 @@ async function recoverFromOverflow(
     try {
       return await runOnce()
     } catch (err) {
-      if (!isContextOverflowError(err) || retry === OVERFLOW_RETRIES - 1)
-        throw err
+      // Any non-overflow failure (or the ceiling of retries) propagates as
+      // `original` below — except a non-overflow error is itself the more
+      // useful one to surface.
+      if (!isContextOverflowError(err)) throw err
     }
   }
   throw original
@@ -292,7 +305,7 @@ async function runCalls(
   onResult?: (r: ToolResult) => void,
 ): Promise<ToolResult[]> {
   const results: ToolResult[] = []
-  let batch: ResponseFunctionToolCall[] = []
+  let batch: [ResponseFunctionToolCall, ToolDefinition][] = []
 
   // A call that never reached a tool still needs an outcome, so the loop can
   // pair it with its function_call and keep history balanced.
@@ -301,15 +314,20 @@ async function runCalls(
     output: string,
   ): ToolResult => ({ id: c.call_id, name: c.name, output, ok: false, ms: 0 })
 
-  const runOne = async (c: ResponseFunctionToolCall): Promise<ToolResult> => {
-    const outcome = await runOneOutcome(c)
+  const runOne = async (
+    c: ResponseFunctionToolCall,
+    tool?: ToolDefinition,
+  ): Promise<ToolResult> => {
+    const outcome = await runOneOutcome(c, tool)
     onResult?.(outcome)
     return outcome
   }
 
-  const runOneOutcome = (c: ResponseFunctionToolCall): Promise<ToolResult> => {
+  const runOneOutcome = (
+    c: ResponseFunctionToolCall,
+    tool?: ToolDefinition,
+  ): Promise<ToolResult> => {
     if (ctx.signal?.aborted) return Promise.resolve(didNotRun(c, 'aborted'))
-    const tool = registry.get(c.name)
     if (!tool) {
       return Promise.resolve(didNotRun(c, `error: unknown tool "${c.name}"`))
     }
@@ -323,18 +341,20 @@ async function runCalls(
   // Flush the accumulated parallel batch, preserving emission order.
   const flush = async () => {
     if (batch.length === 0) return
-    const outs = await Promise.all(batch.map(runOne))
+    const outs = await Promise.all(batch.map(([c, t]) => runOne(c, t)))
     results.push(...outs)
     batch = []
   }
 
   for (const c of calls) {
+    // Resolve the tool once and hand it to the runner instead of looking it
+    // up again inside runOneOutcome.
     const tool = registry.get(c.name)
     if (tool && tool.parallel !== false) {
-      batch.push(c)
+      batch.push([c, tool])
     } else {
       await flush()
-      results.push(await runOne(c))
+      results.push(await runOne(c, tool))
     }
   }
   await flush()

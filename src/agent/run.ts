@@ -71,19 +71,17 @@ export async function runTurn(
     announced = true
     opts.onBeforeText?.()
   }
+  const emit = (out: string) => {
+    beforeVisible()
+    sink.write(out)
+  }
   for await (const delta of stream) {
     const out = md.push(delta)
-    if (out) {
-      beforeVisible()
-      sink.write(out)
-    }
+    if (out) emit(out)
   }
   const response = await stream.finalResponse()
   const tail = md.finalize()
-  if (tail) {
-    beforeVisible()
-    sink.write(tail)
-  }
+  if (tail) emit(tail)
   return { text: response.output_text, response }
 }
 
