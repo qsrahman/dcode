@@ -194,15 +194,28 @@ async function runRepl(session: Session): Promise<void> {
   process.stdout.write(`${HINT}\n`)
   rl.prompt()
 
-  for await (const line of rl) {
+  // One turn through handleLine with a fresh abort controller. `ac` is the
+  // busy flag the SIGINT handler reads; the `finally` clears it even if
+  // handleLine were to throw unexpectedly.
+  const runTurn = async (
+    line: string,
+    asPrompt = false,
+  ): Promise<HandleResult> => {
     ac = new AbortController()
+    try {
+      return await handleLine(session, line, {
+        sink: process.stdout,
+        signal: ac.signal,
+        asPrompt,
+      })
+    } finally {
+      ac = undefined
+    }
+  }
 
-    const result = await handleLine(session, line, {
-      sink: process.stdout,
-      signal: ac.signal,
-    })
+  for await (const line of rl) {
+    const result = await runTurn(line)
 
-    ac = undefined
     if (result === 'exit') {
       rl.close()
       return
@@ -214,13 +227,7 @@ async function runRepl(session: Session): Promise<void> {
         // record of what was sent — it was typed in an external buffer, so
         // nothing of it reached the screen otherwise.
         process.stdout.write(`${PROMPT}${text.trim()}\n`)
-        ac = new AbortController()
-        await handleLine(session, text, {
-          sink: process.stdout,
-          signal: ac.signal,
-          asPrompt: true,
-        })
-        ac = undefined
+        await runTurn(text, true)
       }
     }
     rl.prompt()

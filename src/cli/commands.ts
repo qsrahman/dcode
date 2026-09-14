@@ -12,7 +12,7 @@ import type { TaskStore } from '../agent/todo-store.ts'
 import type { McpManager } from '../tools/mcp/manager.ts'
 import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../util/version.ts'
-import { access, mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createClient } from '../agent/client.ts'
 import {
@@ -44,6 +44,13 @@ export type HandleResult = 'ok' | 'exit' | 'edit'
 
 // ANSI sequence to clear screen + scrollback and move home.
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
+
+// The OpenAI client captures the key/model at construction (createClient);
+// a runtime /model or /key change must rebuild it so the new value is used
+// for subsequent requests this session.
+function rebuildClient(session: Session): void {
+  session.client = createClient(session.config)
+}
 
 // `/help` text and `SLASH_COMMANDS` are derived from the command registry below.
 
@@ -133,9 +140,7 @@ export function createCommands(): CommandRegistry {
         return 'ok'
       }
       session.config.model = id
-      // Rebuild the client so the new model takes effect even if createClient
-      // ever captures config by value instead of by the shared object reference.
-      session.client = createClient(session.config)
+      rebuildClient(session)
       sink.write(`model set to ${id}\n`)
       return 'ok'
     },
@@ -317,9 +322,7 @@ export function createCommands(): CommandRegistry {
           unsetGlobalKey(field)
           delete (session.config as Record<string, unknown>)[field]
         }
-        // The OpenAI client captured the key at construction; rebuild it so
-        // the change is actually used for subsequent requests this session.
-        session.client = createClient(session.config)
+        rebuildClient(session)
         sink.write(
           sub === 'set'
             ? `stored ${provider} key in ${globalConfigPath()}\n`
@@ -354,24 +357,23 @@ export function createCommands(): CommandRegistry {
       const useMarkdown = arg.endsWith('.md')
       const fileName = arg || `dcode-transcript.${useMarkdown ? 'md' : 'json'}`
       const target = join(session.root, fileName)
-      let exists = false
+      const payload = useMarkdown
+        ? historyToMarkdown(session.history)
+        : JSON.stringify(session.history, null, 2)
+      await mkdir(dirname(target), { recursive: true })
+      // 'wx' makes the overwrite guard atomic: the file is created
+      // exclusively, so a path that appeared since any earlier check can't be
+      // silently clobbered. EEXIST means "already there" — refuse — while any
+      // other I/O failure still propagates.
       try {
-        await access(target)
-        exists = true
-      } catch {
-        // file doesn't exist — safe to write
-      }
-      if (exists) {
+        await writeFile(target, payload, { flag: 'wx' })
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
         sink.write(
           `refusing to overwrite ${target} (choose a different path)\n`,
         )
         return 'ok'
       }
-      const payload = useMarkdown
-        ? historyToMarkdown(session.history)
-        : JSON.stringify(session.history, null, 2)
-      await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, payload)
       sink.write(`saved ${session.history.length} items to ${target}\n`)
       return 'ok'
     },
