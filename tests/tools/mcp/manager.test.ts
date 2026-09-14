@@ -13,6 +13,7 @@ interface FakeTool {
   name: string
   description?: string
   inputSchema: unknown
+  annotations?: { readOnlyHint?: boolean }
 }
 
 // Keyed by the fake transport's identifying value (command for stdio, url for
@@ -295,6 +296,20 @@ describe('connectMcpServers', () => {
     expect(names.some((n) => n === 'mcp__a_b__t_2')).toBe(true)
   })
 
+  it('batches readOnlyHint tools in parallel and keeps everything else sequential', async () => {
+    toolsFor['srv'] = [
+      { name: 'search', inputSchema: {}, annotations: { readOnlyHint: true } },
+      { name: 'write', inputSchema: {} },
+    ]
+    const mgr = await connectMcpServers({ srv: stdio('srv') }, logger)
+    const parallel = mgr.tools.filter((t) => t.parallel).map((t) => t.name)
+    const sequential = mgr.tools
+      .filter((t) => t.parallel === false)
+      .map((t) => t.name)
+    expect(parallel).toEqual(['mcp__srv__search'])
+    expect(sequential).toEqual(['mcp__srv__write'])
+  })
+
   describe('${VAR} env placeholders in headers/env', () => {
     afterEach(() => vi.unstubAllEnvs())
 
@@ -396,6 +411,24 @@ describe('connectMcpServers', () => {
       expect(result).toContain('first')
       expect(result).toContain('second')
       expect(result).toContain('image/png')
+      expect(result).toContain('not shown')
+    })
+
+    it('renders text resources and describes blob resources by URI', async () => {
+      callToolResult = {
+        content: [
+          { type: 'resource', resource: { uri: 'doc://a', text: 'hello' } },
+          { type: 'resource', resource: { uri: 'doc://b', blob: 'AAAA' } },
+        ],
+      }
+      toolsFor['srv'] = [{ name: 'read', inputSchema: {} }]
+      const mgr = await connectMcpServers({ srv: stdio('srv') }, logger)
+      const result = await mgr.tools[0]!.execute(
+        {},
+        { root: '/tmp', config: cfg(), logger },
+      )
+      expect(result).toContain('hello')
+      expect(result).toContain('doc://b')
       expect(result).toContain('not shown')
     })
 

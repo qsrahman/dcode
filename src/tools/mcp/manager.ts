@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js'
 import { z } from 'zod'
 import type { McpServerConfig } from '../../config/schema.ts'
 import type { ToolContext, ToolDefinition } from '../../agent/types.ts'
@@ -139,23 +140,18 @@ function uniqueName(used: Set<string>, name: string): string {
   }
 }
 
-interface McpContentPart {
-  type: string
-  text?: string
-  mimeType?: string
-  resource?: { uri?: string; text?: string }
-}
-
 // Flatten an MCP CallToolResult's content array to the plain text dcode's
 // tools otherwise return. Text parts pass through; anything dcode can't
-// render as text (images, audio, an opaque binary resource) is described,
-// not dropped silently or dumped as raw base64 into the model's context.
-function contentToText(content: McpContentPart[]): string {
+// render as text (images, audio, a blob resource) is described, not dropped
+// silently or dumped as raw base64 into the model's context.
+function contentToText(content: CallToolResult['content']): string {
   const parts = content.map((c) => {
-    if (c.type === 'text') return c.text ?? ''
+    if (c.type === 'text') return c.text
     if (c.type === 'resource') {
-      if (typeof c.resource?.text === 'string') return c.resource.text
-      return `(resource ${c.resource?.uri ?? 'unknown'}; not shown)`
+      const r = c.resource
+      // TextResourceContents carries `text`; BlobResourceContents carries a
+      // base64 blob — no `type` discriminant, so tell them apart by shape.
+      return 'text' in r ? r.text : `(resource ${r.uri}; not shown)`
     }
     return `(${c.type}${c.mimeType ? ` ${c.mimeType}` : ''}; not shown)`
   })
@@ -166,7 +162,7 @@ function contentToText(content: McpContentPart[]): string {
 function wrapMcpTool(
   name: string,
   server: string,
-  tool: { name: string; description?: string; inputSchema: unknown },
+  tool: Tool,
   client: Client,
 ): ToolDefinition {
   return defineTool({
@@ -175,18 +171,25 @@ function wrapMcpTool(
       tool.description ?? `MCP tool "${tool.name}" from server "${server}"`,
     parameters: mcpArgsSchema,
     jsonSchema: tool.inputSchema as Record<string, unknown>,
-    // MCP tools are third-party and side-effecting by default (the protocol
-    // doesn't distinguish read-only vs mutating tools the way dcode's own
-    // `parallel` flag does), so run them sequentially like every other
-    // tool without a documented read-only guarantee.
-    parallel: false,
+    // MCP's `readOnlyHint` annotation lets a server declare a tool read-only,
+    // so treat it like dcode's own `parallel` flag and batch those calls.
+    // Everything else stays sequential (the safe default): MCP tools are
+    // third-party with no dcode-side guarantee of read-only behavior.
+    parallel: tool.annotations?.readOnlyHint ?? false,
     async execute(args, ctx: ToolContext) {
       const result = await client.callTool(
-        { name: tool.name, arguments: args as Record<string, unknown> },
+        { name: tool.name, arguments: args },
         undefined,
         { signal: ctx.signal },
       )
-      const text = contentToText((result.content ?? []) as McpContentPart[])
+      // callTool's return is a union of modern CallToolResult and the legacy
+      // CompatibilityCallToolResult, and both members carry a
+      // `[x: string]: unknown` index signature — so property access here is
+      // typed `unknown`. The schema union is authoritative on `content`'s
+      // shape, so cast to it rather than hand-rolling a parallel type.
+      const text = contentToText(
+        (result.content ?? []) as CallToolResult['content'],
+      )
       // isError is the MCP protocol's own way of reporting a tool-level
       // failure (bad args, the tool's own logic failing) inside a normal
       // result rather than a JSON-RPC error — surface it as a thrown error so

@@ -1399,9 +1399,12 @@ naming the variable, rather than silently sending a literal `${VAR}`.
   - Each listed tool is wrapped via `defineTool` into a `ToolDefinition`
     named `mcp__<server>__<tool>` (`qualifiedToolName`/`sanitizeName`,
     collision-numbered by `uniqueName` so a sanitization collision can't
-    silently drop a tool), `parallel: false` (MCP doesn't distinguish
-    read-only vs mutating tools the way dcode's own `parallel` flag does, so
-    every MCP tool is treated as side-effecting), and `execute` that calls
+    silently drop a tool), `parallel: tool.annotations?.readOnlyHint ?? false`
+    — an MCP server can declare a tool read-only via the spec's
+    `readOnlyHint`, which is then batched in parallel like dcode's own
+    read-only tools; everything else defaults to sequential (MCP tools are
+    third-party with no dcode-side guarantee of read-only behavior) — and
+    `execute` that calls
     `client.callTool({name, arguments}, undefined, {signal: ctx.signal})`,
     flattens the result's `content` array to text (`contentToText` — text
     parts pass through, images/audio/binary resources are described rather
