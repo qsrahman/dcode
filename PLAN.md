@@ -1,16 +1,21 @@
 # PLAN.md — dcode
 
-Product Requirements Document for **dcode**, a CLI-based AI coding agent built on
-the OpenAI Responses SDK.
+Product plan for **dcode**, a CLI-based AI coding agent built on the OpenAI
+Responses SDK.
 
-Status: **P10 complete** (context-window management). The tool-permission
-architecture (harness gate + P5 modes/rules) was **removed** on the `experiment`
-branch — every tool call now runs unconditionally. Phases advance one at a time;
-each lands as code + tests + docs + a focused commit.
-This document is the source of truth for features, architecture, and
-conventions — keep it in sync after every phase.
+**Status:** P0–P11 and P6 are done; P5 (declarative permissions) was designed
+then cancelled and fully removed — every tool call, including MCP tools,
+runs unconditionally with no approval layer. P12, P13, and P14 are planned
+but not scheduled. See §8 for the full phase table.
 
-Status: **A3 + A7 complete** (max-output recovery + multi-retry compaction).
+**What this file is for.** §1–§9 are the living reference: vision, goals,
+locked decisions, the CLI surface, and the phase table — keep these current.
+§10 is the forward-looking roadmap for work not yet built. §11 is a compact
+log of what each past phase did and why, for context on the shape of the
+system — it intentionally does **not** duplicate the implementation detail
+that [CLAUDE.md](./CLAUDE.md) and [AGENTS.md](./AGENTS.md) already carry (and
+keep current against the actual code); when this file and those disagree on
+present-tense architecture, CLAUDE.md/AGENTS.md win.
 
 ## 1. Vision
 
@@ -18,8 +23,9 @@ A small, modular, locally-run coding agent you drive from a terminal:
 
 - One-shot: `dcode "add a CLI flag to parse --verbose"`
 - REPL: `dcode` then chat, with slash commands.
-- Uses local system tools (files, shell, git) and optional MCP servers.
-- Fully async agent loop; tool calls run in emission order.
+- Uses local system tools (files, shell) and configured MCP servers.
+- Fully async agent loop; read-only calls batch in parallel, everything else
+  runs in emission order.
 - Streaming model output, configurable models.
 
 ## 2. Goals
@@ -29,10 +35,12 @@ A small, modular, locally-run coding agent you drive from a terminal:
 - Every behavior covered by fast, deterministic unit tests.
 - No build step: Node 26 runs `.ts` directly via type stripping.
 
-## 3. Non-goals (v1)
+## 3. Non-goals
 
-- Multi-agent orchestration / sub-agents.
-- Conversation persistence across runs (ephemeral in v1).
+- Declarative permissions, approval gating, or sandboxing — designed once
+  (§11's P5 entry) and deliberately not pursued; every tool call, local or
+  MCP, runs the moment the model asks for it. See AGENTS.md's Security model.
+- Conversation persistence across runs (ephemeral: in-session only).
 - Browser/UI; this is a terminal tool.
 - Provider abstraction beyond OpenAI-compatible endpoints (configurable base URL).
 
@@ -43,9 +51,8 @@ A small, modular, locally-run coding agent you drive from a terminal:
 - **Package manager:** pnpm only.
 - **Tests:** Vitest 4+.
 - **Runtime deps:** `openai`, `zod`, `execa`, `@vscode/ripgrep`, `marked` +
-  `marked-terminal`, `node-html-markdown`, `@clack/prompts`. (`ansis` was
-  dropped for `node:util`'s `styleText`; the pure-JS traversal and the
-  `ignore` package went with the move to ripgrep.)
+  `marked-terminal`, `node-html-markdown`, `@clack/prompts`,
+  `@modelcontextprotocol/sdk` (P6).
 - **Dev deps:** `typescript`, `@types/node`, `prettier`, `vitest`.
 
 ### Type-stripping caveats (hard constraints)
@@ -63,9 +70,10 @@ Node 26 strips types but does **not** transform. Therefore:
 src/
   index.ts            # entry: parse CLI -> build config -> ensureApiKey -> one-shot or REPL
   cli/args.ts         # FLAGS table -> parseArgs options + formatFlags() for --help; parseCli(argv) -> CliOptions (strict: an unknown flag is an error)
-  cli/repl.ts         # readline loop; builds the Session and drives runAgent
+  cli/repl.ts         # readline loop; builds the Session (async — connects MCP servers) and drives runAgent
   cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
   cli/auth.ts         # validateApiKey + ensureApiKey: the whole startup key path (prompt -> check -> persist)
+  cli/keys.ts         # setGlobalKey/unsetGlobalKey: /key writes secrets to the global config, 0600/0700
   config/schema.ts    # zod schema (Config), .strict()
   config/config.ts    # buildConfig(args) [file+env+args] + readConfigFile(path) + normalizeBaseURL
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
@@ -77,14 +85,14 @@ src/
                       #   prune.ts   (collapse old tool outputs to a marker)
                       #   compact.ts (summarize oldest history via a model call)
                       #   manager.ts (ContextManager: prune→compact, overflow retry, breaker)
-  agent/types.ts      # ToolDefinition<P>, ToolContext (incl. depth), ToolCall, ToolResult, ResponseItemFields
+  agent/types.ts      # ToolDefinition<P> (incl. optional jsonSchema for MCP tools), ToolContext (incl. depth), ToolCall, ToolResult, ResponseItemFields
   agent/todo-store.ts # TaskStore: in-session todo list (replace/list — the model sends the whole list)
   agent/subagent.ts   # AGENT_TYPES (general, explore): per-type ToolPolicy ({allow} | {deny}) + system prompt; describeAgentTypes/unknownAgentTools
   tools/index.ts      # createLocalTools(tasks, client, mcpTools?): hub that registers all built-in tools (+ any already-connected MCP tools, P6) into the registry
-  tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema; defineTool (infers a tool's arg type from its schema)
+  tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema (or a tool's own jsonSchema verbatim); defineTool (infers a tool's arg type from its schema)
   tools/local/        # local tool set, split by concern:
     paths.ts          #   resolvePath, withFsError, ensureParentDir — path confinement (realpath-checked against symlink escapes) + shared fs error/mkdir idioms
-    exec.ts           #   run_shell + baseExecOptions/safeEnv/CHILD_MAX_BUFFER — shared execa options (cwd/timeout/cancelSignal/maxBuffer, env redaction)
+    exec.ts           #   run_shell + baseExecOptions/safeEnv/CHILD_MAX_BUFFER — shared execa options (cwd/timeout/cancelSignal/maxBuffer, env redaction); safeEnv is also reused by tools/mcp/manager.ts
     http.ts           #   fetchSafely (timeout, native redirects), readBounded — shared network boundary for web.ts (no host filtering; opencode-style)
     fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
     search.ts         #   grep, glob — both ripgrep-backed (@vscode/ripgrep's bundled binary, spawned directly, not via exec.ts); find_symbol/find_references planned, P12
@@ -93,7 +101,7 @@ src/
     question.ts       #   ask_user (@clack/prompts; refuses when stdin isn't a TTY)
     task.ts           #   task (sub-agent: filtered tool registry + own TaskStore, depth-limited to 1)
     web.ts            #   web_search (Brave; key from ctx.config.brave only), web_fetch
-  tools/mcp/manager.ts  # connectMcpServers: connect configured servers (stdio/http), wrap their tools as ToolDefinitions, close() on exit/SIGINT (P6, §30)
+  tools/mcp/manager.ts  # connectMcpServers: connect enabled servers (local/remote), wrap their tools as ToolDefinitions, close() on exit/SIGINT (P6, §11)
   ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
   ui/tools.ts            # tool-call rendering: interactive TTY = a per-query live counter that freezes into a bounded category summary (renderProgressLine/renderCategorySummary/TurnTally); piped/--verbose = per-call lines (renderToolResult/renderToolOutput)
   types/marked-terminal.d.ts # local ambient types (marked-terminal ships none; @types/marked-terminal on npm is stale/mismatched)
@@ -126,9 +134,10 @@ when it is false. Everything dcode renders itself instead consults
 
 1. Send conversation `input` + tool defs to the Responses API (streaming).
 2. Render streamed text; collect `function_call` items.
-3. When the turn ends, split calls into **read-only** (run via `Promise.all`)
-   and **mutating** (`parallel: false`; sequential, in emission order) groups.
-   Nothing is gated — P5 was cancelled.
+3. When the turn ends, split calls into **parallel-eligible**
+   (`Promise.all`) and **sequential** (`parallel: false`, run in emission
+   order) groups, purely as a scheduling hint. Nothing is gated — P5 was
+   cancelled; MCP tools included.
 4. Feed `function_call_output` items back; repeat until no tool calls.
 5. Cap loop iterations (`maxToolIterations`, default 16); feed tool errors back
    so the model can self-correct. Hitting the cap with tool calls still
@@ -148,11 +157,11 @@ here as a candidate improvement, not scoped/designed.
 
 ### Permission model
 
-**Removed.** On the `experiment` branch the harness gate and the P5
-modes/rules design were deleted; `src/agent/gate.ts` is gone, `ToolDefinition`
-has no `mutates` flag, and `runCalls` executes every tool call unconditionally in
-the order the model emitted it. There is no approval prompt and no `--mode` /
-`--auto` / `--plan` flags. See §13 for the cancelled design.
+**None, deliberately.** A harness gate and a full declarative modes/rules
+design (§11's P5) were built, then removed — `runCalls` executes every tool
+call unconditionally in the order the model emitted it, local and MCP alike.
+There is no approval prompt and no `--mode`/`--auto`/`--plan` flag. See
+AGENTS.md's Security model for the reasoning.
 
 ## 6. Locked decisions
 
@@ -160,16 +169,18 @@ the order the model emitted it. There is no approval prompt and no `--mode` /
 |---|-------|----------|
 | A | Config format | JSON (zero extra deps) |
 | B | History | In-memory `ResponseInput` array bounded by token-budget compaction (`ContextManager`); `/reset` drops, `/clear` screen-only |
-| C | Shell model | Real shell (`/bin/sh -c`), harness-gated, cwd-confined |
+| C | Shell model | Real shell (`/bin/sh -c`), ungated, cwd-confined |
 | D | Loop term | Cap (16, configurable) + feed tool errors back as `function_call_output` |
-| E | `always` scope | Per-tool, session-scoped (cleared by `/reset`) |
+| E | `always` scope | Per-tool, session-scoped (cleared by `/reset`) — a P5 concept, now moot since nothing is gated |
 | F | Result size | Truncate to `maxToolOutputBytes` (32 KB) + note |
-| G | Workdir | `root` (config field, defaults to process cwd); git via `git -C <root>` |
+| G | Workdir | Always `process.cwd()` (no configurable `root`) |
 | H | Injection | Pass through raw, documented as untrusted |
-| I | MCP life | Spawn at startup, session-lived, close on exit/SIGINT |
+| I | MCP life | Connect enabled servers at startup, session-lived, close on exit/SIGINT |
 | J | Persistence | Ephemeral v1 (in-session up/down only) |
 | K | bin | `bin: dcode -> src/index.ts`, shebang, engines >=26 |
 | L | Cancel | Ctrl-C aborts stream + SIGTERMs shell child, returns to prompt |
+
+Do not reopen these without explicit agreement (CLAUDE.md).
 
 ## 7. CLI surface
 
@@ -178,9 +189,10 @@ dcode [prompt]      one-shot when a prompt is given, REPL otherwise
   --model <id>       --config <path>    --verbose   --no-color   --version   --help
 ```
 
-Slash commands (REPL): `/help` `/key` `/model` `/tools` `/clear` `/reset`
-`/compact` `/context` `/tasks` `/config` `/undo` `/verbose` `/version` `/exit`.
-See §17 for deferred candidates.
+Slash commands (REPL): `/help` `/key` `/model` `/tools` `/mcp` `/clear`
+`/reset` `/compact` `/context` `/tasks` (alias `/todo`) `/config` `/undo`
+`/version` `/limit` `/edit` `/save` `/exit`. See README's REPL section for
+what each does; §10 has deferred candidates.
 
 ## 8. Phase plan
 
@@ -190,1021 +202,118 @@ See §17 for deferred candidates.
 | P1 | Config + OpenAI client + one-shot (no tools) | **Done** |
 | P2 | REPL + slash commands + streaming in REPL | **Done** |
 | P3 | Tool core + read-only tools + async loop (parallel read-only) | **Done** |
- | P4 | Mutating local tools (write_file/edit_file/run_shell) | **Done** — see §12 |
- | P5 | Declarative permissions + modes | **Cancelled** (removed on `experiment`) |
-| P6 | MCP integration | **Done** — see §30 |
- | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
+| P4 | Mutating local tools (write_file/edit_file/run_shell) | **Done** |
+| P5 | Declarative permissions + modes | **Cancelled**, fully removed |
+| P6 | MCP integration | **Done** |
+| P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 | P8 | Task list (in-session: create/list/update) | **Done** |
-| P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done, then removed** — the scoped allow-list added no safety over `run_shell` (which is ungated anyway) while costing a whole tool slot; git is reached via `run_shell` |
+| P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done, then removed** — no safety benefit over ungated `run_shell`; git is reached via `run_shell` |
 | P10 | Context-window management (prune + compact + overflow retry) | **Done** |
-| P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** (see §19) |
-| P12 | Symbol search (`find_symbol` / `find_references`, ripgrep-lite) | **Planned** (see §20) |
-| P13 | `apply_patch` (atomic multi-file unified-diff apply); `multi_edit` down-payment | **Planned** (see §21, §21.5) |
-| P14 | File inputs (let the model read local PDFs/images) | **Candidate** (see §27) |
-| A3 | Max output tokens recovery ("Continue." injection) | **Done** (see §28) |
-| A7 | Multi-retry compaction (overflow retry loop) | **Done** (see §29) |
+| P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** |
+| P12 | Symbol search (`find_symbol` / `find_references`, ripgrep-lite) | **Planned** (see §10) |
+| P13 | `apply_patch` (atomic multi-file unified-diff apply); `multi_edit` down-payment | **Planned** (see §10) |
+| P14 | File inputs (let the model read local PDFs/images) | **Candidate** (see §10) |
+| A3 | Max output tokens recovery ("Continue." injection) | **Done** |
+| A7 | Multi-retry compaction (overflow retry loop) | **Done** |
 
-Landed outside the numbered phases (no new locked decisions; see §6):
-
-- **Markdown rendering** — `ui/markdown.ts` renders streamed assistant output
-  as ANSI via `marked` + `marked-terminal`, emitting only block-complete lines.
-- **Compact tool summary** (`ui/tools.ts`) — on an interactive TTY, a single
-  per-query live counter (updated on each tool completion, no timer) that
-  freezes once into a bounded category summary above the streamed answer,
-  instead of one line per call. The tally spans the whole `runAgent` call and
-  is frozen via `runTurn`'s `onBeforeText` hook. Piped/non-TTY output and
-  `--verbose` keep the per-call lines.
-- **`ask_user`** (`tools/local/question.ts`) — interactive questions via
-  `@clack/prompts`; returns a "no interactive terminal" result rather than
-  hanging when stdin isn't a TTY.
-- **Sub-agents** (`agent/subagent.ts` + `tools/local/task.ts`) — the `task`
-  tool runs a nested `runAgent` with a filtered tool registry, its own
-  `TaskStore` and `ContextManager` (compaction off), a silent sink, and a
-  nesting depth limit of 1. Sessions are never resumable: each call starts
-  from a fresh history. Each agent type carries a `ToolPolicy` rather than a
-  literal list: `explore` is `{allow: [...]}` because read-only is the
-  guarantee it must keep even as new tools appear, while `general` is
-  `{deny: ['task']}` so "everything except task" stays true by construction
-  instead of being a copy of the registry that rots. `createLocalTools`
-  rejects a policy naming a tool nobody registers, and the `task` tool's
-  description is generated from the resolved sets — the previous
-  hand-maintained copy is how it came to advertise a `list_directory` tool
-  that does not exist.
-- **`todo` → `todowrite`** — the four-action tool was replaced by a single
-  whole-list write, so the model's plan can't drift out of sync field by field.
+§11 has one compact entry per phase — what shipped and the one or two
+decisions worth remembering. Landed outside the numbered phases (no new
+locked decisions): streamed markdown rendering, the compact per-query tool
+summary, `ask_user`, sub-agents (`task`), global API-key storage (`/key`),
+REPL tab-completion, `/save`/`/limit`, and dropping `.env`/repo-local config
+discovery in favor of the global config file only — see §11.
 
 ## 9. Testing strategy
 
 - Tests live in `tests/`, mirroring `src/` (`tests/cli/args.test.ts` -> `src/cli/args.ts`).
 - Prefer fast, deterministic unit tests over network integration.
-- Mock external boundaries (OpenAI client, `child_process`, `fs` side effects).
+- Mock external boundaries (OpenAI client, MCP SDK client/transports, `child_process`, `fs` side effects).
 - For colored output, assert against `node:util`'s `stripVTControlCharacters(...)`.
 - `tsc --noEmit` and `pnpm format:check` gate every commit.
 
-## 10. P2 Specification (REPL)
+## 10. Roadmap (planned / candidate work)
 
-Status: **Done**. This section is the authoritative P2 design; it was implemented
-as code + tests + docs in one focused commit.
+Work that hasn't been built yet. Once a phase here ships, its detailed spec
+moves out of this section and into a short §11 entry — this section should
+only ever describe the *not-yet-true* state of the system.
 
-### 10.1 Scope
-Make `dcode` interactive: a REPL when no prompt is given, streaming model output,
-and slash commands. **Out of scope for P2:** tools, permissions, MCP (P3+). P2 must
-(a) make `dcode` interactive, (b) establish multi-turn history, and (c) lay a clean
-foundation so P3's loop slots in without rework.
-
-### 10.2 Module changes
-
-**`src/agent/run.ts` — universal turn runner.**
-- Add `runTurn(client, config, input: ResponseInput, sink, logger): Promise<string>`.
-  Streams deltas to `sink` from `runTurn`, writes streamed text to `sink`, returns
-  the full text, and forwards `opts.signal` (decision L).
-- `runOneShot(client, config, prompt, sink, logger)` becomes a thin wrapper that
-  builds `[system, user]` and calls `runTurn`. Existing `run.test.ts` stays green.
-- P3 will add `runTool(input)` — the per-tool execution primitive (policy-gated in
-  P5) — to this same module, so agent execution is centralized in `agent/run.ts`.
-
-**`src/cli/repl.ts` (new) — `startRepl(config, logger)`.**
-Keep it thin and testable by splitting into:
-- A module-local `ReplSession` = `{ config, client, logger, history: ResponseInput }`,
-  where `history[0]` is the system message from `buildSystemPrompt(config)`.
-- `handleLine(session, line): Promise<void>` — the core: parse command vs prompt,
-  dispatch or run a turn, append to history, trim.
-- `startRepl` — thin `readline` wiring that feeds lines into `handleLine` and writes
-  the prompt. Each turn shows a persistent hint (`Ask anything, /help for
-  commands...`) above a `>` prompt.
-Session state lives **module-local in `repl.ts`** (per decision); P3's
-`agent/loop.ts` will own the turn loop and reuse `runTurn`.
-
-**`src/index.ts`** — replace the "REPL arrives in phase 2" placeholder with
-`await startRepl(config, logger)`.
-
-### 10.3 Slash commands
-P2 set: `/help`, `/model [<id>]`, `/clear`, `/reset`, `/version`, `/exit`.
-- `/clear` — screen-only (decision B): `console.clear()` / ANSI clear; history
-  untouched.
-- `/reset` — history back to `[system]`; clears in-session `always` (none yet; P5).
-- `/model` — with `<id>` updates `config.model` for subsequent turns (in-session
-  only; decision J ephemeral); with no argument prints the current model.
-- `/version` — `dcode v{getVersion()}`.
-- **Deferred:** `/mode` → P5 (permissions, inert without tools); `/tools` → P3 (no
-  tools to list yet).
-
-### 10.4 Streaming, history, cancel, errors
-- **History (decision B):** a plain `ResponseInput` array, bounded solely by
-  token-budget compaction (`ContextManager`: prune old tool outputs, then summarize
-  into `[summary, ...tail]`). The old fixed item-count cap (`maxHistoryItems`/
-  `trimHistory`) was removed — it deleted items without summarizing and duplicated
-  what compaction already does; opencode and Claude Code likewise bound history by
-  tokens, not item count. Consequence: with `context.auto: false` there is nothing
-  left to bound history proactively — it grows unbounded and recovery is reactive
-  only (a request overflows, `onOverflow` prunes/compacts and retries once; three
-  failures trip the circuit breaker and requests then fail). `auto: false` is only
-  for short/one-shot sessions that never approach the window.
-- **Ctrl-C (decision L):** `readline` `'SIGINT'` aborts the in-flight
-  `AbortController` → `runTurn`'s signal → stream aborts → caught, logged
-  `[warn] aborted`, returns to prompt. Process must NOT exit. (Shell-child SIGTERM is
-  P4.)
-- **Per-turn errors:** caught per turn, `logger.error(...)`, session continues
-  (one-shot exits; REPL does not).
-
-### 10.5 Output / color
-Streamed model text → `process.stdout` (reserved channel). REPL prompt colored via
-`ansis`. Rendering stays minimal; tool-status lines are rendered inline in
-`agent/loop.ts` (no separate `ui` module). A tiny `ui/prompt.ts` for the prompt
-string is optional.
-
-> Since superseded: there is now a `ui/` module — `ui/markdown.ts` for streamed
-> assistant output and `ui/tools.ts` for tool-status lines — and colour comes
-> from `util/color.ts`, not `ansis`. See §5.
-
-### 10.6 Multi-line input
-Deferred to a later phase (single-line in P2).
-
-### 10.7 Tests (`tests/cli/repl.test.ts`)
-Mirror the split so `readline` I/O is the only untested seam:
-- Pure / fast: `parseCommand`, `dispatch` for
-  `/model` / `/reset` / `/clear` (assert session state + returned strings).
-- Smoke: mock `node:readline` (`vi.mock`) to emit `'line'` events; assert streamed
-  output + command effects using a `fakeClient` like the existing run tests.
-- Keep `run.test.ts` green (don't break `runOneShot` signature).
-
-### 10.8 Files touched
-- New: `src/cli/repl.ts`, `tests/cli/repl.test.ts`
-- Modify: `src/agent/run.ts` (add `runTurn`), `src/index.ts` (call `startRepl`)
-- Optional: `src/ui/prompt.ts`
-- Docs after merge: this section (mark P2 done), CHANGELOG (Unreleased → Added:
-  REPL), README (REPL usage)
-
-## 11. P3 Specification (Tool core + read-only tools + async loop) — implemented
-
-Status: **Done**. This section is the authoritative P3 design, grounded in
-research of the OpenAI Responses API and the `openai-node` SDK
-(`client.responses.stream(...)`); it was implemented as code + tests + docs
-across several focused commits. A few implementation details evolved past
-what's written below — see §11.12.
-
-### 11.1 Scope
-- **In:** tool types + registry, zod→JSON-schema conversion, three read-only
-  tools (`read_file`, `list_dir`, `grep`, `stat`, `glob`), the async agent loop (parallel
-  read-only execution, capped, error-fed), tool-status rendering, and the
-  `/tools` command (deferred from P2).
-- **Out:** mutating tools (`write_file`/`edit_file`/`shell`/`git`) → P4;
-  permission policy/harness (`y/n/a`) → P5; MCP → P6.
-
-### 11.2 SDK basis (research findings)
-- `client.responses.stream(params)` returns a `ResponseStream` (an
-  `AsyncIterable` of `ResponseStreamEvent`).
-- Key events: `response.output_text.delta` (`.delta` = text fragment),
-  `response.output_item.done` whose `item.type === 'function_call'` carries
-  `call_id`, `name`, `arguments` (JSON string), and terminal
-  `response.completed` / `response.failed` / `response.incomplete`.
-- `stream.finalResponse(): Promise<Response>` returns the accumulated response;
-  its `.output` array holds the `function_call` items. Known caveat
-  (openai-node #1662): `finalResponse().output_text` was historically `undefined`
-  on streamed responses — **irrelevant here** because we accumulate text from the
-  deltas.
-- `tools` is `OpenAI.Responses.Tool[]` =
-  `{ type: 'function', name, description, parameters: <JSON Schema>, strict? }`.
-  The Responses API wants **JSON Schema**, not zod — so the registry converts.
-- Official loop (Responses API guides): iterate the stream, render text deltas,
-  collect `function_call` items, append one `function_call_output`
-  (`{ type: 'function_call_output', call_id, output }`) per call to `input`,
-  re-request, stop when no calls, cap iterations, handle terminal events.
-
-### 11.3 Module changes
-- **`agent/loop.ts` (new) — `runAgent(client, config, input, sink, logger, signal?)`.**
-  Owns the iterative tool loop; reuses `runTurn` (single model turn) and `runTool`
-  (single tool exec). Grows `history` (a `ResponseInput`) with output + output
-  items and feeds `function_call_output` back (decision B).
-- **`agent/run.ts`.** `runTurn` now returns `{ text: string, response: Response }`
-  and still streams deltas to `sink`.   Add `runTool(tool, raw, config)`:
-  registry lookup → zod parse → execute → truncate (decision F) → wrap as
-  `function_call_output`. (`runOneShot` keeps returning just `text` for tool-less
-  one-shots.)
-- **`agent/types.ts` (new).** `ToolDefinition<P>`, `ToolCall`, `ToolContext`, `ToolResult`.
-- **`tools/registry.ts` (new).** `register`/`get`/`list` + `toResponsesTool(tool)`
-  (zod → JSON Schema). Returns `OpenAI.Responses.Tool[]` for the client.
-- **`tools/local/fs.ts` (new).** `read_file`, `list_dir`, `grep`, `stat`, `glob`; path-confined
-  to the working root (`ctx.root`, always `process.cwd()` — the `root` config field was removed).
-- **`agent/loop.ts`.** Renders tool status lines inline via `renderToolResult(name, ok, ms)`.
-- **`cli/repl.ts`.** Add `/tools` dispatch (lists registered tools).
-- **`agent/client.ts`.** `stream` gains `tools?` and returns `ModelStream` (below).
-
-### 11.4 Client contract
-```ts
-export interface ModelStream extends AsyncIterable<string> {
-  finalResponse(): Promise<Response>
-}
-export interface Client {
-  stream(
-    input: ResponseInput,
-    opts?: { tools?: OpenAI.Responses.Tool[]; signal?: AbortSignal },
-  ): ModelStream
-}
-```
-Internally the wrapper iterates the SDK event stream, yields
-`response.output_text.delta.delta` for rendering, and lets `finalResponse()`
-return the accumulated `Response` (with `.output` tool calls). This keeps the
-string-based `sink.write(delta)` seam intact (Option B; the event-driven Option A
-is an alternative but more churn).
-
-### 11.5 Loop algorithm
-1. `while iteration++ < config.maxToolIterations:` call `runTurn(client, config, history, …)`.
-2. Push the assistant `output` items onto `history`.
-3. `calls = response.output.filter(function_call)`; if none, break (final text
-   already streamed).
-4. `results = await Promise.all(calls.map(c => runTool(tool, c.arguments, config)))` —
-   P3 tools are all read-only, so run in parallel; the read-only/mutating split
-   (parallel vs sequential, harness-gated) is added in **P4**.
-5. Push `results` (`function_call_output`) onto `history`; repeat.
-- Tool **errors** return *as* `function_call_output` (decision D) so the model
-  self-corrects; the loop never throws on a tool failure.
-- `maxToolIterations` default 16 (decision D); `toolTimeout` (currently unused)
-  gates each `runTool` execution in P3.
-- Path confinement: tools resolve against the working root (`ctx.root`, always
-  `process.cwd()`) and reject traversal outside (decision G/H).
-
-### 11.6 Tool interface & registry
-```ts
-export interface ToolContext { root: string; config: Config; logger: Logger }
-export interface ToolDefinition {
-  name: string
-  description: string
-  parameters: z.ZodType
-  execute(args: unknown, ctx: ToolContext): Promise<string>
-}
-export interface ToolCall { id: string; name: string; arguments: string }
-```
-`toResponsesTool` converts `parameters` (zod) → JSON Schema for
-`OpenAI.Responses.Tool` via zod v4's built-in `z.toJSONSchema` (superseding
-the hand-rolled converter this section originally specified — see §11.12).
-Use **`strict: false`** on the generated schemas.
-
-### 11.7 Read-only tools
-- `read_file(path)` — read a file under `root`; reject escapes.
-- `list_dir(path)` — list a directory under `root`.
-- `grep(pattern, path?)` — search file contents under `root`.
-- `stat(path?)` — report type/size/mtime of a file or directory under `root`.
-- `glob(pattern)` — list files matching a glob pattern (`**` recursive) under `root`.
-All results truncated to `config.maxToolOutputBytes` with a note (decision F).
-Tool output is untrusted data (decision H).
-
-### 11.8 Output (`agent/loop.ts`)
-`renderToolResult(name, ok, ms)` → `› read_file: src/index.ts ✓ done (0.0s)`
-(color via `ansis`, same auto-TTY behavior as today). Printed between turns,
-before the next streamed model text — matching the REPL layout. The helper
-lives inline in `agent/loop.ts` (its only consumer).
-
-> Since superseded: `ansis` was replaced by `node:util`'s `styleText` (via
-> `util/color.ts`, driven by `config.color` rather than auto-detection), and
-> the renderers moved out of `agent/loop.ts` to `ui/tools.ts` once they had a
-> second consumer in the tests and the loop had grown a third of its length in
-> formatting code. See §5.
-
-### 11.9 Slash commands
-`/tools` — list registered tools (`name` + `description`); deferred from P2 to P3.
-
-### 11.10 Tests (`tests/agent/loop.test.ts`, `tests/tools/*`)
-- `types`/`registry`: register/list/get, zod→JSON conversion.
-- `fs`: mock `fs`, assert content + path-confinement rejection.
-- `runTool`: truncation (F), error-as-output (D), timeout.
-- `loop`: `fakeClient` whose `stream` yields text and `finalResponse()` returns a
-  canned `Response` with a `function_call`; assert tools run, outputs fed back,
-  loop terminates, `maxToolIterations` cap honored, history grows with tool
-  items.
-- `render`: assert formatted lines via `ansis.strip(...)`.
-
-### 11.11 Files touched
-- New: `src/agent/loop.ts`, `src/agent/types.ts`, `src/tools/registry.ts`,
-  `src/tools/local/fs.ts`, `tests/agent/loop.test.ts`, `tests/tools/*`.
-  (Tool-status rendering lives inline in `agent/loop.ts`, not a separate
-  `ui/render.ts`.)
-- Modify: `src/agent/run.ts` (`runTurn` return + `runTool`), `src/agent/client.ts`
-  (`stream` → `ModelStream` + `tools`), `src/cli/repl.ts` (`/tools`),
-  `src/index.ts` (wire `runAgent` when tools are registered).
--   Docs after merge: this section (mark P3 done; §6 G already updated to `root`),
-  CHANGELOG (Unreleased → Added: tools/loop), README (tools overview).
-
-### 11.12 Resolved decisions
-1. **zod→JSON Schema:** originally hand-rolled (no new dependency); later
-   switched to zod v4's built-in `z.toJSONSchema`, which emits a compatible
-   JSON Schema (draft 2020-12) and removed the need to maintain a converter.
-2. **`strict: false`** on tool schemas.
-3. **Workdir confinement uses `ctx.root`** (always `process.cwd()`; the
-   configurable `root` field was later removed).
-4. **`toolTimeout`** is applied as the per-tool execution timeout inside `runTool`.
-5. **`Client.stream` shape: Option B** (string stream + `finalResponse()`, minimal
-    churn; the event-driven Option A is not used).
-
-## 12. P4 Specification (Mutating local tools + harness gate)
-
-Builds on P3 (decisions B/D/F/G/H unchanged). Adds tools that change state and
-the machinery to run them **sequentially** and **only after harness approval**
-— the read-only/mutating split deferred from §11.5. Full declarative permissions
-(modes + rule tables) stay in P5; P4 defines the *gate seam* P5 plugs into.
-
-### 12.1 Scope
-- New mutating tools: `write_file`, `edit_file`, `run_shell` (git is reached via
-  `run_shell`, not a dedicated tool).
-- Loop change: separate read-only (parallel) from mutating (sequential, gated)
-  calls within a turn.
-- A minimal harness gate so mutating calls are approved (REPL prompt) or denied
-  (one-shot) by default. P5 later supplies a config-driven gate.
-- Out of scope: `delete_file`/`move_file`, undo/backup, declarative permissions.
-
-### 12.2 SDK basis
-Reuses §11.2 — `client.responses.stream`, `finalResponse().output` tool-call
-extraction, JSON-Schema `tools` param. No new SDK surface.
-
-### 12.3 Module changes
-- `src/agent/types.ts`: `ToolDefinition` gains `mutates?: boolean` (default `false`).
-- `src/agent/loop.ts`: `runAgent` opts gain
-  `gate?: (tool: ToolDefinition, call: ToolCall) => Promise<boolean>`; the per-turn call
-  list is split into read-only (parallel) and mutating (sequential + gated).
-- `src/tools/local/mutate.ts` (new): `write_file`, `edit_file`, `run_shell`.
-- `src/tools/index.ts`: register mutating tools alongside read-only ones.
-- `src/agent/gate.ts` (new): REPL confirmation prompt with `y`/`n`/`a`
-  (always-for-session) state; one-shot uses a gate that denies mutating.
-- `src/cli/repl.ts` + `src/cli/commands.ts`: build/thread the gate; `/tools`
-  annotates mutating tools.
-- `src/agent/loop.ts`: reuse `renderToolResult` (no change needed).
-
-### 12.4 Tool interface & gate
-```ts
-export interface ToolDefinition {
-  name: string
-  description: string
-  parameters: z.ZodType
-  execute(args: unknown, ctx: ToolContext): Promise<string>
-  mutates?: boolean // default false → read-only, parallel, ungated
-}
-```
-`gate: (tool: ToolDefinition, call: ToolCall) => Promise<boolean>` is supplied by the
-harness. `runAgent` calls it before any mutating `runTool`; a `false` result
-yields an `ok:false` outcome with output `"denied by user"` (decision D), fed
-back as `function_call_output` so the model self-corrects.
-
-### 12.5 Loop algorithm
-1. `while iteration++ < config.maxToolIterations:` call `runTurn` (decision D).
-2. Push the assistant `output` items onto `history` (decision B).
-3. `calls = response.output.filter(function_call)`; if none, break.
-4. Split `calls` into `reads` (`!tool.mutates`) and `mutates` (`tool.mutates`).
-5. `results = await Promise.all(reads.map(c => runTool(c, ...)))` — parallel.
-6. For each `m` in `mutates` (in order):
-   - if `gate(tool, m)` is false → push a denied `function_call_output`.
-   - else `outcome = await runTool(m, ...)` (sequential).
-   - push `outcome` as `function_call_output`; render between turns.
-7. Repeat.
-
-### 12.6 Mutating tools
-- `write_file(path, content)` — create/overwrite a file under `root`
-  (`resolvePath`, decision G); `content` may be large (truncated, decision F).
-- `edit_file(path, old_string, new_string, replace_all?)` — literal string
-  replace (no diff parser, no new dependency). Error if `old_string` is absent,
-  or present more than once without `replace_all`.
-- `run_shell(command)` — spawn under `cwd = root` (decision G), capture merged
-  stdout/stderr, apply `toolTimeout`, truncate to `maxToolOutputBytes`. Full
-  arbitrary shell, gated.
-
-### 12.7 Output (`agent/loop.ts`)
-Reuses `renderToolResult` (`› write_file: ✓ done (0.0s)`); color via `ansis`,
-same auto-TTY behavior as P3. No change.
-
-### 12.8 Slash commands
-`/tools` annotates mutating entries (e.g. `write_file *`). No new commands.
-
-### 12.9 Tests (`tests/tools/mutate.test.ts`, `tests/agent/loop.test.ts`)
-- `mutate`: `write_file` writes; `edit_file` replaces / errors on missing or
-  ambiguous match; `run_shell` runs under `root` + honors `toolTimeout`;
-  path-escape rejected (reuse fs tests pattern).
-- `loop`: mutating calls execute **sequentially** (asserted order); a gated
-  `false` yields a `denied by user` `function_call_output`; read-only calls in
-  the same turn run in parallel; loop still caps at `maxToolIterations`.
-
-### 12.10 Files touched
-- New: `src/tools/local/mutate.ts`, `src/agent/gate.ts`, `tests/tools/mutate.test.ts`.
-- Modify: `src/agent/types.ts` (`mutates`), `src/agent/loop.ts` (grouping +
-  gate), `src/tools/index.ts` (register), `src/cli/repl.ts` + `src/cli/commands.ts`
-  (prompt gate, `/tools`), `tests/agent/loop.test.ts`.
-- Docs after merge: this section (mark P4 done), README (mutating tools +
-  gating note), CHANGELOG (Unreleased → Added: P4 tools/gate).
-
-### 12.11 Resolved decisions
-1. **Tool set:** `write_file` + `edit_file` + `run_shell` (git via `run_shell`).
-2. **`edit_file` semantics:** literal old/new string replace; no diff parser.
-3. **One-shot default:** deny mutating calls (safe default; P5 `--mode auto` changes it).
-4. **Shell scope:** full arbitrary shell, gated + `cwd=root` + `toolTimeout`.
-5. **Ordering:** reads parallel, then mutating sequential (in model emission order).
-6. **Undo/backup:** out of scope for P4.
-
-### 12.12 Status
-**Done.** `write_file`/`edit_file`/`run_shell` live in `src/tools/local/mutate.ts`
-(exporting `resolvePath` from `fs.ts`); the harness gate (`src/agent/gate.ts`)
-defaults to deny (one-shot) and prompts `y/n/a` in the REPL. `runAgent` splits
-read-only calls (parallel) from mutating ones (sequential, each gated), keeping
-original call order in history. `Session` carries the gate; `/tools` annotates
-mutating entries with ` *`. Covered by `tests/tools/mutate.test.ts` and loop
-gating/ordering tests.
-
-> **Note:** the harness gate described above was removed on the `experiment`
-> branch — `src/agent/gate.ts` deleted, `mutates` flag dropped, and `runCalls`
-> now executes every call unconditionally (see §5). P4's mutating *tools* remain;
-> only the approval step is gone. The two tool-definition files
-> (`tools/local/fs.ts`, `tools/local/mutate.ts`) were also unified into a single
-> `src/tools/local.ts`, then split again by concern (`paths.ts`, `traverse.ts`,
-> `fs.ts`, `search.ts`, `shell.ts`, `index.ts`), with `tools/index.ts` as the one
-> hub that registers the `localTools` array into the `ToolRegistry`.
->
-> **Since implemented:** parallel reads were restored *without* reviving the
-> permission model. `ToolDefinition` carries a `parallel?: boolean` flag
-> (default `true`; `false` on the side-effectful tools — every mutating `fs`
-> tool, `run_shell`, the `run_process`/`kill_process` pair, `ask_user`, and
-> `task`), and `runCalls` (`agent/loop.ts`) batches the parallelizable calls
-> via `Promise.all` while running the rest sequentially in emission order. It
-> is a scheduling hint only — never approval.
-
-## 13. P5 Specification (Declarative permissions + modes) — cancelled
-
-Builds on the P4 gate seam (`src/agent/gate.ts`). Plugs a declarative policy
-(`config.permissions`, already in `config/schema.ts`) into the `Gate` so tool
-calls are resolved by mode + rules instead of a fixed deny/confirm behavior.
-**Inspired by** Claude Code (tiered mode/rules, first-match
-deny→ask→allow, deny strongest, `dontAsk` for CI), OpenCode (tool-keyed
-`permission` with wildcards), and Pi (capability-based "tool doesn't exist" as
-the strongest guarantee — applied here as hiding denied tools from the model).
-
-### 13.1 Scope
-- Declarative policy evaluation: `evaluate(tool, call, mode, rules, session) ->
-  'allow' | 'deny' | 'ask'`.
-- Four modes: `interactive` (default), `auto`, `plan`, `dontAsk`.
-- Per-tool rules (`allow`/`deny`/`ask`) keyed by exact tool name plus a single
-  `*` wildcard; no argument/command specifiers in P5.
-- Wire the policy into the existing `Gate` at the REPL and one-shot call sites;
-  add `/mode` command and make `/reset` also clear in-session approvals.
-- In-session `a` (always) approval is per-tool and session-scoped.
-
-### 13.2 Locked decisions (from research review)
-1. **Rule keys** — exact tool name (`write_file`, `run_shell`, …) plus a `*`
-   catch-all. No path/command specifiers this phase (tool-level only).
-2. **`a` scope** — per-tool (only that tool, rest of session), cleared by
-   `/reset`. Matches decision E; not durable/project-scoped.
-3. **Rules beat mode** — an explicit rule always wins over the mode baseline.
-   A `deny` rule blocks even in `auto`/`dontAsk`. (Claude Code: "Deny rules
-   block in every mode, including `bypassPermissions`.")
-4. **`ask` with no TTY** — resolves to **deny** (one-shot/piped has no prompt).
-   One-shot therefore behaves like `dontAsk`: only `allow` rules / `auto` mode
-   let mutating calls through.
-5. **`/mode` persistence** — in-session only (ephemeral, like `a`); config files
-   stay user-edited.
-6. **Argument-aware rules** — out of scope for P5 (tool-level only).
-7. **`deny` can block reads** — a `deny` rule is honored for any tool (incl.
-   read-only); `allow`/`ask` on a read-only tool are no-ops since reads are
-   already allowed.
-8. **`dontAsk` mode (new)** — deny anything not explicitly `allow`; `ask` rules
-   become denials rather than prompts. The mode for one-shot / CI.
-9. **Hide denied tools** — when a tool is `deny`-ruled, also drop it from the
-   Responses tool list sent to the model (Pi's "incapable" idea, applied
-   surgically). Read-only tools stay available unless explicitly denied.
-
-### 13.3 Evaluation algorithm (`evaluate`)
-Order, per tool call:
-1. **Explicit rule** for the tool name (or `*`): if `deny` → `deny`; if `ask` →
-   `ask`; if `allow` → `allow`. First match wins; specificity does not reorder.
-2. **No rule** → mode baseline:
-   - `interactive` → `ask` (for mutating); reads → `allow`.
-   - `auto` → `allow` (mutating included); reads → `allow`.
-   - `plan` → `deny` (mutating); reads → `allow`.
-   - `dontAsk` → `deny` (mutating and anything not explicitly allowed);
-     reads → `allow` unless a `deny` rule says otherwise.
-3. **In-session `a`** — a prior `a` on this tool upgrades the result to `allow`
-   for the rest of the session (does not override an explicit `deny` rule).
-Read-only tools (`read_file`, `list_dir`, `grep`, `stat`, `glob`) short-circuit
-to `allow` before step 1 unless a `deny` rule targets them (decision 7).
-
-### 13.4 Module changes
-- `permissions/policy.ts` (new): pure `evaluate(...)` + `resolveGate(ctx)` that
-  returns a `Gate` from `(config, sessionState, ask)`.
-- `permissions/harness.ts` (new): glue — `evaluate` → `allow`⇒`true`,
-  `deny`⇒`false`, `ask`⇒ injected `askPermission` (REPL) → `y`/`a`⇒`true`,
-  `n`⇒`false`; `a` records per-tool session approval. Used by both REPL and
-  one-shot; one-shot injects an `ask` that returns `n`.
-- `ui/prompt.ts` (new): `askPermission(tool, call): Promise<'y'|'n'|'a'>`
-  (REPL wires to readline; one-shot injects a no-op returning `n`).
-- `src/tools/registry.ts` or `src/agent/loop.ts`: filter `toResponsesTools()`
-  to exclude tools whose policy resolves to `deny` for the active session
-  (decision 9).
-- `src/cli/repl.ts` / `src/cli/commands.ts`: build the policy gate; add `/mode`
-  (get/set `session.config.permissions.mode`); `/reset` clears in-session
-  approvals. `Session` gains `approvals: Set<string>`.
-- `src/agent/loop.ts` / `src/index.ts`: pass the policy gate (not the P4
-  deny/confirm gates) into `runAgent` / `runOneShot`.
-
-### 13.5 Slash commands
-- `/mode` — print current mode; `/mode <interactive|auto|plan|dontAsk>` sets it
-  in-session.
-- `/reset` — history back to `[system]` **and** clears in-session `a`
-  approvals.
-- `/tools` — already annotates mutating with ` *`; may also show each tool's
-  effective policy (optional).
-
-### 13.6 Tests
-- `tests/permissions/policy.test.ts`: pure `evaluate` across mode × rule ×
-  read-only/mutating × in-session `a` × `*` wildcard.
-- `tests/permissions/harness.test.ts`: `ask`→`y`/`n`/`a` mapping; `a` persists
-  per-tool; one-shot `ask`→deny; `*` wildcard; `deny` hides tool from schema.
-- `tests/cli/repl.test.ts`: `/mode` get/set; `/reset` clears approvals.
-
-### 13.7 Files touched
-`permissions/policy.ts` (new), `permissions/harness.ts` (new), `ui/prompt.ts`
-(new), `src/tools/registry.ts` (or `src/agent/loop.ts`), `src/cli/repl.ts`,
-`src/cli/commands.ts`, `src/agent/loop.ts`, `src/index.ts`, `README.md`,
-`CHANGELOG.md`. Version → `0.4.0` on completion.
-
-### 13.8 Out of scope
-Argument/command specifiers (`run_shell(rm *)`), durable/project-scoped
-approvals, hooks, sandboxing, managed/enterprise policy layers. Revisit in P7 if
-needed.
-
-### 13.9 Status
-**Cancelled** — the permission architecture was removed on the `experiment`
-branch (see §5); this design is no longer pursued.
-
-## 14. P8 Specification (in-session task list) — implemented
-
-Status: **Done**. Gives the model a lightweight, model-driveable task list so it
-can plan and track work during a run. Sub-agents / task-management orchestration
-were researched (opencode, Claude Code, Pi) and **deferred** — this phase ships
-only the task list, in-session, with no persistence, no config, and no new CLI
-surface.
-
-### 14.1 Scope
-- A single `todo` tool (action: add / list / update / done), driven by the model
-  via normal tool calls. Replaces the earlier `task_create` / `task_list` /
-  `task_update` trio. No extra UI beyond the `/todo` REPL command (alias `/tasks`).
-- A `TaskStore` (in `agent/tasks.ts`) holding tasks in memory for the session.
-- Out of scope: on-disk persistence, dependencies graph/enforcement, sub-agents
-  / `delegate` tool, background execution, worktree isolation, parallel fan-out.
-  These are recorded as deferred P8b+ decisions (see §14.5).
-
-### 14.2 Data model
-```ts
-export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'blocked'
-export interface Task {
-  id: string            // "T1", "T2" — sequential per session
-  title: string
-  status: TaskStatus
-  blockedBy: string[]   // task ids, for visibility only (no enforcement)
-  notes?: string
-}
-```
-Sequential `T{n}` ids keep references easy for the model. `blockedBy` is recorded
-for visibility in `todo` list; it is not enforced.
-
-### 14.3 Module changes
-- `src/agent/tasks.ts` (new): `TaskStore` with `create` / `get` / `list` /
-  `update`. No file I/O.
-- `src/tools/local/todo.ts` (new): `todoTool(store)` — one `ToolDefinition` with an
-  `action` discriminator that **closes over** the session's `TaskStore`.
-- `src/tools/index.ts`: `createLocalTools(tasks: TaskStore)` registers the single
-  `todo` tool alongside the locals + web tool.
-- `src/cli/repl.ts` and `src/index.ts`: create one `TaskStore` per session and
-  pass it into `createLocalTools`. `src/cli/commands.ts` exposes it as `/todo`
-  (alias `/tasks`).
-
-### 14.4 Tests
-- `tests/agent/tasks.test.ts`: sequential ids, `list` order, `blockedBy` capture,
-  `update` transitions, missing-id safety.
-- `tests/tools/task.test.ts`: each `todo` action (add/list/update/done), id/title
-  requirement errors, unknown-id error, and schema rejection of an invalid
-  `status`.
-
-### 14.5 Deferred (decided during planning)
-Sub-agents were explicitly deferred. When they land, the following conventions
-were locked in so a future P8b is consistent: agent definitions as
-Markdown+frontmatter files (`.dcode/agents/` project + `~/.config/dcode/agents/`
-global), subagents inherit the parent model (no per-agent override in v1), and
-task state stays in-session.
-
-## 15. P9 Specification (scoped git tool) — implemented
-
-Status: **Done**. Adds a dedicated `git` tool so the model can run common, safe
-git operations without shell-escaping concerns or reaching for `run_shell`. Git
-was previously only available via `run_shell` (P4 design, §12.6).
-
-### 15.1 Scope
-- A `git` tool exposing a curated allowlist: `status`, `diff`, `log`, `show`,
-  `add`, `commit`, `branch`.
-- `execFile('git', …)` (no shell) so paths/refs can't be shell-injected; runs
-  with `cwd = root` and `-C <root>`, plus the same `timeout` / `signal` kill-on-
-  abort handling as `run_shell` (decision L), and `runTool`'s truncation
-  (decision F) / error-as-output (decision D).
-- Out of scope: remote/destructive commands (push, pull, fetch, reset, checkout,
-  clean, merge, rebase, rm, restore) — those stay in `run_shell`. Path and ref
-  inputs are confined (resolvePath rejects `../` and symlink escapes; refs may
-  not start with `-` or contain whitespace).
-
-### 15.2 Module changes
-- `src/tools/local/git.ts` (new): `gitTool()` — `parameters` is a zod object with
-  a `command` enum plus optional `paths` / `message` / `staged` / `oneline` /
-  `maxCount` / `ref`. `buildArgs` maps the validated request to git argv;
-  `checkPaths` confines each path via `resolvePath`, `checkRef` rejects unsafe
-  refs.
-- `src/tools/index.ts`: `createLocalTools` registers `gitTool()` (and the rest of
-  the local set) in the `ToolRegistry` alongside `webTools` and `todoTool`.
-
-### 15.3 Tests (`tests/tools/git.test.ts`)
-A real temp git repo (init + seed commit) asserts: clean `status`, `add` +
-`commit` recorded in `log`, `diff` shows edits, `show HEAD` prints the commit,
-`branch` lists; schema rejection of an out-of-allowlist command; path-escape
-rejection; and a clear error when run outside a git repository.
-
-### 15.4 Status
-**Done.** `git` joins the local tool set, confined to the working directory with
-a safe operation allowlist and no shell. Covered by `tests/tools/git.test.ts`.
-
-## 16. P10 Specification (context-window management) — implemented
-
-Status: **Done**. Keeps each request within the model's context window without a
-tokenizer dependency, by (a) pruning old tool outputs cheaply and (b) summarizing
-the oldest history with a model call when pruning isn't enough. Inspired by
-opencode's prune→compact cascade and Claude Code's structured summary contract.
-
-### 16.1 Scope
-- `ContextManager` (session-scoped) owns all context management; the loop calls
-  `beforeTurn` before each request and `observe` after each response.
-- Token budget from real provider `usage` (calibrated heuristic, no new dep).
-- Cheap prune (`pruneHistory`) collapses old `function_call_output` payloads.
-- Model-call compaction (`compactHistory`) summarizes the oldest history into a
-  single `user` message, retaining a recent tail verbatim.
-- Overflow recovery: on a context-window error, compact and retry the request
-  once; a circuit breaker stops thrashing after 3 consecutive failures.
-- REPL commands `/compact` (manual) and `/context` (usage report).
-
-### 16.2 Design
-- **Estimate.** `tokens.ts`: `estimateTokens ≈ chars/4` over each item's text.
-  `ContextManager.observe(usage, history)` sets `ratio = real_input_tokens /
-  heuristic(history)` from the provider's `usage.input_tokens`, so `predict`
-  tracks the model's real tokenizer. When `usage` is absent (tests/offline),
-  `ratio` stays 1.
-- **Prune.** `pruneHistory` replaces all but the most recent `protectTurns`
-  (default 2) tool outputs with `[output truncated] (N chars)`. Cheap, lossy,
-  no model call.
-- **Compact.** `compactHistory` keeps the most recent `keepTokens` (default
-  15000) tokens as a verbatim tail, **snapping the cut to a `user` message** so a
-  `function_call` is never separated from its `function_call_output` (orphaned
-  tool calls are rejected by the API). The rest is fed to a separate model call
-  (tools disabled, `maxOutputTokens: 4096`) with a structured-summary prompt
-  (Goal / Constraints / Progress / Key Decisions / Next Steps / Critical
-  Context). The summary replaces the old items as a `user` message; the
-  model call's own tokens are discarded. `user` (not `developer`/`system`) is
-  used for the summarization input and the injected summary because several
-  OpenAI-compatible / local endpoints reject those roles as input messages and
-  return a non-conformant `output` shape the SDK can't parse.
-- **Manager.** `beforeTurn`: if `predict >= usable` (`window - reserved`), prune,
-  then compact if still over. `usable()` and the breaker make it safe. A healthy
-  turn that fits resets the failure counter.
-- **Overflow.** `client.stream` gains `maxOutputTokens?`; `isContextOverflowError`
-  detects OpenAI's 413 / `context_length_exceeded`. `loop.ts` catches it,
-  calls `onOverflow` (compact + retry once), and lets it fail normally if the
-  breaker is tripped.
-
-### 16.3 Config (`schema.ts`)
-```ts
-context: z.object({
-  auto: z.boolean().default(true),
-  window: z.number().int().positive().default(200000),  // model's real context limit
-  reserved: z.number().int().nonnegative().default(20000), // headroom for output + compaction
-  keepTokens: z.number().int().positive().default(15000),  // recent tail kept verbatim
-  prune: z.boolean().default(true),
-}).default({})
-```
-`window` must match the model in use (e.g. set lower for small local models); the
-default assumes an OpenAI-scale window.
-
-### 16.4 Tests
-`tests/agent/context/{tokens,prune,compact,manager}.test.ts`: heuristic + history
-estimation; prune protects the newest outputs; compact summarizes oldest and
-keeps the tail; manager compacts when over budget, trips the breaker after
-repeated failures, and `onOverflow` recovers-then-gives-up; `isContextOverflowError`
-detects the right errors.
-
-### 16.5 Status
-**Done.** REPL and one-shot both run a `ContextManager`; history stays within the
-configured window, and a context-window overflow is recovered transparently.
-Covered by `tests/agent/context/*`. The in-session task list survives compaction
-(it lives outside `history`), so `/compact` never loses tracked work.
-
-## 17. REPL command backlog
-
-Candidate slash commands deferred from the v0.10.0 command pass:
-
-- **`/save [path]`** — **Implemented** (see §26): writes the conversation
-  transcript (`history`) to a file — Markdown (`.md`) or verbatim JSON — and
-  refuses to overwrite an existing file.
-- **`/limit <n>`** — **Implemented** (see §26): sets `maxToolIterations` at
-  runtime (so runaway-loop caps can be tuned without restarting). `/keep <tokens>`
-  for `context.keepTokens` remains deferred.
-
-Lower priority, also considered: `/mode` (read-only vs. mutate toggle; see
-cancelled P5), `/cost` (cumulative token-cost estimate building on `/context`),
-`/branch` (snapshot `history` to fork and revert).
-
-## 18. Tool roadmap (recommendations)
-
-Beyond the current set (inspect: `read_file`/`list_dir`/`stat`/`grep`/`glob`;
-mutate: `write_file`/`edit_file`/`run_shell`/`git_*`; web: `web_fetch`/
-`web_search`; `todo`), the following tools would raise dcode's usefulness.
-Ranked by value/effort:
-
-- **Tier 1 — file lifecycle (safety).** `move_file`/`rename`, `copy_file`,
-  `delete_file` (with a guard against deleting the working-directory root),
-  `make_dir`. These replace risky `run_shell` `mv`/`cp`/`rm` while keeping
-  `resolvePath` confinement + structured errors.
-- **Tier 2 — process control (biggest capability jump).** `run_process` (spawn a
-  background command — a dev server, test watcher, or any long-running job —
-  and return a handle), `read_process` (tail its output), `kill_process` (stop
-  it). Today `run_shell` only runs foreground-to-completion.
-- **Tier 3 — richer introspection.** `find_symbol` / `find_references`
-  (LSP-lite via tree-sitter or ripgrep); `read_image` (multimodal) for UI work;
-  `watch` (fs-event notifications) for tight TDD loops.
-- **Tier 4 — optional/niche.** `apply_patch` (atomic multi-file edits from a
-  unified diff); `http_request` (call the user's own API for testing;
-  security-scrutinized); `memory` (persist facts across sessions).
-
-P11 (this round) ships Tier 1 + `run_process`/`read_process`/`kill_process`.
-
-## 19. P11 Specification (file lifecycle + background process tools) — implemented
-
-Status: **Done**. Adds safe file-lifecycle operations (so refactors and
-cleanups don't need raw `run_shell` `rm`/`mv`/`cp`) and background-process
-control (for dev servers, watchers, and any long-running command).
-
-### 19.1 Scope
-- File ops: `move_file`, `copy_file`, `delete_file`, `make_dir`, all
-  `resolvePath`-confined to the working directory.
-- Background control: `run_process` (spawn, return a handle + pid),
-  `read_process` (tail output + exit status), `kill_process` (stop the process
-  group with a chosen signal).
-- `delete_file` refuses to delete the working-directory root itself; directory
-  deletion requires `recursive: true`.
-
-### 19.2 Module changes
-- `src/tools/local/fs.ts`: add `move_file` (rename, creating the destination
-  parent dir), `copy_file` (copyFile), `delete_file` (rm, root-self-delete
-  guard), `make_dir` (mkdir -p). All errors routed through `fsError`.
-- `src/tools/local/process.ts` (new): `ProcessManager` (module singleton)
-  spawns via `child_process.spawn` with `detached: true`, scrubs secrets via
-  `safeEnv`, confines `cwd` to the root, caps buffered output
-  (`PROC_MAX_OUTPUT`), and kills the process *group* (`process.kill(-pid)`) on
-  `kill_process` and on the session `ctx.signal` abort. `run_process`,
-  `read_process`, `kill_process` tools. `killAll()` runs on process exit.
-- `src/tools/index.ts`: register the four fs tools and the three process tools.
-
-### 19.3 Tests (`tests/tools/local.test.ts`)
-- File ops: make_dir (nested); move_file (file + dir, creates dest parent);
-  copy_file (content + dest parent); delete_file (file; recursive dir; root
-  self-delete refused); path-escape rejection.
-- Process: run_process starts and returns a handle; read_process tails output
-  and reports running/exited; kill_process stops a long-running command (assert
-  it exits); unknown-handle errors; leaked processes killed in `afterEach`.
-
-### 19.4 Status
-**Done.** File-lifecycle and background-process tools join the local set,
-confined to the working directory. Covered by `tests/tools/local.test.ts`.
-
-## 20. P12 Specification (symbol search — find_symbol / find_references) — planned
+### P12 — Symbol search (`find_symbol` / `find_references`)
 
 Adds LSP-lite symbol search over the working directory. v1 uses ripgrep-style
 heuristics rather than tree-sitter/LSP; a precise tree-sitter upgrade is a
-later option. `grep`/`glob` are now actually ripgrep-backed (not just
-"ripgrep-style"; see §5), so this can reuse that plumbing directly instead of
-reimplementing a regex-over-files scan.
+later option. `grep`/`glob` are already ripgrep-backed, so this reuses that
+plumbing directly instead of reimplementing a regex-over-files scan.
 
-### 20.1 Scope
-- `find_symbol(name, kind?, path?)` — locate definition sites using a small
-  per-language definition-regex map (e.g. `function\s+<name>`, `class\s+<name>`,
-  `def\s+<name>`, `const\s+<name>\s*=`, `type\s+<name>\s*=`), keyed by file
-  extension. Reuses `search.ts`'s `runRg` helper + `GREP_MAX_MATCHES`.
-- `find_references(name, kind?, path?)` — word-boundary (`\b<name>\b`) search
-  across files of the same language family. Best-effort: cannot resolve
-  scoping, so it may include shadowed/同名 symbols (stated in the tool
-  description).
+- **Scope.** `find_symbol(name, kind?, path?)` locates definition sites via a
+  small per-language definition-regex map (`function\s+<name>`,
+  `class\s+<name>`, `def\s+<name>`, `const\s+<name>\s*=`, `type\s+<name>\s*=`,
+  …), keyed by file extension, reusing `search.ts`'s `runRg` helper +
+  `GREP_MAX_MATCHES`. `find_references(name, kind?, path?)` is a
+  word-boundary (`\b<name>\b`) search across files of the same language
+  family — best-effort, since it can't resolve scoping and may include
+  shadowed/same-name symbols (state this in the tool description).
+- **Module changes.** `src/tools/local/search.ts`: add `findSymbolTool()`,
+  `findReferencesTool()`, a `langDefRegex` map (TS/JS/Python/C/Rust first).
+  Both `resolvePath`-confined, capped + footer like `grep`.
+- **Tests (`tests/tools/search.test.ts`).** Definition matching per
+  supported language; `kind` filter narrows results; `find_references` finds
+  usages and ignores non-word-boundary substrings; path confinement; cap +
+  footer.
+- Tree-sitter/LSP precision (curated grammars, scoped references) is a
+  documented future upgrade, not part of v1.
 
-### 20.2 Module changes
-- `src/tools/local/search.ts`: add `findSymbolTool()`, `findReferencesTool()`;
-  add a `langDefRegex` map (TS/JS/Python/C/Rust first). Both `resolvePath`-
-  confined, capped + footer like `grep`.
-
-### 20.3 Tests (`tests/tools/search.test.ts`)
-- Definition matching for each supported language; `kind` filter narrows
-  results; `find_references` finds usages and ignores non-word-boundary
-  substrings; path confinement (escape rejection); cap + footer.
-
-### 20.4 Status
-**Planned.** Tree-sitter/LSP precision (curated grammars, scoped references)
-is a documented future upgrade, not part of v1.
-
-## 21. P13 Specification (apply_patch — atomic multi-file unified-diff apply) — planned
+### P13 — `apply_patch` (atomic multi-file unified-diff apply)
 
 Applies a unified diff (possibly multi-file) atomically: either every file
 changes or none do. No new dependency — a minimal hand-rolled unified-diff
 parser + temp-file-then-rename apply (the `diff` npm package is a fallback
 only if parsing proves fiddly).
 
-### 21.1 Scope
-- `apply_patch(patch, dry_run?, allow_conflict?)` — parse a unified diff into
-  per-file records, `resolvePath` each path (reject escapes), apply hunks to
-  temp files, then `rename` each temp over its target only after *all* apply
-  cleanly. On any failure (parse error, missing context lines, conflict) the
-  whole patch is aborted and originals are untouched.
+- **Scope.** `apply_patch(patch, dry_run?, allow_conflict?)` parses a
+  unified diff into per-file records, `resolvePath`s each path (reject
+  escapes), applies hunks to temp files, then `rename`s each temp over its
+  target only after *all* apply cleanly. Any failure (parse error, missing
+  context lines, conflict) aborts the whole patch with originals untouched.
+- **Module changes.** `src/tools/local/patch.ts` (new): `parseUnifiedDiff()`,
+  `applyPatch()` (atomic + rollback), `applyPatchTool()`. Conflict detection
+  (hunk context lines must still match the current file) is strict by
+  default; `dry_run` reports the files that would change without writing.
+- **Tests (`tests/tools/patch.test.ts`).** Atomic success (multi-file);
+  partial-failure rollback (originals unchanged); path-escape rejection;
+  conflict detection; dry_run.
+- Shell `patch` is deliberately not used — it escapes `resolvePath`
+  confinement and yields harder-to-structure errors.
 
-### 21.2 Module changes
-- `src/tools/local/patch.ts` (new): `parseUnifiedDiff()`, `applyPatch()`
-  (atomic + rollback), `applyPatchTool()`. Conflict detection (hunk context
-  lines must still match the current file) is strict by default; `dry_run`
-  reports the files that would change without writing.
+**`multi_edit` — a down-payment on P13, sketched but not implemented.** A
+smaller stepping stone that delivers most of P13's per-file value before the
+full unified-diff machinery: apply **multiple string replacements to a
+single file** in one call, **sequentially and atomically**.
 
-### 21.3 Tests (`tests/tools/patch.test.ts`)
-- Atomic success (multi-file); partial-failure rollback (originals
-  unchanged); path-escape rejection; conflict detection; dry_run.
-
-### 21.4 Status
-**Planned.** Shell `patch` is deliberately not used (it escapes `root`
-confinement and yields harder-to-structure errors).
-
-### 21.5 `multi_edit` — down-payment on P13 (planned, sketch)
-
-A smaller stepping stone that delivers most of P13's per-file value before the
-full unified-diff machinery: apply **multiple string replacements to a single
-file** in one call, **sequentially and atomically**. Single-file keeps it
-aligned with `edit_file` and makes atomicity trivial; `apply_patch` later
-generalizes the same idea to multi-file hunks.
-
-**Schema.** `multi_edit(path, edits: [{ old_string, new_string, replace_all? }])`
-(`edits` non-empty). `parallel: false` (mutating).
-
-**Semantics (the load-bearing decisions):**
-- **Sequential application.** Each edit runs against the *result* of the
-  previous one (a running buffer), not the original — so an edit may target
-  text a prior edit produced. Order-dependent; the description must say so
-  explicitly (this is what models most often get wrong about batch edits).
-- **Atomic, all-or-nothing.** Read once, apply every edit in memory, `writeFile`
-  **once** at the end. Any failure aborts the whole call and writes nothing —
-  the strict improvement over calling `edit_file` N times and having the 2nd
-  fail mid-way. One fs round-trip.
-- **Per-edit uniqueness inherited from `edit_file` (decision K).** Exact match,
-  unique unless `replace_all`; literal `split`/`join` substitution (never
-  `replace`/`replaceAll`, to avoid `$&`-style corruption); same `count === 0` /
-  `count > 1` guards.
-- **Indexed errors.** Failures name the edit — `edit 2/3: old_string not found
-  in <path>` / `edit 2/3: matches 4 times; make it unique or pass replace_all`
-  — so the model knows which hunk to fix. Without the index the atomicity
+- **Schema.** `multi_edit(path, edits: [{ old_string, new_string,
+  replace_all? }])` (`edits` non-empty), `parallel: false`.
+- Each edit runs against the *result* of the previous one (a running
+  buffer), not the original — order-dependent, and the tool description
+  must say so explicitly (this is what models most often get wrong about
+  batch edits).
+- Atomic, all-or-nothing: read once, apply every edit in memory, `writeFile`
+  once at the end — any failure writes nothing, unlike calling `edit_file` N
+  times and having the second one fail mid-way.
+- Per-edit uniqueness inherited from `edit_file`: exact match, unique unless
+  `replace_all`; literal `split`/`join` substitution (never
+  `replace`/`replaceAll`, to avoid `$&`-style corruption).
+- Indexed errors name the edit (`edit 2/3: old_string not found in <path>`)
+  so the model knows which hunk to fix — without the index the atomicity
   guarantee is wasted.
-- **Binary + fs-error handling once, up front** (NUL-byte refusal, `withFsError`),
-  same as `edit_file`.
-- **Return:** `edited <path> (<n> edits)`.
+- Share the core with `edit_file` via one `applyReplacement(text,
+  old_string, new_string, replace_all, label)` helper, so the two tools
+  can't drift; `edit_file` becomes one call into it, `multi_edit` a `reduce`
+  over `edits`.
+- Open questions to settle before implementing: no new-file creation via an
+  empty first `old_string` (proposed: `write_file` keeps owning creation);
+  no overlap pre-validation (proposed: sequential semantics + indexed errors
+  already make outcomes predictable).
 
-**Shared-core refactor (do it as part of this):** extract the single
-replacement into a helper — `applyReplacement(text, old_string, new_string,
-replace_all, label) -> string` (throws with `label` prefix on
-not-found/ambiguous). `edit_file` becomes one call; `multi_edit` becomes a
-`reduce` over `edits` with `label = \`<path> edit i/n\``. Keeps the two tools
-from drifting.
-
-**Wiring.** Register in `tools/index.ts` beside `editFileTool()`. No sub-agent
-policy change: `general` is `{deny:['task']}` (auto-included); `explore` is
-read-only (correctly excluded). Keep `edit_file` — single edits stay the common
-cheap case.
-
-**Tests (`tests/tools/local.test.ts` or a new file):** sequential dependent
-edits; atomic rollback (a failing middle edit leaves the file byte-identical);
-indexed error text; `replace_all` within one edit; binary refusal; empty-array
-rejection (schema-level).
-
-**Open questions (settle before implementing):**
-- *New-file creation?* Claude Code's MultiEdit allows an empty `old_string` on
-  the first edit to create a file. Proposed: **no** for v1 — `write_file` owns
-  creation; keep `multi_edit` purely mutating.
-- *Overlap detection?* Proposed: **no** pre-validation — sequential semantics +
-  indexed errors already make outcomes predictable; overlap analysis is
-  complexity for little gain.
-
-**Status:** Planned (sketch only, not implemented).
-
-## 22. REPL UX enhancements (cheap + safe) — implemented
-
-Status: **Done.** Display-only improvements that don't change tool contracts
-or the agent data flow.
-
-(`renderToolResult`/`renderToolOutput` have since moved to `src/ui/tools.ts`;
-paths below are as-implemented at the time.)
-
-- **Richer tool-status lines** (`renderToolResult`): the
-  tool name is colored, the status check/cross stays green/red, and the
-  duration is dimmed. Stripped text is unchanged, so the contract holds.
-- **Colored diff preview** (`renderToolOutput`): unified-diff lines are colored
-  (hunk headers cyan, `+` green, `-` red). Lights up `git diff` output in
-  verbose mode. `edit_file` output stays `edited <path>` (no diff in the tool
-  result, so the model contract is unchanged); the coloring is purely display.
-- **REPL tab-completion** (`src/cli/completer.ts`, new; wired into
-  `startRepl`): slash commands complete from the known list; otherwise the last
-  whitespace-delimited token is completed as a path under the working
-  directory, confined via `resolvePath` so it can't suggest escapes.
-
-### 22.1 Tests
-- `tests/cli/completer.test.ts`: slash-command completion; file/nested/dir
-  completion; escape returns nothing.
-- `tests/agent/loop.test.ts`: diff-line coloring preserves content under
-  `ansis.strip`.
-
-## 23. Global API-key storage — implemented
-
-Status: **Done.** Lets a globally installed `dcode` persist secrets across
-directories without editing JSON or exporting env vars per shell.
-
-- `src/cli/keys.ts` (new): `setGlobalKey`/`unsetGlobalKey` write a single secret
-  into `~/.config/dcode/dcode.json` (relocatable via `XDG_CONFIG_HOME`), with
-  the file at `0600` and its directory at `0700`. A small provider allowlist
-  (`openai` → `apiKey`, `brave` → `brave`) stops `/key` from writing arbitrary
-  config keys.
-- `/key` REPL command (`src/cli/commands.ts`): `set <openai|brave> <value>`,
-  `unset <openai|brave>`, `list` (shows set/unset, never the values). Setting a
-  key also updates the live session config so it takes effect immediately.
-- `schema.ts` adds a `brave` field; `config.ts` folds `BRAVE_API_KEY` into config
-  (env > file > default, same precedence as `apiKey`). `web_search` reads
-  `ctx.config.brave` only — that precedence is already resolved by the time a
-  tool runs, so re-checking `process.env.BRAVE_API_KEY` in the tool would be
-  redundant and could shadow a key set at runtime via `/key set brave`.
-- `/config` now prints a `keys: openai=set brave=unset (values hidden)` line.
-- Key resolution precedence: CLI > env > global config > schema default. Secrets
-  are never logged and are not echoed by `/key list`.
-
-### 23.1 Tests
-- `tests/cli/keys.test.ts`: 0600 perms, field merge, unset, provider allowlist.
-- `tests/config/config.test.ts`: `buildConfig` picks up `apiKey`/`brave` from the
-  global config when env is unset.
-- `tests/tools/web.test.ts`: `web_search` uses `ctx.config.brave` when env unset.
-
-## 24. Dropped `.env` auto-loading — implemented
-
-Status: **Done.** `dcode` no longer auto-loads a `.env` file. Config resolution is
-now exclusively `CLI > env (process) > global ~/.config/dcode/dcode.json > schema
-defaults` (with an explicit `--config <path>` replacing the global file).
-
-Rationale: the global `~/.config/dcode/dcode.json` (set via `/key`) covers
-secret/config needs; the `.env` loader lived in the `src/index.ts`
-shebang and was cwd-relative (so a global install got no global `.env`) and did
-not apply to Windows bin installs. `process.env` is still read (shell-exported
-vars) — distinct from `.env` file loading.
-
-Changes: removed `--env-file-if-exists=.env` from the `src/index.ts` shebang and
-the `dev`/`start`/`stress` scripts; updated the missing-key / invalid-key
-guidance in `src/index.ts` and the config docs in `README.md`/`AGENTS.md`.
-
-## 25. Dropped repo-local `./dcode.json` discovery — implemented
-
-Status: **Done.** dcode targets a globally installed, general-purpose use rather
-than repo-based use, so automatic discovery of a local `./dcode.json` / `.dcode.json`
-in the working directory was removed. Config resolution is now
-`CLI > env (process) > global ~/.config/dcode/dcode.json > schema defaults`, with
-an explicit `--config <path>` replacing the global file. `readConfigFile` (which
-absorbed the former `loadConfig`) no longer searches the cwd for config files;
-the config tests were updated (explicit `--config` file is used instead of
-global; the precedence integration test asserts global < env < cli). The former
-`mergeConfigs` was folded into `buildConfig`. Guidance text in `src/index.ts` points to
-`/key` / the global file.
-
-## 26. REPL ergonomics + parallel reads — implemented
-
-Status: **Done.** A batch of small, high-value improvements shipped together:
-
-### 26.1 Parallel read-only tool execution
-`ToolDefinition` gains an optional `parallel?: boolean` (default `true`). The
-agent loop batches consecutive read-only calls via `Promise.all` while running
-mutating calls (`parallel: false`) sequentially in emission order. This restores
-the parallel-reads behavior that was lost when the P5 gate/parallel split was
-removed (§12.12) — but as pure scheduling, with no permission prompt. All
-mutating tools (`write_file`, `edit_file`, `move_file`, `copy_file`,
-`delete_file`, `make_dir`, `run_shell`, `git`, `run_process`, `kill_process`)
-set `parallel: false`; read-only tools keep the default.
-
-### 26.2 `/save` and `/limit` REPL commands
-- `/save [path]` writes the conversation `history` to a file. A `.md` extension
-  renders a Markdown transcript; otherwise it writes verbatim JSON
-  (`ResponseInput`) for reload. Defaults to `dcode-transcript.json` under `root`
-  and refuses to overwrite an existing file (no confirmation prompt exists).
-- `/limit <n>` sets `maxToolIterations` at runtime.
-
-### 26.3 Files touched
-`src/agent/types.ts` (`parallel`), `src/agent/loop.ts` (`runCalls` batches
-parallel calls), `src/tools/local/{fs,shell,git,process}.ts` (`parallel:
-false`), `src/cli/commands.ts` (`/save`, `/limit`, `historyToMarkdown`),
-`tests/agent/loop.test.ts`, `tests/cli/repl.test.ts`, `tests/cli/commands.test.ts`.
-
-
-
-
-## 27. P14 Specification (file inputs — read local PDFs/images) — candidate
+### P14 — File inputs (read local PDFs/images)
 
 Lets the model actually read non-text artifacts. Today dcode is blind to
 them: `read_file` refuses binary (NUL byte → "binary … not shown") and
@@ -1215,278 +324,169 @@ PDF is decomposed into text + page images. This phase wires local PDFs and
 images into that path so the agent can act on a spec, an RFC, a screenshot of
 a failing UI, or a diagram.
 
-### 27.1 Scope
-- A `read_document(path)` tool (or a `read_file` branch) that, for a PDF or
-  image under `root`, emits an `input_file` / `input_image` content part
-  instead of refusing — so the *next* model turn sees the artifact. Text
-  files keep going through `read_file` unchanged.
-- **v1 uses inline base64** (`file_data` / image data-URI), not
-  `files.create`: one request, no server-side object to retain or clean up,
-  and it keeps `store: false` intact. `files.create` (`purpose:
-  "user_data"`/`"assistants"`, reference by `file_id`) is a **later
-  optimization** for files past the inline size limit or reused across many
-  turns — not the entry point.
+- **Scope.** A `read_document(path)` tool (or a `read_file` branch) that,
+  for a PDF or image under the working directory, emits an
+  `input_file`/`input_image` content part instead of refusing, so the
+  *next* model turn sees the artifact. Text files keep going through
+  `read_file` unchanged. **v1 uses inline base64** (`file_data`/image
+  data-URI), not `files.create`: one request, no server-side object to
+  retain or clean up, and it keeps `store: false` intact — `files.create`
+  is a later optimization for files past the inline size limit, not the
+  entry point.
+- **Two tensions to resolve first.** (1) `store: false`/privacy: inline
+  base64 respects it, `files.create` does not (server-side retention) —
+  if ever added, `files.create` must be opt-in and documented. (2)
+  OpenAI-compatible-endpoint posture: file inputs are OpenAI-specific and a
+  local/compatible endpoint may reject them (the same reason compaction
+  avoids `developer`/`system` roles) — this must be capability-gated (a
+  config flag or a real endpoint check) and degrade to today's "binary, not
+  shown" when unavailable, never a hard failure.
+- **Module changes.** `agent/client.ts`: `Client.stream`'s input path must
+  carry structured content parts, not just text. `tools/local/fs.ts` (or a
+  new `documents.ts`): PDF/image detection by extension + magic bytes, size
+  cap, base64 encoding, `resolvePath`-confined as ever. `config/schema.ts`:
+  a gate (e.g. `fileInputs: boolean`, default off).
+- **Tests.** PDF/image produce the right content-part shape; a text file is
+  unaffected; oversize is refused with a clear message; path-escape
+  rejection; the gate off → today's "binary, not shown" behavior.
+- **Status.** Candidate, not scheduled — additive capability, not a
+  simplification; it earns its place only if reading PDFs/images is a real
+  workflow need, and must clear the two tensions above first.
 
-### 27.2 Two locked-decision tensions to resolve first (see §6)
-- **`store: false` / privacy.** Inline base64 respects it; `files.create`
-  does *not* (server-side retention of the user's file). If `files.create` is
-  ever added it must be opt-in and documented, consistent with decision on
-  server storage.
-- **OpenAI-compatible-endpoint posture.** File inputs are OpenAI-specific;
-  local/compatible endpoints (Ollama's `/v1/responses`) may reject them, like
-  the `developer`/`system` roles compaction already avoids. So this is
-  **capability-gated** — a config flag or a real endpoint check — and degrades
-  to today's "binary, not shown" when unavailable, never a hard failure.
+### Deferred REPL commands
 
-### 27.3 Module changes
-- `src/agent/client.ts`: the `Client.stream` input path must carry structured
-  content parts (`input_file`/`input_image`), not just text — a small widening
-  of what a history item's `content` may hold.
-- `src/tools/local/fs.ts` (or a new `documents.ts`): PDF/image detection by
-  extension + magic bytes, size cap (reuse the bounded-read discipline), base64
-  encoding, and building the content part. `resolvePath`-confined as ever.
-- Config: a gate (e.g. `fileInputs: boolean`, default off, or derived from the
-  endpoint) in `config/schema.ts`.
+`/cost` (cumulative token-cost estimate building on `/context`), `/branch`
+(snapshot `history` to fork and revert). Lower priority than the above.
 
-### 27.4 Tests
-- PDF and image produce the right content-part shape; a text file is
-  unaffected; oversize is refused with a clear message; path-escape rejection;
-  the gate off → the old "binary, not shown" behavior.
+## 11. Phase history
 
-### 27.5 Status
-**Candidate** (not yet scheduled). Additive capability, not a simplification —
-it earns its place only if reading PDFs/images is a real workflow need, and it
-must clear the two tensions in §27.2 first.
+One entry per completed or cancelled phase: what it did, the decision worth
+remembering, and where to look for the real detail (code comments,
+CLAUDE.md/AGENTS.md, git history) rather than re-explaining it here.
 
----
+**P1 — Config + client + one-shot.** JSON config (decision A) via zod
+(`config/schema.ts`), the OpenAI Responses client wrapper (`agent/client.ts`),
+and `runOneShot`. Foundation for everything after it.
 
-## 28. A3 Specification (max output tokens recovery) — implemented
+**P2 — REPL.** `cli/repl.ts`'s `startRepl` + `handleLine`, streaming turns via
+`runTurn`, and the first slash commands (`/help`, `/model`, `/clear`,
+`/reset`, `/version`, `/exit`). History is a plain `ResponseInput` array
+(decision B); Ctrl-C aborts the in-flight turn via `AbortController`
+(decision L) without exiting the process.
 
-### 28.1 Goal
-When the model's response is truncated due to output token limits, inject a
-"Continue." user message and retry, so the model can finish its answer.
+**P3 — Tool core + read-only tools + async loop.** Introduced `ToolDefinition`,
+`ToolRegistry`, and `agent/loop.ts`'s `runAgent` tool-calling loop, plus the
+first read-only tools (`read_file`, `list_dir`, `grep`, `stat`, `glob`).
+zod→JSON-Schema conversion ended up using zod v4's built-in `z.toJSONSchema`
+rather than a hand-rolled converter. Tool errors are fed back as
+`function_call_output` (decision D) so the model can self-correct rather than
+crashing the loop.
 
-### 28.2 Design
-After each `runTurn` completes, check `response.incomplete_details?.reason ===
-'max_output_tokens'`. If truncated:
-1. Replay the truncated turn's own output into history (via
-   `pushResponseOutput`), so the retry is grounded in the partial answer — and
-   any tool calls it already emitted — instead of re-answering from scratch.
-   This is the same pattern the OpenAI agents SDK uses for the condition.
-2. Push `{ role: 'user', content: 'Continue.' }` to history.
-3. Retry the turn (`runOnce()` again). A "Continue." retry that itself hits a
-   context overflow is routed through the same compact-and-retry recovery as
-   the initial request (§29), rather than surfacing raw.
-4. Repeat up to `CONTINUE_RETRIES = 3` times.
-5. The counter resets on each non-truncated response (the while loop exits).
+**P4 — Mutating local tools.** Added `write_file`, `edit_file`, `run_shell`
+(git reached via `run_shell`, no dedicated tool) plus a harness approval gate
+(`y`/`n`/`a` prompt) and a read-only/mutating call split. The gate was later
+removed entirely (see P5); the mutating *tools* and the parallel/sequential
+split survived as pure scheduling (`ToolDefinition.parallel`, default `true`,
+`false` on every side-effectful tool) — see AGENTS.md's Architecture section
+for the current shape (`runCalls` in `agent/loop.ts`).
 
-This runs within a single iteration of the main tool loop — after the continue
-loop finishes, the normal tool-call check and history push happen as usual.
+**P5 — Declarative permissions + modes — cancelled.** A full policy design
+was built: four modes (`interactive`/`auto`/`plan`/`dontAsk`), per-tool
+allow/deny/ask rules with a `*` wildcard, rules-beat-mode precedence, and
+hiding denied tools from the model entirely. It was implemented, then removed
+on this branch along with P4's gate — `agent/gate.ts` is gone, `ToolDefinition`
+has no `mutates`/policy flag, and every tool call runs unconditionally. See
+AGENTS.md's Security model for why (a partial in-process gate added little
+real safety on top of an already-ungated `run_shell`, while costing
+complexity and a worse-feeling UX). Not being revived; if the calculus ever
+changes, the design lives in this file's git history.
 
-### 28.3 Tests
-- Truncated → truncated output replayed → "Continue." injected → next turn
-  gets the rest.
-- 3 consecutive truncations → stop retrying, return last text.
-- Non-truncated response → no "Continue." injected.
-- Counter resets after a successful non-truncated turn.
-- Overflow during a "Continue." retry → recovery still applies.
+**P6 — MCP integration.** `tools/mcp/manager.ts`'s `connectMcpServers`
+connects every `mcpServers` entry with `enabled: true` (default `false` —
+opt-in per server) in parallel at startup, over stdio (`type: "local"`) or
+streamable HTTP (`type: "remote"`, static headers only, no OAuth), using the
+official `@modelcontextprotocol/sdk` client. Each server's tools become
+ordinary `ToolDefinition`s named `mcp__<server>__<tool>`, indistinguishable
+to the loop, `task` sub-agent filtering, and `/tools`/`/mcp` from built-ins.
+A `headers`/`env` value that is exactly `${VAR_NAME}` expands from
+`process.env` at connect time, so a server's secret never has to sit in
+`dcode.json`. A server that fails to connect, or is disabled, is recorded in
+`McpManager.servers` with a distinct status rather than blocking startup.
+Closed on exit/SIGINT (decision I). See CLAUDE.md's MCP integration
+paragraph for the current implementation shape.
 
-### 28.4 Files
-- `src/agent/loop.ts` — while loop after `runOnce()`
+**P7 — Polish.** `--verbose`/stderr diagnostics, `--no-color`, SIGINT
+handling, and a documentation pass. No new locked decisions.
 
----
+**P8 — In-session task list.** A single `todowrite` tool (the model resends
+the whole list each call, so its view and dcode's can't drift field-by-field)
+backed by `agent/todo-store.ts`'s `TaskStore`. Sub-agent orchestration was
+explicitly deferred here and shipped later as part of the task tool (see
+"landed outside phases" in §8) — when it landed, the sub-agent's own
+`TaskStore` conventions (per-agent, not shared) trace back to this phase's
+groundwork.
 
-## 29. A7 Specification (multi-retry compaction) — implemented
+**P9 — Scoped git tool, done then removed.** Added a `git` tool with a
+curated allowlist (status/diff/log/show/add/commit/branch) run via
+`execFile` (no shell). Removed once P4's shell gate was gone: a scoped
+allowlist added no real safety over an already-ungated `run_shell` while
+costing a whole tool slot. Git is reached via `run_shell` today.
 
-### 29.1 Goal
-When a context overflow occurs, compact and retry up to 3 times (instead of
-just once), giving the compaction cascade more chances to find headroom.
+**P10 — Context-window management.** `agent/context/`'s `ContextManager`
+keeps requests within the model's window without a tokenizer dependency: a
+cheap `~chars/4` estimate calibrated against the provider's real
+`usage.input_tokens`, proactive pruning of old tool outputs, then
+model-call compaction into a structured summary once the estimate crosses
+`compactAt` of budget, and a bounded overflow-retry/circuit-breaker path for
+when a request still exceeds the window. `/compact` (manual) and `/context`
+(usage report) REPL commands. The in-session task list survives compaction
+since it lives outside `history`.
 
-### 29.2 Design
-Replace the single `if (isContextOverflowError) { onOverflow(); retry() }` with
-a loop:
+**P11 — File lifecycle + background processes.** Added `move_file`,
+`copy_file`, `delete_file` (refuses to delete the working-directory root;
+directories require `recursive: true`), `make_dir`, and background-process
+control (`run_process`/`read_process`/`kill_process` via a module-level
+`ProcessManager`, killed on session exit).
 
-```ts
-for (let retry = 0; retry < OVERFLOW_RETRIES; retry++) {
-  if (!(await opts.context.onOverflow(client, config, history))) break
-  try {
-    return await runOnce()
-  } catch (retryErr) {
-    if (!isContextOverflowError(retryErr)) throw retryErr
-  }
-}
-throw original
-```
+**A3 — Max output tokens recovery.** When a turn's response is truncated
+(`incomplete_details.reason === 'max_output_tokens'`), `agent/loop.ts`
+replays the truncated output into history, injects `{role: 'user', content:
+'Continue.'}`, and retries up to `CONTINUE_RETRIES = 3` times, resetting on
+any non-truncated response.
 
-`OVERFLOW_RETRIES = 3`. The existing `ContextManager.onOverflow` circuit breaker
-(`CIRCUIT_BREAKER = 3`) still applies independently — it tracks consecutive
-compaction failures, while this loop tracks overflow retry attempts. The
-retried request is any single turn attempt: an overflow on the initial request
-*or* on a "Continue." retry (§28) both route here, since `completeTurn` wraps
-every attempt in the same recovery.
+**A7 — Multi-retry compaction.** Widened the single compact-and-retry path
+on a context overflow into a bounded loop (`OVERFLOW_RETRIES = 3`),
+independent of `ContextManager`'s own circuit breaker (which tracks
+consecutive compaction failures, not retry attempts). Also widened
+`isContextOverflowError` to recognize plain `Error` objects with `status ===
+413`, not just `OpenAI.APIError` instances, for non-OpenAI providers and
+test mocks.
 
-Also widened `isContextOverflowError` to detect plain `Error` objects with
-`status === 413` (not just `OpenAI.APIError` instances), so non-OpenAI
-providers and test mocks are handled correctly.
+**Landed outside the numbered phases** (each already summarized in §8; no
+new locked decisions):
 
-### 29.3 Tests
-- Overflow → compact → retry succeeds (2 failures, 1 success).
-- All 3 retries fail → error propagates.
-- Non-overflow errors → no retry.
-
-### 29.4 Files
-- `src/agent/loop.ts` — overflow catch block
-- `src/agent/client.ts` — `isContextOverflowError` widened
-
-## 30. P6 Specification (MCP integration) — implemented
-
-### 30.1 Scope
-Connect dcode to MCP (Model Context Protocol) servers and expose their tools
-to the agent loop the same way as built-in tools — no new capability at the
-loop/registry level, just a second source of `ToolDefinition`s. Uses the
-official `@modelcontextprotocol/sdk` client (AGENTS.md: don't hand-roll a
-JSON-RPC/transport layer a library already provides), not a custom protocol
-implementation.
-
-**Out of scope for v1:** MCP prompts/resources (tools only — dcode has no
-concept of either), OAuth-authenticated remote servers (static headers only),
-SSE transport (deprecated upstream in favor of streamable HTTP), and
-per-server approval/permission gating (P5 was cancelled; MCP tools run
-exactly as ungated as every other tool).
-
-### 30.2 Config (`schema.ts`)
-`mcpServers: Record<string, McpServerConfig>`, default `{}` (no added startup
-latency for the common case of nobody configuring one). Each entry is either:
-
-```json
-{ "enabled": true, "command": "npx", "args": ["-y", "some-mcp-server"], "env": { "FOO": "bar" } }
-{ "enabled": true, "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer …" } }
-```
-
-`enabled` defaults to `false` — a global-config entry is visible from every
-project dcode runs in, so adding one must not silently start connecting to
-it; the opt-in is explicit per server. This also makes toggling a server
-cheap (flip the flag) without deleting/re-adding its whole config. A
-disabled server is skipped before any connection attempt (no spawn, no
-dial) and reported via `McpManager.servers` as `status: 'disabled'` rather
-than `'failed'`, so `/mcp` can tell "off on purpose" apart from "broken".
-
-`type: "local" | "remote"` can be given explicitly; when omitted it's inferred
-from whichever of `command`/`url` is present (`inferMcpType`, a
-`z.preprocess` ahead of a `z.discriminatedUnion`), matching the convention
-Claude Code's own `.mcp.json` uses so the common case doesn't have to spell
-out the obvious. Each variant is `.strict()`, same as `context`, so a typo'd
-key inside one server's config fails loudly rather than vanishing. Named
-`local`/`remote` rather than `stdio`/`http` — those are the config field's
-own values, describing what the user is choosing (a server on this machine
-vs. one elsewhere); the underlying transport names stay where they belong,
-in `manager.ts` (`StdioClientTransport`, `StreamableHTTPClientTransport`).
-
-A `headers`/`env` value that is *exactly* `${VAR_NAME}` is expanded from
-`process.env` at connect time (`expandEnvPlaceholder` in manager.ts, applied
-in `makeTransport` — not in the schema, since expansion is a runtime concern,
-not a shape/validation one): `"headers": {"Authorization": "${TOKEN}"}` keeps
-the actual secret out of `dcode.json` entirely, the same principle `/key`
-serves for the OpenAI/Brave keys. Whole-value-only, no partial interpolation;
-an unset variable fails just that server's connection (caught by the same
-per-server try/catch `connectMcpServers` already has) with a clear error
-naming the variable, rather than silently sending a literal `${VAR}`.
-
-### 30.3 Module changes
-- `src/tools/mcp/manager.ts` (new) — `connectMcpServers(configured, logger):
-  Promise<McpManager>`. For each server: build a `Transport`
-  (`StdioClientTransport` or `StreamableHTTPClientTransport`), `new Client(...)
-  .connect(transport, { signal: AbortSignal.timeout(10_000) })`, then
-  `listTools()`. Every configured server connects in parallel — independent
-  processes/connections, so one slow server shouldn't delay the others — and a
-  server that fails either step is logged as a warning and skipped (recorded
-  in `McpManager.servers` with `status: 'failed'` and the error text) rather
-  than blocking startup, the same degrade-gracefully posture `web_search`
-  already has for a missing `BRAVE_API_KEY`. A stdio server's stderr is piped
-  (not the SDK default of `inherit`, which would land directly on dcode's own
-  stderr) and routed through the debug log, prefixed by server name.
-  - Each listed tool is wrapped via `defineTool` into a `ToolDefinition`
-    named `mcp__<server>__<tool>` (`qualifiedToolName`/`sanitizeName`,
-    collision-numbered by `uniqueName` so a sanitization collision can't
-    silently drop a tool), `parallel: tool.annotations?.readOnlyHint ?? false`
-    — an MCP server can declare a tool read-only via the spec's
-    `readOnlyHint`, which is then batched in parallel like dcode's own
-    read-only tools; everything else defaults to sequential (MCP tools are
-    third-party with no dcode-side guarantee of read-only behavior) — and
-    `execute` that calls
-    `client.callTool({name, arguments}, undefined, {signal: ctx.signal})`,
-    flattens the result's `content` array to text (`contentToText` — text
-    parts pass through, images/audio/binary resources are described rather
-    than dumped or dropped), and throws when the result carries `isError:
-    true` so a tool-level MCP failure takes the same `ok:false` path through
-    `runTool` as any other tool's failure.
-  - `McpManager.close()` closes every connected client, never throwing (a
-    server that's already gone or wedged must not block shutdown).
-- `src/agent/types.ts` — `ToolDefinition` gained an optional `jsonSchema:
-  Record<string, unknown>` field. An MCP tool's `inputSchema` is already JSON
-  Schema from the server; round-tripping it through a hand-built zod schema
-  back to JSON Schema (`z.toJSONSchema`) would be lossy for no benefit, so
-  `tools/registry.ts`'s `toResponsesTool` uses `jsonSchema` verbatim when
-  present instead of deriving one from `parameters` (which, for an MCP tool,
-  is just a permissive `z.record(z.string(), z.unknown())` passthrough — the
-  MCP server, not dcode, is authoritative on argument shape).
-- `src/tools/index.ts` — `createLocalTools(tasks, client, mcpTools = [])`
-  takes the already-connected MCP tools (connecting is async and
-  per-server-fallible, so it happens before this call, which stays
-  synchronous) and registers them *before* the `task` tool, not after: the
-  task tool's own description is generated once from the resolved tool sets
-  (`describeAgentTypes`), so registering it last is what lets that
-  description include MCP tools too instead of freezing a stale snapshot
-  from before they were connected.
-- `src/cli/repl.ts` — `createSession` is now `async`: it calls
-  `connectMcpServers(config.mcpServers, logger)` before building the tool
-  registry, and `Session` gained an `mcp: McpManager` field. `startRepl` wraps
-  the REPL loop (factored out as `runRepl`) in `try { … } finally { await
-  session.mcp.close() }` so every exit path (`/exit`, the idle-double-Ctrl-C
-  path) closes connected servers — decision I (PLAN.md §6).
-- `src/index.ts` — the one-shot path connects and closes MCP servers the same
-  way, in the existing `try/finally` around `runOneShot` (a one-shot run is
-  still a full session, just a short one).
-- `src/cli/commands.ts` — new `/mcp` command lists each server's status
-  (connected/disabled/failed) and tool count; `/config` gained an
-  `mcpServers: N configured, M enabled` line.
-- `src/tools/local/exec.ts` — `safeEnv()` exported (was module-private) so
-  `tools/mcp/manager.ts` can layer a stdio server's own configured `env` on
-  top of the same ambient-secret-stripped base every other spawn in
-  `tools/local/` uses, rather than either replacing it (losing PATH/HOME/etc.)
-  or duplicating the filtering logic.
-
-### 30.4 Tests
-- `tests/config/schema.test.ts` — `mcpServers` defaults, type inference from
-  `command`/`url`, explicit `type`, `enabled` defaulting to `false` and
-  accepting an explicit `true`, `.strict()` rejection of a typo'd key and of
-  a server with neither `command` nor `url`.
-- `tests/tools/mcp/manager.test.ts` — the SDK's client-side surface
-  (`Client`, `StdioClientTransport`, `StreamableHTTPClientTransport`) is
-  mocked via `vi.mock` (same pattern `tests/agent/client.test.ts` uses for the
-  OpenAI SDK) so these are fast unit tests, not subprocess/network
-  integration: qualified naming, description fallback, parallel connection
-  and tool merging, connect-failure and listTools-failure isolation (one bad
-  server doesn't block the rest, and a connected-but-failed-listTools client
-  still gets closed), collision numbering, a wrapped tool's `execute`
-  forwarding args + `ctx.signal` and flattening/erroring on its result,
-  `close()` closing every client without throwing, `${VAR}` header/env
-  expansion (and its unset-variable failure), and a dedicated `enabled flag`
-  group: a disabled server is skipped with zero connection attempts and
-  reported `status: 'disabled'`, an enabled server alongside it still
-  connects normally, and `close()` has nothing to close when every
-  configured server is disabled.
-- `tests/tools/registry.test.ts` — `toResponsesTool` uses `jsonSchema`
-  verbatim when present.
-- `tests/tools/index.test.ts` — `createLocalTools`'s `mcpTools` param wires
-  in alongside the built-ins and reaches the `task` tool's own description.
-- `tests/cli/repl.test.ts` — `createSession`/`startRepl` updated for the new
-  `async` signature (the mocked-readline smoke tests now wait for the
-  interface to exist, since it's no longer created synchronously); `/mcp`
-  rendering all three statuses (connected/disabled/failed), and `/config`'s
-  `N configured, M enabled` line.
-
-### 30.5 Status
-**Done.** Not carried forward from v1 scope: MCP prompts/resources, OAuth,
-SSE transport, per-server tool policy/approval (there is no permission layer
-at all — P5 was cancelled).
+- **Streamed markdown rendering** (`ui/markdown.ts`) and the **compact
+  per-query tool summary** (`ui/tools.ts`) — see §5's Architecture notes for
+  how both work today.
+- **`ask_user`** (`tools/local/question.ts`) — interactive questions via
+  `@clack/prompts`; refuses immediately (rather than hanging) when stdin
+  isn't a TTY.
+- **Sub-agents** (`agent/subagent.ts` + `tools/local/task.ts`) — the `task`
+  tool runs a nested `runAgent` with a filtered tool registry (`explore`
+  read-only via an allow-list, `general` everything-but-`task` via a
+  deny-list so it can't silently go stale as tools are added), its own
+  `TaskStore`, a silent sink, and a nesting depth limit of 1. See
+  CLAUDE.md's Sub-agents paragraph.
+- **Global API-key storage** (`cli/keys.ts`, the `/key` command) — persists
+  `apiKey`/`brave` into `~/.config/dcode/dcode.json` (`0600`, directory
+  `0700`) so a globally installed dcode doesn't need per-shell env vars.
+- **REPL tab-completion** (`cli/completer.ts`) — slash commands from the
+  known list; otherwise the last token completes as a `resolvePath`-confined
+  file path.
+- **`/save`/`/limit`** — `/save [path]` writes the transcript (Markdown for
+  `.md`, verbatim JSON otherwise), refusing to overwrite; `/limit <n>` sets
+  `maxToolIterations` at runtime.
+- **Dropped `.env` auto-loading and repo-local `./dcode.json` discovery** —
+  dcode is a globally installed personal tool, so config resolution is
+  exactly `CLI > env (process) > global ~/.config/dcode/dcode.json > schema
+  defaults`; no cwd-relative config files are auto-discovered.

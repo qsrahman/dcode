@@ -193,7 +193,7 @@ for this: an MCP tool's input schema is already JSON Schema from the server,
 so `toResponsesTool` uses it verbatim instead of round-tripping through a
 hand-built zod schema (`parameters` on an MCP tool is just a permissive
 passthrough for runtime parsing — the server, not dcode, is authoritative on
-argument shape). See PLAN.md §30.
+argument shape). See PLAN.md §11's P6 entry.
 
 Sub-agents: `agent/subagent.ts` defines the agent types (`general`,
 `explore`) as a tool-name allow-list plus a system prompt, and
@@ -258,8 +258,8 @@ written out as a literal: zod returns a `.default()` value verbatim without
 re-parsing it, so a literal would be a second copy of the field defaults that
 could diverge from them silently.
 
-See PLAN.md §5 for the full target module tree and §10+ for each phase's
-detailed spec.
+See PLAN.md §5 for the full module tree, §10 for planned/candidate work, and
+§11 for a compact history of each completed phase.
 
 ## Testing
 

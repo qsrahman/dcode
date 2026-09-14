@@ -6,7 +6,7 @@
   injecting `Continue.`, so a retry is grounded in what was already produced
   instead of re-answering from scratch — and a `Continue.` retry that itself
   overflows the context window is recovered through the same compact-and-retry
-  path as the initial request (see PLAN.md §28/§29).
+  path as the initial request (see PLAN.md §11's A3/A7 entries).
 - MCP `mcpServers` config: the `type` discriminant is now `"local"` /
   `"remote"` instead of `"stdio"` / `"http"` — clearer for a config field the
   average user sets (or omits and lets infer), the underlying-transport name
