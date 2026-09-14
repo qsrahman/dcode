@@ -5,8 +5,8 @@ Responses SDK.
 
 **Status:** P0–P11 and P6 are done; P5 (declarative permissions) was designed
 then cancelled and fully removed — every tool call, including MCP tools,
-runs unconditionally with no approval layer. P12, P13, and P14 are planned
-but not scheduled. See §8 for the full phase table.
+runs unconditionally with no approval layer. P12–P22 are planned or
+candidate work, not scheduled. See §8 for the full phase table.
 
 **What this file is for.** §1–§9 are the living reference: vision, goals,
 locked decisions, the CLI surface, and the phase table — keep these current.
@@ -213,8 +213,22 @@ what each does; §10 has deferred candidates.
 | P12 | Symbol search (`find_symbol` / `find_references`, ripgrep-lite) | **Planned** (see §10) |
 | P13 | `apply_patch` (atomic multi-file unified-diff apply); `multi_edit` down-payment | **Planned** (see §10) |
 | P14 | File inputs (let the model read local PDFs/images) | **Candidate** (see §10) |
+| P15 | Cost tracking (`/cost`) | **Candidate** (see §10) |
+| P16 | Model fallback on a retryable error | **Candidate** (see §10) |
+| P17 | Tool definition enrichment (metadata fields) | **Candidate** (see §10) |
+| P18 | History persistence + `/resume` | **Candidate** (see §10) |
+| P19 | Streaming tool execution | **Candidate** (see §10) |
+| P20 | Skills system (model-invocable prompt templates) | **Candidate** (see §10) |
+| P21 | Hooks system (pre/post tool-use) | **Candidate** (see §10) |
+| P22 | Plugin system | **Candidate** (see §10) |
 | A3 | Max output tokens recovery ("Continue." injection) | **Done** |
 | A7 | Multi-retry compaction (overflow retry loop) | **Done** |
+
+P15–P22 were sourced from a comparison against Claude Code's architecture
+(`tanbiralam/claude-code`); P15–P17 are independent and low-risk, P20–P22
+have a dependency chain (P20/P21 build on P17's metadata, P22 needs both),
+and P19 is the riskiest (a real streaming-pipeline refactor with an open
+ordering question — see its §10 entry) so do it after the others, not first.
 
 §11 has one compact entry per phase — what shipped and the one or two
 decisions worth remembering. Landed outside the numbered phases (no new
@@ -353,10 +367,213 @@ a failing UI, or a diagram.
   simplification; it earns its place only if reading PDFs/images is a real
   workflow need, and must clear the two tensions above first.
 
+### P15 — Cost tracking (`/cost`)
+
+Show cumulative token usage and estimated USD cost per session — the
+deferred `/cost` candidate from §10's REPL-command list, filled in. Inspired
+by Claude Code's `cost-tracker.ts`.
+
+- **Scope.** `agent/cost.ts` (new): a `CostTracker` — `record(model, usage)`
+  (called after each `runTurn`, same lifetime as `ContextManager`), `total()`
+  (input/output tokens + estimated cost), `byModel()`, `reset()`. A hardcoded,
+  updateable per-model pricing table; an unrecognized model costs $0 rather
+  than erroring.
+- **REPL.** `/cost` prints a per-model breakdown plus a total:
+  ```
+  Model         Input      Output     Cost
+  gpt-5.4-mini  12,340     4,560      $0.0122
+  Total                   16,900      $0.0122
+  ```
+- **Tests.** Record + total across multiple models tracked separately;
+  unknown model → $0; `reset()` clears everything.
+- **Files.** New: `src/agent/cost.ts`, `tests/agent/cost.test.ts`. Modify:
+  `src/agent/loop.ts` (record after each turn), `src/cli/repl.ts` (create the
+  tracker per session), `src/cli/commands.ts` (`/cost` dispatch).
+
+### P16 — Model fallback
+
+If the primary model fails with a retryable error (429 rate limit, 500/502/503
+server error, timeout), retry once with a configured fallback model before
+giving up. Inspired by Claude Code's `FallbackTriggeredError`/retry path.
+
+- **Scope.** New `fallbackModel?: string` config field. In `agent/loop.ts`'s
+  turn-retry path (alongside the existing overflow/continue recovery in
+  `completeTurn`): on a retryable error, build a fallback `Client` via
+  `createClient({ ...config, model: config.fallbackModel })` and retry once.
+  **Not** retryable: 400 (bad request), 401/403 (auth), or a context overflow
+  (already handled by its own recovery path, §11's A7).
+- **Tests.** 429 on primary → fallback succeeds; 400 → no fallback attempted;
+  no `fallbackModel` configured → original error propagates unchanged;
+  fallback itself fails → original error propagates.
+- **Files.** Modify: `src/config/schema.ts` (`fallbackModel`),
+  `src/agent/loop.ts` (fallback retry), `tests/agent/loop.test.ts`.
+
+### P17 — Tool definition enrichment
+
+Optional, purely informational metadata on `ToolDefinition` — not wired into
+any scheduling or approval logic (there is none to wire into; P5 stays
+cancelled) — that P20 (skills) and P21 (hooks) below build on. Inspired by
+Claude Code's per-tool `isReadOnly`/`isDestructive`/`interruptBehavior`
+predicates.
+
+- **Scope.** Add to `agent/types.ts`'s `ToolDefinition`: `readOnly?: boolean`
+  (display only — `parallel` already drives real scheduling),
+  `destructive?: boolean` (marks data-loss-capable tools, for future display
+  or a future confirmation feature), `interruptBehavior?: 'cancel' |
+  'block'`, `aliases?: string[]` (backward-compatible name aliases),
+  `maxResultBytes?: number` (per-tool override of `maxToolOutputBytes`).
+- **Registry.** `tools/registry.ts`'s `get()` also resolves aliases;
+  `toResponsesTools()` omits aliased names so a tool never appears twice to
+  the model.
+- **UI.** `/tools` can annotate `(read-only)`/`(destructive)`.
+- **Tests.** Alias resolves via `get()`; aliased tools don't double-register
+  in `toResponsesTools()`; metadata fields round-trip on a retrieved tool.
+- **Files.** Modify: `src/agent/types.ts`, `src/tools/registry.ts`,
+  `src/ui/tools.ts`, `tests/tools/registry.test.ts`.
+
+### P18 — History persistence + `/resume`
+
+Save conversation transcripts to disk and resume a previous session — the
+biggest UX gap relative to Claude Code's session history. dcode already has
+`/save` (manual, one-shot, session §11) for an explicit snapshot; this adds
+automatic, indexed persistence and a way to load one back in.
+
+- **Scope.** New `agent/persist.ts`: `saveSession(history, meta): string`
+  writes JSON to `~/.local/share/dcode/history/{timestamp}-{random}.json`;
+  `listSessions(): SessionMeta[]` reads the directory (timestamp, model,
+  root, message count, estimated tokens); `loadSession(path):
+  ResponseInput`. New config: `history: { dir?: string, maxSessions:
+  number.default(50) }`.
+- **REPL.** On `/exit` (or process exit) with more than just the initial
+  state, auto-save. New `/resume` command lists the last 10 sessions,
+  numbered; picking one replaces `history` and updates `config.model` from
+  the saved metadata. `dcode --resume <path>` for one-shot from a saved
+  session.
+- **Tests.** Save/load round-trips; `listSessions()` sorted by date; a
+  corrupted file degrades to an empty history rather than crashing;
+  `maxSessions` evicts the oldest.
+- **Files.** New: `src/agent/persist.ts`, `tests/agent/persist.test.ts`.
+  Modify: `src/config/schema.ts` (`history`), `src/cli/repl.ts` (auto-save,
+  `/resume`), `src/cli/commands.ts` (`/resume` dispatch), `src/index.ts`
+  (`--resume` flag).
+
+### P19 — Streaming tool execution
+
+Start executing a tool call as soon as it's fully received during streaming,
+rather than waiting for the whole response to finish — can save real latency
+per turn when tools are slow. Inspired by Claude Code's
+`StreamingToolExecutor`. A moderate refactor of the streaming pipeline, and
+the riskiest item on this list — do it after P15–P17, not first.
+
+- **Scope.** `agent/client.ts`'s `ModelStream` gains a parallel
+  `toolCalls(): AsyncIterable<ResponseFunctionToolCall>`, filtering
+  `response.output_item.done` events where `item.type === 'function_call'`
+  (distinct from the existing text-delta iterable). `agent/run.ts`'s
+  `runTurn` surfaces those early-collected calls alongside its normal
+  `{text, response}` result. `agent/loop.ts` starts executing a call as soon
+  as it arrives from `stream.toolCalls()`, instead of waiting for
+  `finalResponse()`.
+- **Open risk.** The SDK's event stream may not strictly guarantee that a
+  `function_call` item is fully formed before later stream events arrive —
+  confirm this before relying on it. If the model streams text *after* a
+  tool call in the same turn (unusual but possible), early tool execution
+  could race with text rendering; needs a concrete answer, not an assumption,
+  before this ships.
+- **Tests.** Tool execution measurably starts before the stream finishes;
+  text rendering is unaffected; an aborted stream still yields whatever
+  partial tool calls it already collected.
+- **Files.** Modify: `src/agent/client.ts` (tool-call channel),
+  `src/agent/run.ts` (early tools), `src/agent/loop.ts` (start tools early).
+
+### P20 — Skills system (model-invocable prompt templates)
+
+Reusable prompt templates the model can invoke by name via a `skill` tool —
+distinct from dcode's own harness-level `/help`-listed slash commands, this
+is model-driven. Inspired by Claude Code's bundled/project/global skills
+directories. Depends on P17 (a skill can restrict itself to a tool subset via
+metadata).
+
+- **Scope.** Skills are Markdown + frontmatter files under
+  `~/.config/dcode/skills/` (global) and `.dcode/skills/` (project,
+  optional): `name`, `description`, optional `tools: [...]`, then the prompt
+  body. New `agent/skills.ts`: `loadSkills(dirs): Skill[]`. New `skill` tool
+  (`tools/local/skill.ts`): `skill(name, input?)` returns the matched
+  skill's prompt body plus the caller's `input`. `buildSystemPrompt` gains a
+  short "Skills" section listing what's available, so the model knows to
+  reach for the tool.
+- **Tests.** Skills load from a directory; invoking one returns its prompt;
+  an unknown name errors; a tool-restricted skill is noted in its listing.
+- **Files.** New: `src/agent/skills.ts`, `src/tools/local/skill.ts`,
+  `tests/agent/skills.test.ts`. Modify: `src/agent/system.ts` (inject the
+  skills section), `src/tools/index.ts` (register the `skill` tool).
+
+### P21 — Hooks system (pre/post tool-use)
+
+Config-driven shell commands that run before or after a tool executes — e.g.
+auto-format after `write_file`, lint after `edit_file`. Inspired by Claude
+Code's `HookManager`. Depends on P17 for the tool-name matching this needs
+(a bare `parallel` flag doesn't carry enough tool identity context to key
+hooks off of cleanly, though in practice this can start from `tool.name`
+directly and doesn't strictly block on P17 shipping first).
+
+- **Scope.** New config: `hooks: { preTool: [{tool, command}], postTool:
+  [{tool, command}] }` (`tool` is an exact name or a `*` wildcard). New
+  `agent/hooks.ts`: `runHooks(hooks, toolName, ctx)` runs each matching
+  `command` via `execa('sh', ['-c', command], {cwd: ctx.root, timeout:
+  10_000})`. Wired into `agent/run.ts`'s `runTool`: pre-hooks before
+  `tool.execute()`, post-hooks after. **Non-blocking by default** — a hook
+  failure is logged, not surfaced as the tool's own failure (a pre-hook that
+  can actually deny execution is a deliberately separate, harder decision:
+  it re-opens exactly the gate/approval question P5 settled by removing, so
+  don't add hook-based blocking without revisiting that call explicitly).
+- **Tests.** Pre-hook runs before execution; post-hook runs after; `*`
+  matches every tool; a failing hook is logged but doesn't block the tool
+  call.
+- **Files.** New: `src/agent/hooks.ts`, `tests/agent/hooks.test.ts`. Modify:
+  `src/config/schema.ts` (`hooks`), `src/agent/run.ts` (hook execution
+  around `runTool`).
+
+### P22 — Plugin system
+
+Load custom tools/skills/hooks from a local directory or npm package.
+Inspired by Claude Code's plugin loader. The largest, riskiest item here —
+depends on P20 + P21 both existing first, and is the last thing to attempt
+in this group.
+
+- **Scope.** A plugin is a directory or package exporting `tools`
+  (`ToolDefinition[]`), `skills` (`Skill[]`), and `hooks` (merged into the
+  hooks config). New `agent/plugins.ts`: `loadPlugins(dirs): Plugin[]`,
+  dynamically `import()`ing each one; tools register into the
+  `ToolRegistry`, skills load into the skills system, hooks merge in. New
+  config: `plugins: string[]` (paths or package names). Discovery dirs:
+  `~/.config/dcode/plugins/` (global), `.dcode/plugins/` (project, optional).
+- **Tests.** Load a plugin from a directory; its tools register; its skills
+  are available; an invalid plugin is logged and skipped, not fatal.
+- **Files.** New: `src/agent/plugins.ts`, `tests/agent/plugins.test.ts`.
+  Modify: `src/config/schema.ts` (`plugins`), `src/tools/index.ts` (register
+  plugin tools), `src/agent/skills.ts` (load plugin skills).
+
+### Considered and rejected
+
+Surveyed from a comparison against Claude Code's own architecture; not worth
+adopting into dcode:
+
+- **A React/Ink-style TUI.** Real complexity for a terminal tool; readline +
+  streamed markdown already covers the need.
+- **Voice input, vim-mode line editing, notebook (`.ipynb`) editing.** Niche
+  relative to dcode's scope; large surface for the value.
+- **Session memory / automatic fact extraction across sessions.** Interesting,
+  but premature before basic history persistence (P18) is solid — and in
+  tension with decision J (ephemeral by default) until that's revisited on
+  its own terms.
+
+(A sandboxed permission system, a browser, and multi-agent coordination were
+already excluded — see §3's non-goals and §11's cancelled-P5 entry.)
+
 ### Deferred REPL commands
 
-`/cost` (cumulative token-cost estimate building on `/context`), `/branch`
-(snapshot `history` to fork and revert). Lower priority than the above.
+`/branch` (snapshot `history` to fork and revert). `/cost` is now scoped as
+P15 above rather than a loose candidate.
 
 ## 11. Phase history
 
