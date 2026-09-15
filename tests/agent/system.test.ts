@@ -49,4 +49,29 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Unicode')
     expect(prompt).toContain('LaTeX')
   })
+
+  // run_process/kill_process were already named for their stateful,
+  // multi-call workflow; read_process is the third leg of that same
+  // workflow (start, poll output, stop) and deserves the same treatment,
+  // unlike the plain read-only tools excluded above.
+  it('names read_process alongside run_process/kill_process', () => {
+    expect(prompt).toContain('read_process')
+  })
+
+  // A general sub-agent has `task` denied by policy and rejected again by
+  // task.ts's MAX_DEPTH — see subagent.ts's own buildPrompt comment — so
+  // instructions telling it to delegate to a sub-agent of its own would be
+  // dead, misleading guidance for that role specifically.
+  it('omits the Sub-agents section when subagents: false', () => {
+    const noSubagents = buildSystemPrompt({ subagents: false })
+    expect(noSubagents).not.toContain('## Sub-agents')
+    expect(noSubagents).not.toContain('Use the task tool to delegate')
+    // The rest of the prompt is unaffected.
+    expect(noSubagents).toContain('## Tool use')
+    expect(noSubagents).toContain('## Style')
+  })
+
+  it('includes the Sub-agents section by default', () => {
+    expect(prompt).toContain('## Sub-agents')
+  })
 })

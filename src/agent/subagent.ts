@@ -74,7 +74,12 @@ export const AGENT_TYPES: Record<string, AgentType> = {
     description:
       'General-purpose agent for researching complex questions and executing multi-step tasks. Use this when you need to delegate work to a sub-agent.',
     tools: GENERAL_TOOLS,
-    buildPrompt: () => buildSystemPrompt(),
+    // `task` is denied by GENERAL_TOOLS and rejected again by task.ts's
+    // MAX_DEPTH even if it weren't, so the base prompt's Sub-agents section
+    // (instructions to delegate via `task`) would be dead — and misleading —
+    // guidance for this role. Omit it rather than let a general sub-agent be
+    // told to do something it structurally cannot do.
+    buildPrompt: () => buildSystemPrompt({ subagents: false }),
   },
   explore: {
     name: 'explore',

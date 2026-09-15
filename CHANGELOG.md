@@ -1,6 +1,24 @@
 ## [Unreleased]
 
 ### Changed
+- System prompt (`agent/system.ts`) synced with the current tool set and
+  sub-agent behavior:
+  - The tool-use section now names `read_process` alongside `run_process`/
+    `kill_process` — the same stateful start/poll/stop workflow, previously
+    missing its middle step.
+  - `buildSystemPrompt` now takes an optional `{ subagents?: boolean }` and
+    the prompt is composed from `CORE_SYSTEM_PROMPT` + a conditional
+    `SUBAGENT_SECTION` + `STYLE_SECTION` (`BASE_SYSTEM_PROMPT` — the full,
+    default-`subagents: true` concatenation — stays exported as before, so
+    every existing caller is unaffected).
+  - The `general` sub-agent type now builds its prompt with
+    `subagents: false`: `task` is denied by its own `ToolPolicy` and
+    rejected again by `task.ts`'s `MAX_DEPTH` even if it weren't, so
+    reusing the full base prompt (as it did before) told a `general`
+    sub-agent to delegate to a sub-agent of its own — dead, actively
+    misleading instructions for a role that structurally cannot do that.
+    `explore` is unaffected (it already has its own dedicated prompt, not
+    the base one).
 - `configSchema` now rejects `maxTokens >= context.reserved` (a new
   `.refine()`, mirroring the existing `keepTokens < window - reserved`
   check). `context.reserved` is documented as headroom for *both* the

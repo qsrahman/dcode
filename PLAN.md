@@ -77,7 +77,7 @@ src/
   config/schema.ts    # zod schema (Config), .strict()
   config/config.ts    # buildConfig(args) [file+env+args] + readConfigFile(path) + normalizeBaseURL
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
-  agent/system.ts     # buildSystemPrompt(config)
+  agent/system.ts     # buildSystemPrompt(opts?: {subagents?}): core+Sub-agents+Style sections, `subagents: false` drops the Sub-agents section (used for the depth-limited `general` sub-agent)
   agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
   agent/loop.ts       # runAgent: tool-calling loop; runOneShot wraps it for one-shot
   agent/context/      # context-window management (P10):
