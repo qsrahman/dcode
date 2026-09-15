@@ -14,7 +14,7 @@ import {
 import type { Stats } from 'node:fs'
 import { z } from 'zod'
 import { defineTool } from '../registry.ts'
-import { resolvePath, withFsError, ensureParentDir } from './paths.ts'
+import { resolvePath, ensureParentDir, withResolvedPath } from './paths.ts'
 
 // Cap directory listings so a huge directory can't flood the model's context
 // (runTool's byte-truncation is a blunt backstop, not a real limit).
@@ -54,7 +54,6 @@ const readFileTool = () =>
         .describe('Prefix each line with its 1-based number (default true)'),
     }),
     async execute(args, ctx) {
-      const file = await resolvePath(ctx.root, args.path)
       const paging = args.offset !== undefined || args.limit !== undefined
       // Read at most the configured output cap so a huge or symlinked-to-huge
       // file can't blow up memory before the runner truncates the result.
@@ -63,7 +62,7 @@ const readFileTool = () =>
       const limitBytes = paging
         ? Math.max(PAGE_READ_MAX_BYTES, ctx.config.maxToolOutputBytes)
         : ctx.config.maxToolOutputBytes
-      return withFsError(args.path, async () => {
+      return withResolvedPath(ctx, args.path, async (file) => {
         const handle = await open(file, 'r')
         try {
           // stat through the open handle, not the path again: one syscall
@@ -121,8 +120,7 @@ const listDirTool = () =>
     }),
     async execute(args, ctx) {
       const target = args.path ?? '.'
-      const dir = await resolvePath(ctx.root, target)
-      return withFsError(target, async () => {
+      return withResolvedPath(ctx, target, async (dir) => {
         const entries = await readdir(dir, { withFileTypes: true })
         // Directories first, then alphabetical — predictable for the model.
         entries.sort(
@@ -158,32 +156,33 @@ const statTool = () =>
     }),
     async execute(args, ctx) {
       const target = args.path ?? '.'
-      const full = await resolvePath(ctx.root, target)
-      const info: Stats = await withFsError(target, () => stat(full))
-      const parts = [
-        `type: ${info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other'}`,
-        `size: ${info.size} bytes`,
-        `modified: ${info.mtime.toISOString()}`,
-      ]
-      // Report the symlink target (lstat doesn't follow the link). No
-      // try/catch: the stat() above already resolved this same path, and
-      // lstat resolves strictly less, so it cannot fail here. readlink still
-      // can — the link may vanish between the two calls — so that one keeps
-      // its fallback.
-      const lst = await withFsError(target, () => lstat(full))
-      if (lst.isSymbolicLink()) {
-        const linkTarget = await readlink(full).catch(() => '?')
-        parts.push(`target: ${linkTarget}`)
-      }
-      if (info.isFile() && info.size <= LINE_COUNT_MAX) {
-        try {
-          const content = await readFile(full, 'utf8')
-          parts.push(`lines: ${content.split('\n').length}`)
-        } catch {
-          // ignore read errors; size/type are still reported
+      return withResolvedPath(ctx, target, async (full) => {
+        const info: Stats = await stat(full)
+        const parts = [
+          `type: ${info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other'}`,
+          `size: ${info.size} bytes`,
+          `modified: ${info.mtime.toISOString()}`,
+        ]
+        // Report the symlink target (lstat doesn't follow the link). No
+        // try/catch around lstat itself: the stat() above already resolved
+        // this same path, and lstat resolves strictly less, so it cannot
+        // fail here. readlink still can — the link may vanish between the
+        // two calls — so that one keeps its own fallback.
+        const lst = await lstat(full)
+        if (lst.isSymbolicLink()) {
+          const linkTarget = await readlink(full).catch(() => '?')
+          parts.push(`target: ${linkTarget}`)
         }
-      }
-      return parts.join('\n')
+        if (info.isFile() && info.size <= LINE_COUNT_MAX) {
+          try {
+            const content = await readFile(full, 'utf8')
+            parts.push(`lines: ${content.split('\n').length}`)
+          } catch {
+            // ignore read errors; size/type are still reported
+          }
+        }
+        return parts.join('\n')
+      })
     },
   })
 
@@ -208,27 +207,26 @@ const writeFileTool = () =>
         .describe('Append to the file instead of replacing it'),
     }),
     async execute(args, ctx) {
-      const file = await resolvePath(ctx.root, args.path)
-      await ensureParentDir(file, args.path)
-      const existed = await stat(file)
-        .then(() => true)
-        .catch(() => false)
-      if (existed && !args.append && !(args.overwrite ?? true)) {
-        throw new Error(
-          `file already exists: ${args.path} (pass overwrite: true to replace)`,
-        )
-      }
-      await withFsError(args.path, () =>
-        writeFile(file, args.content, {
+      return withResolvedPath(ctx, args.path, async (file) => {
+        await ensureParentDir(file, args.path)
+        const existed = await stat(file)
+          .then(() => true)
+          .catch(() => false)
+        if (existed && !args.append && !(args.overwrite ?? true)) {
+          throw new Error(
+            `file already exists: ${args.path} (pass overwrite: true to replace)`,
+          )
+        }
+        await writeFile(file, args.content, {
           encoding: 'utf8',
           flag: args.append ? 'a' : 'w',
-        }),
-      )
-      const bytes = Buffer.byteLength(args.content)
-      if (args.append) return `appended ${bytes} bytes to ${args.path}`
-      return existed
-        ? `wrote ${bytes} bytes to ${args.path} (overwrote existing)`
-        : `wrote ${bytes} bytes to ${args.path}`
+        })
+        const bytes = Buffer.byteLength(args.content)
+        if (args.append) return `appended ${bytes} bytes to ${args.path}`
+        return existed
+          ? `wrote ${bytes} bytes to ${args.path} (overwrote existing)`
+          : `wrote ${bytes} bytes to ${args.path}`
+      })
     },
   })
 
@@ -251,30 +249,34 @@ const editFileTool = () =>
         .describe('Replace all occurrences instead of requiring exactly one'),
     }),
     async execute(args, ctx) {
-      const file = await resolvePath(ctx.root, args.path)
-      const beforeBuf = await withFsError(args.path, () => readFile(file))
-      // NUL byte ⇒ binary; editing it as text would corrupt the file, so refuse
-      // rather than round-tripping mojibake through string ops.
-      if (beforeBuf.includes(0)) {
-        throw new Error(
-          `is a binary file; edit_file only supports text: ${args.path}`,
-        )
-      }
-      const before = beforeBuf.toString('utf8')
-      const count = before.split(args.old_string).length - 1
-      if (count === 0) throw new Error(`old_string not found in ${args.path}`)
-      if (count > 1 && !args.replace_all) {
-        throw new Error(
-          `old_string matches ${count} times in ${args.path}; make it unique or pass replace_all`,
-        )
-      }
-      // count === 1 or replace_all is guaranteed here (checked above). split/
-      // join substitutes literally — replace/replaceAll would interpret
-      // `$&`/`` $` ``-style patterns in new_string and silently corrupt files
-      // whose content legitimately contains them (shell scripts, Makefiles).
-      const after = before.split(args.old_string).join(args.new_string)
-      await withFsError(args.path, () => writeFile(file, after, 'utf8'))
-      return `edited ${args.path}`
+      return withResolvedPath(ctx, args.path, async (file) => {
+        const beforeBuf = await readFile(file)
+        // NUL byte ⇒ binary; editing it as text would corrupt the file, so
+        // refuse rather than round-tripping mojibake through string ops.
+        if (beforeBuf.includes(0)) {
+          throw new Error(
+            `is a binary file; edit_file only supports text: ${args.path}`,
+          )
+        }
+        const before = beforeBuf.toString('utf8')
+        const count = before.split(args.old_string).length - 1
+        if (count === 0) {
+          throw new Error(`old_string not found in ${args.path}`)
+        }
+        if (count > 1 && !args.replace_all) {
+          throw new Error(
+            `old_string matches ${count} times in ${args.path}; make it unique or pass replace_all`,
+          )
+        }
+        // count === 1 or replace_all is guaranteed here (checked above).
+        // split/join substitutes literally — replace/replaceAll would
+        // interpret `$&`/`` $` ``-style patterns in new_string and silently
+        // corrupt files whose content legitimately contains them (shell
+        // scripts, Makefiles).
+        const after = before.split(args.old_string).join(args.new_string)
+        await writeFile(file, after, 'utf8')
+        return `edited ${args.path}`
+      })
     },
   })
 
@@ -292,12 +294,13 @@ const moveFileTool = () =>
     }),
     async execute(args, ctx) {
       const src = await resolvePath(ctx.root, args.source)
-      const dst = await resolvePath(ctx.root, args.destination)
-      // rename(2) won't create the destination's parent, so mirror what the
-      // shell `mv` does and mkdir -p it first.
-      await ensureParentDir(dst, args.destination)
-      await withFsError(args.destination, () => rename(src, dst))
-      return `moved ${args.source} -> ${args.destination}`
+      return withResolvedPath(ctx, args.destination, async (dst) => {
+        // rename(2) won't create the destination's parent, so mirror what
+        // the shell `mv` does and mkdir -p it first.
+        await ensureParentDir(dst, args.destination)
+        await rename(src, dst)
+        return `moved ${args.source} -> ${args.destination}`
+      })
     },
   })
 
@@ -313,10 +316,11 @@ const copyFileTool = () =>
     }),
     async execute(args, ctx) {
       const src = await resolvePath(ctx.root, args.source)
-      const dst = await resolvePath(ctx.root, args.destination)
-      await ensureParentDir(dst, args.destination)
-      await withFsError(args.destination, () => copyFile(src, dst))
-      return `copied ${args.source} -> ${args.destination}`
+      return withResolvedPath(ctx, args.destination, async (dst) => {
+        await ensureParentDir(dst, args.destination)
+        await copyFile(src, dst)
+        return `copied ${args.source} -> ${args.destination}`
+      })
     },
   })
 
@@ -336,16 +340,16 @@ const deleteFileTool = () =>
         ),
     }),
     async execute(args, ctx) {
-      const target = await resolvePath(ctx.root, args.path)
-      // Deleting the whole working directory would wipe the user's project;
-      // resolvePath allows it (it's inside root) so we must guard explicitly.
-      if (target === ctx.root) {
-        throw new Error('refusing to delete the working directory root')
-      }
-      await withFsError(args.path, () =>
-        rm(target, { recursive: args.recursive ?? false, force: false }),
-      )
-      return `deleted ${args.path}`
+      return withResolvedPath(ctx, args.path, async (target) => {
+        // Deleting the whole working directory would wipe the user's
+        // project; resolvePath allows it (it's inside root) so we must
+        // guard explicitly.
+        if (target === ctx.root) {
+          throw new Error('refusing to delete the working directory root')
+        }
+        await rm(target, { recursive: args.recursive ?? false, force: false })
+        return `deleted ${args.path}`
+      })
     },
   })
 
@@ -359,9 +363,10 @@ const makeDirTool = () =>
       path: z.string().describe('Directory to create (relative to root)'),
     }),
     async execute(args, ctx) {
-      const dir = await resolvePath(ctx.root, args.path)
-      await withFsError(args.path, () => mkdir(dir, { recursive: true }))
-      return `created directory ${args.path}`
+      return withResolvedPath(ctx, args.path, async (dir) => {
+        await mkdir(dir, { recursive: true })
+        return `created directory ${args.path}`
+      })
     },
   })
 

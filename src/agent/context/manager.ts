@@ -80,11 +80,36 @@ export class ContextManager {
     return true
   }
 
+  // Shared prune-then-compact recovery ladder behind both beforeTurn and
+  // onOverflow: gated by the circuit breaker, try the free/local prune first,
+  // fall back to a paid compaction call only if pruning didn't already do
+  // enough. `stillOver` decides whether a successful prune alone is enough to
+  // stop there without ever calling `compact` — the one real difference
+  // between the two callers (see each's own comment for why).
+  private async recover(
+    client: Client,
+    config: Config,
+    history: ResponseInput,
+    opts: { logSuffix: string; stillOver: () => boolean },
+  ): Promise<ContextAction> {
+    if (this.failures >= CIRCUIT_BREAKER) return 'none'
+    if (this.cfg.prune && pruneHistory(history) > 0) {
+      this.logger.debug('context: pruned old tool outputs%s', opts.logSuffix)
+      if (!opts.stillOver()) return 'pruned'
+    }
+    if (!(await this.compact(client, config, history))) return 'none'
+    this.failures++
+    return 'compacted'
+  }
+
   // Called before each model request. Returns what (if anything) it did so the
   // loop can log it. Compaction is proactive: it triggers once the estimate
   // crosses `compactAt` of the usable budget (not only at the hard limit), so a
   // long session stays comfortably under the window instead of hitting a
-  // context-length error and retrying.
+  // context-length error and retrying. A successful prune only stops the
+  // ladder here if it actually brought the estimate back under the soft
+  // threshold — otherwise recover() falls through to compact, since the goal
+  // is staying under budget, not pruning for its own sake.
   async beforeTurn(
     client: Client,
     config: Config,
@@ -96,14 +121,10 @@ export class ContextManager {
       this.failures = 0
       return 'none'
     }
-    if (this.failures >= CIRCUIT_BREAKER) return 'none'
-    if (this.cfg.prune && pruneHistory(history) > 0) {
-      this.logger.debug('context: pruned old tool outputs')
-      if (this.predict(history) < soft) return 'pruned'
-    }
-    if (!(await this.compact(client, config, history))) return 'none'
-    this.failures++
-    return 'compacted'
+    return this.recover(client, config, history, {
+      logSuffix: '',
+      stillOver: () => this.predict(history) >= soft,
+    })
   }
 
   // Called when a request failed because the context window was exceeded.
@@ -118,22 +139,22 @@ export class ContextManager {
   // still overflow the hard limit (a miscalibrated estimate, or simply not
   // enough headroom). A second compaction back-to-back is a full extra paid
   // model call; pruning is free and local, and often recovers enough space
-  // on its own without needing one. A successful prune doesn't count toward
-  // the circuit breaker (it's real progress, not a failed recovery
+  // on its own without needing one. Unlike beforeTurn, any successful prune
+  // here is taken as sufficient (stillOver always false): the overflow
+  // already happened, so freeing *any* space is real progress worth retrying
+  // on, rather than a threshold to re-check. A successful prune doesn't count
+  // toward the circuit breaker (it's real progress, not a failed recovery
   // attempt) — only a compaction attempt does, same as before.
   async onOverflow(
     client: Client,
     config: Config,
     history: ResponseInput,
   ): Promise<boolean> {
-    if (this.failures >= CIRCUIT_BREAKER) return false
-    if (this.cfg.prune && pruneHistory(history) > 0) {
-      this.logger.debug('context: pruned old tool outputs (after overflow)')
-      return true
-    }
-    if (!(await this.compact(client, config, history))) return false
-    this.failures++
-    return true
+    const action = await this.recover(client, config, history, {
+      logSuffix: ' (after overflow)',
+      stillOver: () => false,
+    })
+    return action !== 'none'
   }
 
   // Manual `/compact`: summarize now regardless of the budget. Doesn't touch

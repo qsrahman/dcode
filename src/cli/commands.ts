@@ -9,7 +9,7 @@ import type { ToolRegistry } from '../tools/registry.ts'
 import { CommandRegistry } from './registry.ts'
 import type { ContextManager } from '../agent/context/manager.ts'
 import type { TaskStore } from '../agent/todo-store.ts'
-import type { McpManager } from '../tools/mcp/manager.ts'
+import type { McpManager, McpServerStatus } from '../tools/mcp/manager.ts'
 import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../util/version.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -73,6 +73,52 @@ function historyToMarkdown(history: ResponseInput): string {
     }
   }
   return parts.join('\n')
+}
+
+// Pure formatters below: each takes state and returns the exact string a
+// handler writes to `sink`, with no side effects of its own. Splitting these
+// out of the handlers means the parsing/execution/presentation of a command
+// aren't fused into one function — a formatter is testable on its own (no
+// RunSink or Session needed), and a handler reads as "parse -> act -> print".
+
+function formatMcpServers(servers: McpServerStatus[]): string {
+  if (servers.length === 0) return 'no MCP servers configured'
+  const lines = servers.map((s) => {
+    if (s.status === 'connected') {
+      return `  ${s.name.padEnd(20)} connected (${s.toolCount} tool${s.toolCount === 1 ? '' : 's'})`
+    }
+    if (s.status === 'disabled') {
+      return `  ${s.name.padEnd(20)} disabled (set enabled: true to connect)`
+    }
+    return `  ${s.name.padEnd(20)} failed — ${s.error ?? 'unknown error'}`
+  })
+  return ['MCP servers:', ...lines].join('\n')
+}
+
+function formatConfig(c: Config): string {
+  const keysLine = KEY_PROVIDERS.map(
+    (p) => `${p}=${c[keyField(p)] ? 'set' : 'unset'}`,
+  ).join(' ')
+  const lines = [
+    `model:        ${c.model}`,
+    `baseURL:      ${c.baseURL ?? '(default)'}`,
+    `stateful:     ${c.stateful}`,
+    `keys:         ${keysLine} (values hidden)`,
+    `maxTools:     ${c.maxToolIterations}`,
+    `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
+    `toolTimeout:  ${c.toolTimeout} ms`,
+    `maxRetries:   ${c.maxRetries}`,
+    `context:      window=${c.context.window} reserved=${c.context.reserved} keep=${c.context.keepTokens} prune=${c.context.prune} auto=${c.context.auto}`,
+    `mcpServers:   ${Object.keys(c.mcpServers).length} configured, ${Object.values(c.mcpServers).filter((s) => s.enabled).length} enabled (see /mcp)`,
+  ]
+  return lines.join('\n')
+}
+
+function formatKeyList(c: Config): string {
+  const status = KEY_PROVIDERS.map(
+    (p) => `  ${p.padEnd(7)} ${c[keyField(p)] ? 'set' : 'not set'}`,
+  ).join('\n')
+  return `keys (global config, values hidden):\n${status}`
 }
 
 function listTasks(
@@ -184,20 +230,7 @@ export function createCommands(): CommandRegistry {
     name: 'mcp',
     description: 'show configured MCP servers, their status, and tool counts',
     handler: (session, _a, sink) => {
-      if (session.mcp.servers.length === 0) {
-        sink.write('no MCP servers configured\n')
-        return 'ok'
-      }
-      const lines = session.mcp.servers.map((s) => {
-        if (s.status === 'connected') {
-          return `  ${s.name.padEnd(20)} connected (${s.toolCount} tool${s.toolCount === 1 ? '' : 's'})`
-        }
-        if (s.status === 'disabled') {
-          return `  ${s.name.padEnd(20)} disabled (set enabled: true to connect)`
-        }
-        return `  ${s.name.padEnd(20)} failed — ${s.error ?? 'unknown error'}`
-      })
-      sink.write(['MCP servers:', ...lines].join('\n') + '\n')
+      sink.write(formatMcpServers(session.mcp.servers) + '\n')
       return 'ok'
     },
   })
@@ -248,23 +281,7 @@ export function createCommands(): CommandRegistry {
     name: 'config',
     description: 'print effective configuration',
     handler: (session, _a, sink) => {
-      const c = session.config
-      const keysLine = KEY_PROVIDERS.map(
-        (p) => `${p}=${c[keyField(p)] ? 'set' : 'unset'}`,
-      ).join(' ')
-      const lines = [
-        `model:        ${c.model}`,
-        `baseURL:      ${c.baseURL ?? '(default)'}`,
-        `stateful:     ${c.stateful}`,
-        `keys:         ${keysLine} (values hidden)`,
-        `maxTools:     ${c.maxToolIterations}`,
-        `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
-        `toolTimeout:  ${c.toolTimeout} ms`,
-        `maxRetries:   ${c.maxRetries}`,
-        `context:      window=${c.context.window} reserved=${c.context.reserved} keep=${c.context.keepTokens} prune=${c.context.prune} auto=${c.context.auto}`,
-        `mcpServers:   ${Object.keys(c.mcpServers).length} configured, ${Object.values(c.mcpServers).filter((s) => s.enabled).length} enabled (see /mcp)`,
-      ]
-      sink.write(lines.join('\n') + '\n')
+      sink.write(formatConfig(session.config) + '\n')
       return 'ok'
     },
   })
@@ -292,11 +309,7 @@ export function createCommands(): CommandRegistry {
       const parts = args.trim().split(/\s+/).filter(Boolean)
       const sub = parts[0]
       if (sub === 'list' || sub === undefined) {
-        const status = KEY_PROVIDERS.map(
-          (p) =>
-            `  ${p.padEnd(7)} ${session.config[keyField(p)] ? 'set' : 'not set'}`,
-        ).join('\n')
-        sink.write(`keys (global config, values hidden):\n${status}\n`)
+        sink.write(formatKeyList(session.config) + '\n')
         return 'ok'
       }
       if (sub === 'set' || sub === 'unset') {

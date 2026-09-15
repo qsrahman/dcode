@@ -173,7 +173,23 @@ async function completeTurn(deps: {
     }
   }
 
-  let result = await requestTurn()
+  return retryTruncated(await requestTurn(), requestTurn, history, logger)
+}
+
+// Inject "Continue." and retry while a response comes back truncated
+// (incomplete_details.reason === 'max_output_tokens'), up to CONTINUE_RETRIES
+// times. Peer to recoverFromOverflow below: both are the same bounded
+// recovery-then-retry ladder, just triggered differently — this one by
+// inspecting each result for a truncation flag, that one by catching a
+// thrown overflow error — which is why they stay as two functions rather
+// than one shared generic (the trigger, not just the recovery action,
+// differs).
+async function retryTruncated(
+  result: TurnResult,
+  requestTurn: () => Promise<TurnResult>,
+  history: ResponseInput,
+  logger: Logger,
+): Promise<TurnResult> {
   let continues = 0
   while (
     result.response.incomplete_details?.reason === 'max_output_tokens' &&

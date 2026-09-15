@@ -231,67 +231,88 @@ async function connectOne(
   return client
 }
 
+// One server's full connect lifecycle — connect, list tools, adapt each into
+// a ToolDefinition — collapsed into a single result instead of three outer
+// arrays (clients/tools/servers) mutated from inside a loop: the caller below
+// just aggregates a list of these, so "did this server come up, and what did
+// it contribute" is answered in one place per server rather than tracked
+// across three.
+interface ServerConnectResult {
+  status: McpServerStatus
+  client?: Client
+  tools: ToolDefinition[]
+}
+
+async function connectServer(
+  name: string,
+  cfg: McpServerConfig,
+  logger: Logger,
+  used: Set<string>,
+): Promise<ServerConnectResult> {
+  // `enabled: false` (the default — see schema.ts) skips the connection
+  // attempt entirely and is recorded as 'disabled' rather than 'failed' so
+  // `/mcp` can tell "off on purpose" apart from "broken".
+  if (!cfg.enabled) {
+    return { status: { name, status: 'disabled', toolCount: 0 }, tools: [] }
+  }
+  let client: Client
+  try {
+    client = await connectOne(name, cfg, logger)
+  } catch (err) {
+    const error = errorMessage(err)
+    logger.warn('mcp: failed to connect "%s": %s', name, error)
+    return {
+      status: { name, status: 'failed', toolCount: 0, error },
+      tools: [],
+    }
+  }
+  try {
+    const listed = await client.listTools()
+    const tools = listed.tools.map((t) => {
+      const toolName = uniqueName(used, qualifiedToolName(name, t.name))
+      return wrapMcpTool(toolName, name, t, client)
+    })
+    logger.debug('mcp: connected "%s" (%d tools)', name, listed.tools.length)
+    return {
+      status: { name, status: 'connected', toolCount: listed.tools.length },
+      client,
+      tools,
+    }
+  } catch (err) {
+    // Connected but listTools failed: still return `client` so it gets
+    // closed on shutdown — the connection itself is real, only listing its
+    // tools failed.
+    const error = errorMessage(err)
+    logger.warn('mcp: "%s" connected but listTools failed: %s', name, error)
+    return {
+      status: { name, status: 'failed', toolCount: 0, error },
+      client,
+      tools: [],
+    }
+  }
+}
+
 // Connect every configured server in parallel (independent processes/
 // connections; one slow or unreachable server shouldn't delay the others) and
 // merge their tools into one list. A server that fails to connect or list
 // its tools is logged and skipped — one bad MCP server config must not stop
 // dcode from starting, matching how a missing BRAVE_API_KEY degrades
-// web_search rather than blocking startup. A server with `enabled: false`
-// (the default — see schema.ts) is skipped the same way but without a
-// connection attempt at all, and recorded as 'disabled' rather than
-// 'failed' so `/mcp` can tell "off on purpose" apart from "broken".
+// web_search rather than blocking startup.
 export async function connectMcpServers(
   configured: Record<string, McpServerConfig>,
   logger: Logger,
 ): Promise<McpManager> {
-  const clients: Client[] = []
-  const tools: ToolDefinition[] = []
-  const servers: McpServerStatus[] = []
   const used = new Set<string>()
-
-  await Promise.all(
-    Object.entries(configured).map(async ([name, cfg]) => {
-      if (!cfg.enabled) {
-        servers.push({ name, status: 'disabled', toolCount: 0 })
-        return
-      }
-      let client: Client
-      try {
-        client = await connectOne(name, cfg, logger)
-      } catch (err) {
-        const error = errorMessage(err)
-        logger.warn('mcp: failed to connect "%s": %s', name, error)
-        servers.push({ name, status: 'failed', toolCount: 0, error })
-        return
-      }
-      clients.push(client)
-      try {
-        const listed = await client.listTools()
-        for (const t of listed.tools) {
-          const toolName = uniqueName(used, qualifiedToolName(name, t.name))
-          tools.push(wrapMcpTool(toolName, name, t, client))
-        }
-        servers.push({
-          name,
-          status: 'connected',
-          toolCount: listed.tools.length,
-        })
-        logger.debug(
-          'mcp: connected "%s" (%d tools)',
-          name,
-          listed.tools.length,
-        )
-      } catch (err) {
-        const error = errorMessage(err)
-        logger.warn('mcp: "%s" connected but listTools failed: %s', name, error)
-        servers.push({ name, status: 'failed', toolCount: 0, error })
-      }
-    }),
+  const results = await Promise.all(
+    Object.entries(configured).map(([name, cfg]) =>
+      connectServer(name, cfg, logger, used),
+    ),
   )
+  const clients = results.flatMap((r) => (r.client ? [r.client] : []))
 
   return {
-    tools,
-    servers,
+    tools: results.flatMap((r) => r.tools),
+    servers: results.map((r) => r.status),
     async close() {
       await Promise.all(clients.map((c) => c.close().catch(() => {})))
     },

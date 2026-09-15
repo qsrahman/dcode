@@ -78,4 +78,21 @@ async function ensureParentDir(path: string, errPath: string): Promise<void> {
   await withFsError(errPath, () => mkdir(dirname(path), { recursive: true }))
 }
 
-export { resolvePath, withFsError, ensureParentDir }
+// Combines the two-step "resolve, then run the fs call through the
+// error-wrapper" pattern every fs.ts tool repeats into one call. `errPath` is
+// what's reported to the model on failure (see withFsError); `fn` receives
+// the resolved (but not yet error-wrapped) path. Tools that need an extra
+// step between resolution and the wrapped call (e.g. ensureParentDir, or a
+// guard check) still run it inside `fn`, before or after the underlying fs
+// call — throwing there is safe, since fsError falls back to the original
+// message unchanged for an error with no `.code` (see withFsError).
+async function withResolvedPath<T>(
+  ctx: { root: string },
+  path: string,
+  fn: (resolved: string) => Promise<T>,
+): Promise<T> {
+  const resolved = await resolvePath(ctx.root, path)
+  return withFsError(path, () => fn(resolved))
+}
+
+export { resolvePath, withFsError, ensureParentDir, withResolvedPath }
