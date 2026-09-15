@@ -6,7 +6,6 @@ import type {
   ResponseInput,
 } from '../../../src/agent/client.ts'
 import { isContextOverflowError } from '../../../src/agent/client.ts'
-import type { Config } from '../../../src/config/schema.ts'
 import { createLogger } from '../../../src/util/log.ts'
 import { ContextManager } from '../../../src/agent/context/manager.ts'
 import { TaskStore } from '../../../src/agent/todo-store.ts'
@@ -111,7 +110,8 @@ describe('ContextManager', () => {
   })
 
   it('compacts when over budget and prune is insufficient', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 50,
@@ -120,7 +120,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.85,
       },
-    }) as Config
+    }
     const { client } = summaryClient('SUMMARY')
     const m = new ContextManager(config.context, createLogger(config))
     const history = bigHistory()
@@ -134,7 +134,8 @@ describe('ContextManager', () => {
   })
 
   it('trips the circuit breaker after repeated failed compactions', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 10,
@@ -143,7 +144,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.85,
       },
-    }) as Config
+    }
     // huge "summary" so the window is never recovered
     const { client, calls } = summaryClient('y'.repeat(1000))
     const m = new ContextManager(config.context, createLogger(config))
@@ -156,7 +157,8 @@ describe('ContextManager', () => {
   })
 
   it('onOverflow compacts then gives up once the breaker is tripped', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 10,
@@ -165,7 +167,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.85,
       },
-    }) as Config
+    }
     const { client, calls } = summaryClient('y'.repeat(1000))
     const m = new ContextManager(config.context, createLogger(config))
     const history = bigHistory()
@@ -182,7 +184,8 @@ describe('ContextManager', () => {
   // already compacted this same turn proactively, only for the request to
   // still overflow.
   it('onOverflow prunes before compacting, skipping an unnecessary paid model call', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 10000,
@@ -191,7 +194,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.85,
       },
-    }) as Config
+    }
     const { client, calls } = summaryClient('SUMMARY')
     const m = new ContextManager(config.context, createLogger(config))
     // Three separate tool-call turns; default protectTurns (2) protects the
@@ -224,7 +227,8 @@ describe('ContextManager', () => {
   })
 
   it('manual /compact does not count toward the automatic circuit breaker', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 10,
@@ -233,7 +237,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.85,
       },
-    }) as Config
+    }
     // huge "summary" so the window is never recovered
     const { client } = summaryClient('y'.repeat(1000))
     const m = new ContextManager(config.context, createLogger(config))
@@ -250,7 +254,8 @@ describe('ContextManager', () => {
     // keepTokens covers the whole (small) history, but compactAt is low
     // enough that predict() still crosses the soft threshold — beforeTurn
     // attempts compaction, but compactHistory has nothing to summarize.
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 1000,
@@ -259,7 +264,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.01,
       },
-    }) as Config
+    }
     const { client, calls } = summaryClient('SUMMARY')
     const m = new ContextManager(config.context, createLogger(config))
     const action = await m.beforeTurn(client, config, bigHistory())
@@ -268,7 +273,8 @@ describe('ContextManager', () => {
   })
 
   it('a no-op compaction does not count toward the circuit breaker', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 1000,
@@ -277,7 +283,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.01,
       },
-    }) as Config
+    }
     const { client } = summaryClient('SUMMARY')
     const m = new ContextManager(config.context, createLogger(config))
     const actions: string[] = []
@@ -290,7 +296,8 @@ describe('ContextManager', () => {
   })
 
   it('onOverflow returns false, not true, when compaction is a no-op', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 1000,
@@ -299,7 +306,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.01,
       },
-    }) as Config
+    }
     const { client } = summaryClient('SUMMARY')
     const m = new ContextManager(config.context, createLogger(config))
     const history = bigHistory()
@@ -310,7 +317,8 @@ describe('ContextManager', () => {
   })
 
   it('includes the task list in the compaction instruction when a store is set', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 50,
@@ -319,7 +327,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.85,
       },
-    }) as Config
+    }
     const { client, lastInput } = summaryClient('SUMMARY')
     const store = new TaskStore()
     store.replace([
@@ -334,7 +342,8 @@ describe('ContextManager', () => {
   })
 
   it('compacts proactively at the soft threshold, before the hard limit', async () => {
-    const config = cfg({
+    const config = {
+      ...cfg(),
       context: {
         auto: true,
         window: 10000,
@@ -343,7 +352,7 @@ describe('ContextManager', () => {
         prune: true,
         compactAt: 0.2,
       },
-    }) as Config
+    }
     const { client } = summaryClient('SUMMARY')
     const m = new ContextManager(config.context, createLogger(config))
     // ~2500 estimated tokens: above the 0.2*10000 = 2000 soft threshold, but well

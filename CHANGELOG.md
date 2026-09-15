@@ -1,6 +1,15 @@
 ## [Unreleased]
 
 ### Changed
+- `configSchema` now rejects `maxTokens >= context.reserved` (a new
+  `.refine()`, mirroring the existing `keepTokens < window - reserved`
+  check). `context.reserved` is documented as headroom for *both* the
+  model's own output and the separate compaction call, so `maxTokens` — the
+  ceiling on that output — has to leave real room under it; previously
+  raising one without the other passed config validation silently.
+  **Breaking:** a `dcode.json` with `maxTokens` at or above `context.reserved`
+  (including if only one of the two was customized) now fails to load —
+  lower `maxTokens` or raise `context.reserved`.
 - All `zod` imports now come from `zod/v4` explicitly (previously bare
   `'zod'`, which resolves to the same v4 API today but isn't pinned against
   a future major changing what the bare specifier means).
