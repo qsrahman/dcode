@@ -186,10 +186,14 @@ async function completeTurn(deps: {
       CONTINUE_RETRIES,
     )
     // Replay what the truncated turn produced before "Continue.", so the
-    // retry is grounded in the partial answer (and any tool calls it already
-    // emitted) instead of re-answering from scratch — the pattern the OpenAI
-    // agents SDK uses for the same condition.
-    pushResponseOutput(history, result.response)
+    // retry is grounded in the partial answer instead of re-answering from
+    // scratch — the pattern the OpenAI agents SDK uses for the same
+    // condition. Tool calls are excluded: a `function_call` cut off by the
+    // same truncation is never executed (only the final response's calls
+    // are, in `runAgent`), and replaying it would leave a `function_call`
+    // in history with no matching `function_call_output` — the Responses
+    // API rejects that unbalanced pairing on the very next request.
+    pushResponseOutput(history, result.response, { skipToolCalls: true })
     history.push({ role: 'user', content: 'Continue.' })
     result = await requestTurn()
   }
@@ -231,9 +235,15 @@ async function recoverFromOverflow(
 function pushResponseOutput(
   history: ResponseInput,
   response: OpenAIResponse,
+  opts: { skipToolCalls?: boolean } = {},
 ): void {
+  const items = toResponseInputItems(response.output ?? []).map(
+    stripParsedArguments,
+  )
   history.push(
-    ...toResponseInputItems(response.output ?? []).map(stripParsedArguments),
+    ...(opts.skipToolCalls
+      ? items.filter((item) => item.type !== 'function_call')
+      : items),
   )
 }
 
