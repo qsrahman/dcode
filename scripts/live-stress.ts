@@ -194,7 +194,7 @@ async function runScenario(
   // covered too; per-run so each history calibrates its own token estimate.
   const context = new ContextManager(config.context, logger, tasks)
   const t0 = Date.now()
-  const text = await runAgent(client, config, history, {
+  const { text, truncated } = await runAgent(client, config, history, {
     logger,
     sink,
     tools,
@@ -210,7 +210,8 @@ async function runScenario(
   const status = ok ? 'ok ' : 'EMPTY'
   console.log(
     `[${status}] ${scenario.name.padEnd(18)} toolCalls=${calls} outputs=${outputs} ` +
-      `streamed=${Buffer.byteLength(sink.text)} finalLen=${text.trim().length} time=${dt}ms`,
+      `streamed=${Buffer.byteLength(sink.text)} finalLen=${text.trim().length} time=${dt}ms` +
+      (truncated ? ' truncated=true (hit maxToolIterations)' : ''),
   )
   if (!ok) throw new Error(`${scenario.name}: model returned empty answer`)
   scenario.check?.({

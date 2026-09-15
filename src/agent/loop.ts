@@ -17,6 +17,22 @@ import { ContextManager } from './context/manager.ts'
 
 type TurnResult = { text: string; response: OpenAIResponse }
 
+export interface AgentResult {
+  text: string
+  // True when the loop stopped because it hit `maxToolIterations` with tool
+  // calls still pending — not because the model finished on its own. history
+  // is left fully resumable either way: every iteration's tool calls are
+  // paired with their outputs (appendToolOutputs) *before* the cap is
+  // checked, so nothing is left dangling. A caller can raise
+  // `maxToolIterations` (e.g. `/limit`) and call runAgent again with the same
+  // history to continue — the model will see everything it already did and
+  // pick up from there, the same way it continues between any two ordinary
+  // iterations of this same loop. (No dedicated resume affordance exists yet
+  // — see cli/commands.ts's `/limit` — a `/continue` command that resumes
+  // without requiring a throwaway follow-up prompt is a natural next step.)
+  truncated: boolean
+}
+
 // A context overflow is recovered by compacting and retrying; a truncated
 // response by injecting "Continue." and retrying. Both are bounded so a
 // pathological turn can't retry forever.
@@ -45,7 +61,7 @@ export async function runAgent(
     depth?: number
     instructions?: string
   },
-): Promise<string> {
+): Promise<AgentResult> {
   const sink = opts.sink ?? process.stdout
   const registry = opts.tools ?? new ToolRegistry()
   const ctx: ToolContext = {
@@ -76,6 +92,7 @@ export async function runAgent(
     })
 
   let finalText = ''
+  let truncated = false
   let prevHadTools = false
 
   for (let i = 0; i < config.maxToolIterations; i++) {
@@ -128,6 +145,7 @@ export async function runAgent(
     // silently handing back an empty answer reads as the model having no
     // reply, rather than as a ceiling the user can raise.
     if (i === config.maxToolIterations - 1) {
+      truncated = true
       opts.logger.warn(
         'stopped after %d tool iterations (maxToolIterations) with work still in progress; raise maxToolIterations or narrow the request',
         config.maxToolIterations,
@@ -138,7 +156,7 @@ export async function runAgent(
   // answer; this catches a query that ends on tools with no closing text
   // (an empty final answer, or the maxToolIterations ceiling above).
   progress.freeze()
-  return finalText
+  return { text: finalText, truncated }
 }
 
 // Run one streaming turn, recovering from two provider-side conditions before
@@ -309,7 +327,7 @@ export async function runOneShot(
     tools?: ToolRegistry
     signal?: AbortSignal
   },
-): Promise<string> {
+): Promise<AgentResult> {
   const context = new ContextManager(config.context, opts.logger)
   const input: ResponseInput = [{ role: 'user', content: prompt }]
   return runAgent(client, config, input, { ...opts, context })

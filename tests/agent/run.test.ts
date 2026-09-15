@@ -10,7 +10,7 @@ describe('runOneShot', () => {
   it('streams deltas then a trailing newline and returns the joined text', async () => {
     const config = cfg()
     const sink: string[] = []
-    const text = await runOneShot(
+    const { text } = await runOneShot(
       fakeClient('hello world', true),
       config,
       'hi',

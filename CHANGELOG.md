@@ -1,5 +1,24 @@
 ## [Unreleased]
 
+### Changed
+- `runAgent`/`runOneShot` now return `{ text, truncated }` instead of a bare
+  string. `truncated` is true when the loop stopped because it hit
+  `maxToolIterations` with tool calls still pending, not because the model
+  finished on its own — previously this was only visible as a
+  `logger.warn` line, easy to miss outside `--verbose`. **Breaking** for any
+  code calling `runAgent`/`runOneShot` directly and treating the result as a
+  string.
+  - The REPL now prints an explicit, user-facing hint on `sink` when this
+    happens: raise `/limit <n>` and send a follow-up to resume — the
+    conversation's `history` is already left fully resumable (every
+    executed tool call is paired with its output before the cap is
+    checked), this was previously discoverable only by accident.
+  - The `task` tool now flags a truncated sub-agent result as incomplete in
+    what it hands back to the parent model, since a sub-agent session can't
+    itself be resumed (see `task.ts`'s module comment).
+  - `/continue` — resuming without a throwaway follow-up prompt — is noted
+    as a deferred REPL command in PLAN.md §10, not yet implemented.
+
 ## [0.18.0] - 2026-09-15
 
 ### Changed

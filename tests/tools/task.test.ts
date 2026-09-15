@@ -21,7 +21,10 @@ let client: ReturnType<typeof fakeClient>
 beforeEach(() => {
   vi.clearAllMocks()
   client = fakeClient('sub-agent result text')
-  mockedRunAgent.mockResolvedValue('sub-agent result text')
+  mockedRunAgent.mockResolvedValue({
+    text: 'sub-agent result text',
+    truncated: false,
+  })
   parentTools = new ToolRegistry([
     readFileTool(),
     {
@@ -178,6 +181,33 @@ describe('task tool', () => {
     )
     expect(result).toContain('nesting limit reached')
     expect(mockedRunAgent).not.toHaveBeenCalled()
+  })
+
+  // Sub-agent sessions can't be resumed (unlike the REPL — see task.ts's
+  // module comment), so a sub-agent that hit its own maxToolIterations must
+  // tell the parent the result is incomplete rather than returning it as if
+  // it were a normal, trustworthy completion.
+  it('flags a truncated sub-agent result as incomplete', async () => {
+    mockedRunAgent.mockResolvedValue({
+      text: 'partial findings',
+      truncated: true,
+    })
+    const tool = taskTool(client, parentTools)
+    const result = await tool.execute(
+      {
+        description: 'explore',
+        prompt: 'find everything',
+        subagent_type: 'explore',
+      },
+      ctx,
+    )
+
+    expect(result).toMatch(
+      /^<task state="completed" description="[^"]*" agent="[^"]*">/m,
+    )
+    expect(result).toContain('partial findings')
+    expect(result).toContain('stopped after')
+    expect(result).toContain('treat this result as incomplete')
   })
 
   it('wraps errors from runAgent', async () => {

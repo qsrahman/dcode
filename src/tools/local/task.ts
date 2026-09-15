@@ -123,7 +123,7 @@ async function runSubAgent(
   const history: ResponseInput = [{ role: 'user', content: args.prompt }]
 
   try {
-    const text = await runAgent(client, ctx.config, history, {
+    const { text, truncated } = await runAgent(client, ctx.config, history, {
       sink: silentSink,
       logger: ctx.logger,
       signal: ctx.signal,
@@ -133,7 +133,16 @@ async function runSubAgent(
       instructions: agentType.buildPrompt(ctx.config),
     })
 
-    return wrapResult(args, 'completed', text)
+    // Sub-agent sessions are never resumable (module comment above), so a
+    // sub-agent hitting maxToolIterations is a dead end for it specifically
+    // — unlike the REPL, there's no follow-up prompt the parent can send to
+    // continue it. Flag that in the result body so the parent model treats
+    // it as incomplete rather than trusting it the way usage note 5 says to.
+    const body = truncated
+      ? `${text}\n\n(sub-agent stopped after ${ctx.config.maxToolIterations} tool iterations with work still in progress — treat this result as incomplete)`
+      : text
+
+    return wrapResult(args, 'completed', body)
   } catch (err) {
     return wrapResult(args, 'error', `error: ${errorMessage(err)}`)
   }

@@ -59,7 +59,7 @@ describe('runAgent', () => {
   it('streams text and stops when there are no tool calls', async () => {
     const client = fakeClientWithCalls([[]])
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
     })
     expect(text).toBe('turn 0')
@@ -83,7 +83,7 @@ describe('runAgent', () => {
       [],
     ])
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
       tools: new ToolRegistry([readTool]),
     })
@@ -168,14 +168,32 @@ describe('runAgent', () => {
       },
     }
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    await runAgent(client, cfg({ maxToolIterations: 3 }), history, {
-      logger: createLogger(cfg()),
-      tools: new ToolRegistry([readTool]),
-    })
+    const { truncated } = await runAgent(
+      client,
+      cfg({ maxToolIterations: 3 }),
+      history,
+      {
+        logger: createLogger(cfg()),
+        tools: new ToolRegistry([readTool]),
+      },
+    )
     const outputs = history.filter(
       (h) => (h as { type?: string }).type === 'function_call_output',
     )
     expect(outputs).toHaveLength(3)
+    // Every call the cap did let through still got its output (history stays
+    // resumable), and the result says so rather than looking like a normal
+    // completion.
+    expect(truncated).toBe(true)
+  })
+
+  it('reports truncated: false when the loop ends on its own', async () => {
+    const client = fakeClientWithCalls([[]])
+    const history: ResponseInput = [{ role: 'user', content: 'go' }]
+    const { truncated } = await runAgent(client, cfg(), history, {
+      logger: createLogger(cfg()),
+    })
+    expect(truncated).toBe(false)
   })
 
   // Reasoning models require reasoning items to be replayed alongside their
@@ -711,7 +729,7 @@ describe('runAgent — overflow retry (A7)', () => {
     const { client, streamCount } = overflowClient(2) // fail first 2 times
     const { context, overflowCount } = fakeContext(5) // always "succeed"
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
       context,
     })
@@ -791,7 +809,7 @@ describe('runAgent — max output tokens recovery (A3)', () => {
       },
     }
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
     })
     expect(text).toBe('done')
@@ -822,7 +840,7 @@ describe('runAgent — max output tokens recovery (A3)', () => {
       },
     }
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
     })
     // Returns the last truncated text
@@ -853,7 +871,7 @@ describe('runAgent — max output tokens recovery (A3)', () => {
       },
     }
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
     })
     expect(text).toBe('complete')
@@ -887,7 +905,7 @@ describe('runAgent — max output tokens recovery (A3)', () => {
       },
     }
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
     })
     // Continue runs within one tool iteration; non-truncated turn 2 exits the
@@ -926,7 +944,7 @@ describe('runAgent — max output tokens recovery (A3)', () => {
       },
     }
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
     })
     expect(text).toBe('done')
@@ -976,7 +994,7 @@ describe('runAgent — max output tokens recovery (A3)', () => {
     }
     const { context, overflowCount } = fakeContext()
     const history: ResponseInput = [{ role: 'user', content: 'go' }]
-    const text = await runAgent(client, cfg(), history, {
+    const { text } = await runAgent(client, cfg(), history, {
       logger: createLogger(cfg()),
       context,
     })

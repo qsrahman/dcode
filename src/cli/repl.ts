@@ -82,13 +82,32 @@ export async function handleLine(
   try {
     sink.write('\n')
 
-    await runAgent(session.client, session.config, session.history, {
-      sink,
-      logger: session.logger,
-      signal: opts.signal,
-      tools: session.tools,
-      context: session.context,
-    })
+    const result = await runAgent(
+      session.client,
+      session.config,
+      session.history,
+      {
+        sink,
+        logger: session.logger,
+        signal: opts.signal,
+        tools: session.tools,
+        context: session.context,
+      },
+    )
+    // session.history already has every executed tool call paired with its
+    // output (see AgentResult.truncated's own comment) — the task is
+    // resumable right now, just not yet through a dedicated command; raising
+    // the limit and sending any follow-up continues it, the same trick
+    // runAgent's own "Continue." injection uses internally for a truncated
+    // turn. Surfaced on `sink` (not just the logger.warn already fired
+    // inside runAgent), so it isn't easy to miss in a real terminal.
+    if (result.truncated) {
+      sink.write(
+        paintFor(session.config.color).dim(
+          `stopped after ${session.config.maxToolIterations} tool iterations with work still in progress — raise it with /limit <n>, then send a follow-up to continue\n`,
+        ),
+      )
+    }
 
     sink.write('\n')
   } catch (err) {

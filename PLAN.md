@@ -573,7 +573,14 @@ already excluded — see §3's non-goals and §11's cancelled-P5 entry.)
 ### Deferred REPL commands
 
 `/branch` (snapshot `history` to fork and revert). `/cost` is now scoped as
-P15 above rather than a loose candidate.
+P15 above rather than a loose candidate. `/continue` — resume a turn that
+stopped at `maxToolIterations` without the throwaway follow-up prompt
+`AgentResult.truncated` currently requires (see `runAgent`'s doc comment in
+`agent/loop.ts`); `handleLine` would call `runAgent` again on `session.history`
+directly, skipping the `{role: 'user', ...}` push it normally does first —
+the mechanism (raise the limit, call `runAgent` again on the same history) is
+already there and works today via any follow-up prompt, this just removes the
+need for filler text.
 
 ## 11. Phase history
 

@@ -115,7 +115,12 @@ dcode -- "--this reads as a prompt, not a flag"
 
 The agent can call a small set of tools, confined to the working directory
 (`root`). Tool calls run in the order the model emits them; results are fed back
-to the model and the loop repeats up to `maxToolIterations` (default 16).
+to the model and the loop repeats up to `maxToolIterations` (default 16). Hitting
+that cap with tool calls still pending leaves the conversation fully resumable —
+raise it with `/limit <n>` and send a follow-up prompt (e.g. "continue") to pick
+up where it left off, the same trick the REPL prints as a hint when it happens.
+(A dedicated `/continue` command that resumes without a throwaway prompt isn't
+built yet.)
 
 | Tool | Purpose |
 |------|---------|
