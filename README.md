@@ -314,9 +314,11 @@ See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 - Standard tasks: `pnpm dev`, `pnpm test`, `pnpm typecheck`, `pnpm format`.
 - `pnpm stress` runs a **live** end-to-end stress test (`scripts/live-stress.ts`):
   it drives the real agent loop and tools against the configured model
-  (Ollama via env or `dcode.json`) with heavy sequential scenarios plus a concurrency burst.
-  It requires a reachable model endpoint and is intentionally outside the unit
-  suite so `pnpm test` stays offline.
+  (Ollama via env or `dcode.json`) with heavy sequential scenarios plus a concurrency burst,
+  and also connects whatever MCP servers are configured (same as a real session — a
+  failed/unreachable one just shows as `failed` in the startup report). It requires a
+  reachable model endpoint and is intentionally outside the unit suite so `pnpm test`
+  stays offline.
 
 ## License
 

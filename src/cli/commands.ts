@@ -81,7 +81,10 @@ function historyToMarkdown(history: ResponseInput): string {
 // aren't fused into one function — a formatter is testable on its own (no
 // RunSink or Session needed), and a handler reads as "parse -> act -> print".
 
-function formatMcpServers(servers: McpServerStatus[]): string {
+// Exported (unlike the other two formatters) because scripts/live-stress.ts
+// also reports MCP server status at startup and reuses this rather than
+// re-deriving the same three-status formatting.
+export function formatMcpServers(servers: McpServerStatus[]): string {
   if (servers.length === 0) return 'no MCP servers configured'
   const lines = servers.map((s) => {
     if (s.status === 'connected') {

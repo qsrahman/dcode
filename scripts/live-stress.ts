@@ -4,6 +4,8 @@ import type { ResponseInput } from '../src/agent/client.ts'
 import { buildConfig } from '../src/config/config.ts'
 import { parseCli } from '../src/cli/args.ts'
 import { createLocalTools } from '../src/tools/index.ts'
+import { connectMcpServers } from '../src/tools/mcp/manager.ts'
+import { formatMcpServers } from '../src/cli/commands.ts'
 import { TaskStore } from '../src/agent/todo-store.ts'
 import { ContextManager } from '../src/agent/context/manager.ts'
 import { CapturingSink } from '../src/agent/run.ts'
@@ -16,9 +18,12 @@ import { stripVTControlCharacters } from 'node:util'
 // `pnpm stress`. Exercises tool iteration, truncation, context compaction
 // (proactive + todo-aware), mutating writes, background processes,
 // ripgrep-backed grep/glob, web search/fetch, the todowrite list, sub-agents
-// (the task tool), and concurrent runs — and verifies the UI/UX spacing of
-// the rendered output (exactly one well-formed line per tool call) plus the
-// markdown rendering of the streamed answer.
+// (the task tool), MCP servers configured in the global config (connected the
+// same way index.ts/repl.ts do — best-effort, a bad/unreachable server just
+// shows as 'failed' rather than failing the whole run), and concurrent runs
+// — and verifies the UI/UX spacing of the rendered output (exactly one
+// well-formed line per tool call) plus the markdown rendering of the
+// streamed answer.
 //
 // `ask_user` is deliberately never exercised: it blocks on a real keypress,
 // which would hang an unattended run.
@@ -254,12 +259,21 @@ async function main(): Promise<void> {
   const logger = createLogger(config)
   const client = createClient(config)
   const tasks = new TaskStore()
-  const tools = createLocalTools(tasks, client)
+  // Same sequence as index.ts/repl.ts's createSession: connect whatever MCP
+  // servers are configured before assembling the tool registry, and close
+  // them on the way out regardless of how the run finishes. A server that's
+  // unreachable or missing an env-var secret (see manager.ts's
+  // expandEnvPlaceholder) degrades to a 'failed' status rather than aborting
+  // the whole stress run — the scenarios below don't depend on any specific
+  // MCP server being up.
+  const mcp = await connectMcpServers(config.mcpServers, logger)
+  const tools = createLocalTools(tasks, client, mcp.tools)
 
   console.log(
     `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +
       `root=${process.cwd()} maxToolIterations=${config.maxToolIterations}`,
   )
+  console.log(formatMcpServers(mcp.servers))
   // A leftover placeholder key ("ollama") is harmless against a local endpoint
   // but 401s against OpenAI's default baseURL with a confusing message. Warn
   // before spending a full run on it.
@@ -274,40 +288,49 @@ async function main(): Promise<void> {
   console.log('')
 
   let failed = 0
-  const start = Date.now()
-  for (const s of scenarios) {
-    try {
-      await runScenario(client, config, logger, tools, tasks, s)
-    } catch (err) {
-      failed++
-      console.log(`[FAIL] ${s.name}: ${errorMessage(err)}`)
-    }
-    console.log('')
-  }
-
-  // Concurrency burst: run several scenarios in parallel to stress the shared
-  // client/streaming and confirm runs don't cross-contaminate (each has its own
-  // history/input).
-  console.log('concurrency burst (3 parallel runs):')
-  const burst = scenarios.slice(0, 3)
-  const burstStart = Date.now()
-  const results = await Promise.all(
-    burst.map(async (s) => {
+  try {
+    const start = Date.now()
+    for (const s of scenarios) {
       try {
         await runScenario(client, config, logger, tools, tasks, s)
-        return true
       } catch (err) {
+        failed++
         console.log(`[FAIL] ${s.name}: ${errorMessage(err)}`)
-        return false
       }
-    }),
-  )
-  failed += results.filter((r) => !r).length
-  console.log(`burst time=${Date.now() - burstStart}ms`)
-  console.log('')
+      console.log('')
+    }
 
-  const total = Date.now() - start
-  console.log(`total time=${total}ms  failures=${failed}`)
+    // Concurrency burst: run several scenarios in parallel to stress the shared
+    // client/streaming and confirm runs don't cross-contaminate (each has its own
+    // history/input).
+    console.log('concurrency burst (3 parallel runs):')
+    const burst = scenarios.slice(0, 3)
+    const burstStart = Date.now()
+    const results = await Promise.all(
+      burst.map(async (s) => {
+        try {
+          await runScenario(client, config, logger, tools, tasks, s)
+          return true
+        } catch (err) {
+          console.log(`[FAIL] ${s.name}: ${errorMessage(err)}`)
+          return false
+        }
+      }),
+    )
+    failed += results.filter((r) => !r).length
+    console.log(`burst time=${Date.now() - burstStart}ms`)
+    console.log('')
+
+    const total = Date.now() - start
+    console.log(`total time=${total}ms  failures=${failed}`)
+  } finally {
+    // process.exit() below (if reached) skips any code after it, `finally`
+    // included, so mcp.close() has to run before that call, not rely on it —
+    // moved here rather than left as `if (failed > 0) process.exit(1)`
+    // inline above, which would have left connected MCP servers (a spawned
+    // stdio child, an open HTTP connection) dangling on any failed run.
+    await mcp.close()
+  }
   if (failed > 0) process.exit(1)
 }
 

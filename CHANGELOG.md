@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Changed
+- The live stress script (`scripts/live-stress.ts`) now connects the
+  configured MCP servers before assembling its tool registry and reports
+  their status at startup, matching `index.ts`/`repl.ts`'s own sequence —
+  it had drifted since P6 landed and was only exercising the built-in
+  tools. `formatMcpServers` (`cli/commands.ts`, the `/mcp` command's
+  formatter) is now exported so the script reuses it instead of
+  re-deriving the same status text.
 - Agent loop: a max-output-token truncation now replays the truncated partial
   response (via `pushResponseOutput`, tool calls excluded — a call cut off
   mid-truncation is never executed, so replaying it would leave a
