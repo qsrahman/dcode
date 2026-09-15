@@ -18,6 +18,19 @@
     itself be resumed (see `task.ts`'s module comment).
   - `/continue` — resuming without a throwaway follow-up prompt — is noted
     as a deferred REPL command in PLAN.md §10, not yet implemented.
+- `run_shell`/`grep`/`glob`'s child-process buffer ceiling
+  (`tools/local/exec.ts`'s `CHILD_MAX_BUFFER`) is now derived from
+  `maxToolOutputBytes` instead of a fixed 10 MiB constant, via the new
+  `childMaxBuffer(maxToolOutputBytes)` — `Math.max(10 MiB, maxToolOutputBytes
+  * 4)`. Previously, raising `maxToolOutputBytes` past 10 MiB silently
+  stopped working as documented: instead of a clean truncation-with-note,
+  `run_shell`/`grep` would hit the fixed ceiling first and fail with an
+  opaque `execa` maxBuffer error. Not a new config field — a second,
+  independently-set number whose only job is "stay bigger than
+  `maxToolOutputBytes`" would just be a second thing to keep in sync by
+  hand; deriving it keeps that invariant enforced by code instead. No
+  behavior change at the default (32 KiB `maxToolOutputBytes` still yields
+  the 10 MiB floor).
 
 ## [0.18.0] - 2026-09-15
 

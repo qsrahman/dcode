@@ -4,9 +4,20 @@ import { z } from 'zod'
 import type { ToolContext } from '../../agent/types.ts'
 import { defineTool } from '../registry.ts'
 
-// Shared child_process buffer ceiling: comfortably above maxToolOutputBytes so
-// normal large output is truncated rather than killing the child.
-export const CHILD_MAX_BUFFER = 10 * 1024 * 1024
+// Shared child_process buffer ceiling, derived from maxToolOutputBytes rather
+// than a fixed constant: its only job is to stay comfortably above whatever
+// maxToolOutputBytes is set to, so a large command's output gets dcode's own
+// clean truncation-with-note (runTool's truncate()) instead of execa silently
+// killing the child and discarding everything the moment maxToolOutputBytes
+// is raised past a fixed ceiling. Deriving it (rather than adding a second,
+// independently-configured setting) means that invariant can't drift out of
+// sync the way two hand-kept-in-relationship numbers could. The 10 MiB floor
+// keeps today's behavior unchanged at the default (32 KiB); the 4x multiplier
+// preserves the same "comfortably above" margin if maxToolOutputBytes is
+// raised past ~2.5 MiB.
+export function childMaxBuffer(maxToolOutputBytes: number): number {
+  return Math.max(10 * 1024 * 1024, maxToolOutputBytes * 4)
+}
 
 // Don't let child processes inherit secret-looking environment variables
 // (API keys, tokens): `run_shell` could otherwise `printenv` them straight
@@ -46,6 +57,7 @@ export function baseExecOptions(cwd: string, signal?: AbortSignal) {
 // `git` tool, which spawned a binary directly with an argument list, and that
 // tool is gone — `run_shell` is the only caller and always shells out.
 async function runShell(command: string, ctx: ToolContext): Promise<string> {
+  const maxBuffer = childMaxBuffer(ctx.config.maxToolOutputBytes)
   try {
     // `timeout` kills the child on expiry and `cancelSignal` (via
     // baseExecOptions) kills it on ctx.signal firing — both terminate the
@@ -60,7 +72,7 @@ async function runShell(command: string, ctx: ToolContext): Promise<string> {
       shell: true,
       killDescendants: true,
       timeout: ctx.config.toolTimeout,
-      maxBuffer: CHILD_MAX_BUFFER,
+      maxBuffer,
       stripFinalNewline: false,
     })
     // Strip only the trailing newline(s) a command's output typically ends
@@ -76,7 +88,7 @@ async function runShell(command: string, ctx: ToolContext): Promise<string> {
     // with no captured output would be cryptic — say what happened.
     if (e.isMaxBuffer) {
       throw new Error(
-        `command output exceeded ${CHILD_MAX_BUFFER} bytes; narrow the command (e.g. pipe through head or grep)`,
+        `command output exceeded ${maxBuffer} bytes; narrow the command (e.g. pipe through head or grep)`,
       )
     }
     const out = `${e.stdout ?? ''}${e.stderr ?? ''}`.trim()

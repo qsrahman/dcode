@@ -6,7 +6,7 @@ import type { ToolContext } from '../../agent/types.ts'
 import { defineTool } from '../registry.ts'
 import { errorMessage } from '../../util/log.ts'
 import { resolvePath } from './paths.ts'
-import { baseExecOptions, CHILD_MAX_BUFFER } from './exec.ts'
+import { baseExecOptions, childMaxBuffer } from './exec.ts'
 
 // Cap grep output so a broad pattern over a large tree can't flood the model's
 // context (runTool's byte-truncation is a blunt backstop, not a real limit).
@@ -64,10 +64,10 @@ interface RgResult {
 // catch branch checks, rather than falling through to a generic "ripgrep
 // exited with undefined". Exported (rather than inlined in runRg) so this
 // classification is unit-testable without spawning a real process.
-export function classifyRgFailure(result: RgResult): Error {
+export function classifyRgFailure(result: RgResult, maxBuffer: number): Error {
   if (result.isMaxBuffer) {
     return new Error(
-      `ripgrep output exceeded ${CHILD_MAX_BUFFER} bytes; narrow the search (a smaller path or a more specific pattern)`,
+      `ripgrep output exceeded ${maxBuffer} bytes; narrow the search (a smaller path or a more specific pattern)`,
     )
   }
   if (result.isCanceled) return new Error('aborted')
@@ -82,14 +82,15 @@ export function classifyRgFailure(result: RgResult): Error {
 // runExec (which throws on any nonzero exit), so both tools call execa
 // directly and share this result-checking helper instead.
 async function runRg(rgArgs: string[], ctx: ToolContext) {
+  const maxBuffer = childMaxBuffer(ctx.config.maxToolOutputBytes)
   const result = await execa(rgPath, rgArgs, {
     ...baseExecOptions(ctx.root, ctx.signal),
     timeout: ctx.config.toolTimeout,
-    maxBuffer: CHILD_MAX_BUFFER,
+    maxBuffer,
     reject: false,
   })
   if (result.exitCode === 0 || result.exitCode === 1) return result
-  throw classifyRgFailure(result)
+  throw classifyRgFailure(result, maxBuffer)
 }
 
 // Normalize a path ripgrep reports (relative to cwd, or absolute if the

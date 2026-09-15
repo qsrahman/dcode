@@ -22,7 +22,7 @@ import {
   makeDirTool,
 } from '../../src/tools/local/fs.ts'
 import { grepTool, globTool } from '../../src/tools/local/search.ts'
-import { runShellTool } from '../../src/tools/local/exec.ts'
+import { runShellTool, childMaxBuffer } from '../../src/tools/local/exec.ts'
 import {
   runProcessTool,
   readProcessTool,
@@ -72,6 +72,18 @@ function tool(name: string) {
   if (!t) throw new Error(`missing tool ${name}`)
   return t
 }
+
+describe('childMaxBuffer', () => {
+  it('keeps the 10 MiB floor at the default maxToolOutputBytes', () => {
+    expect(childMaxBuffer(32768)).toBe(10 * 1024 * 1024)
+  })
+
+  it('scales past the floor once maxToolOutputBytes exceeds ~2.5 MiB', () => {
+    const big = 4 * 1024 * 1024
+    expect(childMaxBuffer(big)).toBe(big * 4)
+    expect(childMaxBuffer(big)).toBeGreaterThan(10 * 1024 * 1024)
+  })
+})
 
 describe('read-only tools', () => {
   it('read_file returns file contents and rejects escapes', async () => {
@@ -492,6 +504,21 @@ describe('mutating tools', () => {
     await expect(
       tool('run_shell').execute({ command: 'head -c 11000000 /dev/zero' }, ctx),
     ).rejects.toThrow(/exceeded/)
+  })
+
+  // childMaxBuffer's only job is staying comfortably above whatever
+  // maxToolOutputBytes is configured to, not a fixed 10 MiB regardless of
+  // it — this is the scaling that command output exceeded ... bytes above
+  // relies on being accurate.
+  it('run_shell raises its buffer ceiling when maxToolOutputBytes is raised', async () => {
+    // 4 MiB -> childMaxBuffer's 4x multiplier gives a 16 MiB ceiling, so an
+    // 11 MB write that fails at the default (10 MiB floor) succeeds here.
+    const big = { ...ctx, config: cfg({ maxToolOutputBytes: 4 * 1024 * 1024 }) }
+    const out = await tool('run_shell').execute(
+      { command: 'head -c 11000000 /dev/zero | tr "\\0" "a"' },
+      big,
+    )
+    expect(out.length).toBeGreaterThan(10 * 1024 * 1024)
   })
 
   it('run_shell labels timeouts by code rather than exit', async () => {

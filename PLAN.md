@@ -92,7 +92,7 @@ src/
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema (or a tool's own jsonSchema verbatim); defineTool (infers a tool's arg type from its schema)
   tools/local/        # local tool set, split by concern:
     paths.ts          #   resolvePath, withFsError, ensureParentDir — path confinement (realpath-checked against symlink escapes) + shared fs error/mkdir idioms
-    exec.ts           #   run_shell + baseExecOptions/safeEnv/CHILD_MAX_BUFFER — shared execa options (cwd/timeout/cancelSignal/maxBuffer, env redaction); safeEnv is also reused by tools/mcp/manager.ts
+    exec.ts           #   run_shell + baseExecOptions/safeEnv/childMaxBuffer — shared execa options (cwd/timeout/cancelSignal/maxBuffer scaled from maxToolOutputBytes, env redaction); safeEnv is also reused by tools/mcp/manager.ts
     http.ts           #   fetchSafely (timeout, native redirects), readBounded — shared network boundary for web.ts (no host filtering; opencode-style)
     fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
     search.ts         #   grep, glob — both ripgrep-backed (@vscode/ripgrep's bundled binary, spawned directly, not via exec.ts); find_symbol/find_references planned, P12
