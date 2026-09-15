@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-15
+
 ### Changed
 - The live stress script (`scripts/live-stress.ts`) now connects the
   configured MCP servers before assembling its tool registry and reports
