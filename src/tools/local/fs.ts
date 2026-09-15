@@ -12,7 +12,7 @@ import {
   rm,
 } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { defineTool } from '../registry.ts'
 import { resolvePath, ensureParentDir, withResolvedPath } from './paths.ts'
 

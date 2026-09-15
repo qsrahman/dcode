@@ -1,4 +1,4 @@
-import type { z } from 'zod'
+import type { z } from 'zod/v4'
 import type { Config } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 

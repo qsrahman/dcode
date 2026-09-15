@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import type { ToolContext, ToolDefinition } from '../agent/types.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
 

@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import type { ToolContext } from '../../agent/types.ts'
 import type { Client, ResponseInput } from '../../agent/client.ts'
 import { runAgent } from '../../agent/loop.ts'

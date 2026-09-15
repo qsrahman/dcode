@@ -243,17 +243,25 @@ describe('web_fetch', () => {
     expect(out).toContain('1234 bytes')
   })
 
-  it('rejects unsupported schemes', async () => {
-    await expect(
-      fetchTool.execute({ url: 'ftp://example.com' }, ctx),
-    ).rejects.toThrow(/scheme/)
-  })
-
-  it('rejects unparseable URLs', async () => {
-    await expect(fetchTool.execute({ url: 'not a url' }, ctx)).rejects.toThrow(
-      /invalid URL/,
-    )
-  })
+  // Both cases are rejected by the tool's own zod schema (z.url with a
+  // protocol restriction) before execute() ever runs — via runTool, not a
+  // direct execute() call, since parameter validation happens in runTool's
+  // tool.parameters.parse(raw), not inside execute() itself. zod's format
+  // check doesn't distinguish "not a URL at all" from "a URL with the wrong
+  // scheme" (both are the same invalid_format issue), so one message covers
+  // both rather than two separately-worded ones.
+  it.each(['ftp://example.com', 'not a url'])(
+    'rejects a non-http(s) or unparseable URL via schema validation: %s',
+    async (url) => {
+      const outcome = await runTool(
+        { id: 'c', name: 'web_fetch', arguments: JSON.stringify({ url }) },
+        fetchTool,
+        ctx,
+      )
+      expect(outcome.ok).toBe(false)
+      expect(outcome.output).toContain('must be an absolute http(s) URL')
+    },
+  )
 
   it('yields ok:false via runTool on a non-2xx status', async () => {
     mockFetchResponse({

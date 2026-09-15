@@ -32,7 +32,7 @@ import {
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { runTool } from '../../src/agent/run.ts'
 import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { getEventListeners } from 'node:events'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'

@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod/v4'
 
 // One configured MCP server, either spawned locally (over stdio) or reached
 // over HTTP ("remote"). `type` picks the transport; when the config omits
@@ -33,7 +33,12 @@ const mcpRemoteServerSchema = z
   .object({
     type: z.literal('remote'),
     enabled: enabledField,
-    url: z.string(),
+    // Validated (not just typed as a string) via zod's own URL format check,
+    // restricted to http(s) — StreamableHTTPClientTransport only ever talks
+    // http(s), so a malformed or wrong-scheme entry is caught at config-load
+    // time with a clear error naming the field, instead of surfacing later
+    // as a raw `new URL()` TypeError from inside connectOne (manager.ts).
+    url: z.url({ protocol: /^https?$/ }),
     // Static headers only (e.g. a bearer token) — no OAuth flow. A remote
     // server that requires interactive auth isn't supported yet.
     headers: z.record(z.string(), z.string()).optional(),
@@ -97,14 +102,20 @@ export const configSchema = z.object({
   // `/models`) to this value, so include the API-version prefix (e.g.
   // `http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1` for
   // OpenAI). A missing `/v1` is added automatically during config merge.
-  baseURL: z.string().optional(),
+  // Validated as an http(s) URL so a typo'd baseURL fails loudly at config
+  // load, not as an opaque fetch/SDK error the first time a request is made.
+  baseURL: z.url({ protocol: /^https?$/ }).optional(),
   apiKey: z.string().optional(),
   brave: z.string().optional(),
   // Override for Brave's search endpoint (tests, proxies). Resolved the same
   // way as `brave` itself: through config, not read from process.env at the
   // call site, so /key-style runtime overrides and CLI>env>file precedence
-  // apply to it too instead of it being frozen at module load.
-  braveEndpoint: z.string().optional(),
+  // apply to it too instead of it being frozen at module load. Validated as
+  // an http(s) URL for the same reason baseURL is: web.ts's `new URL(...)`
+  // on this value has no try/catch of its own, so a malformed override
+  // should fail here, not as an opaque native TypeError from inside
+  // web_search's execute().
+  braveEndpoint: z.url({ protocol: /^https?$/ }).optional(),
   color: z.boolean().default(true),
   maxToolIterations: z.number().int().positive().default(16),
   maxToolOutputBytes: z.number().int().positive().default(32768),

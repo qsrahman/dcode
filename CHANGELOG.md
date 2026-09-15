@@ -1,6 +1,20 @@
 ## [Unreleased]
 
 ### Changed
+- All `zod` imports now come from `zod/v4` explicitly (previously bare
+  `'zod'`, which resolves to the same v4 API today but isn't pinned against
+  a future major changing what the bare specifier means).
+  `web_fetch`'s URL argument, `baseURL`, `braveEndpoint`, and the MCP
+  `mcpServers` remote-server `url` field now validate as real http(s) URLs
+  via zod's own `z.url({ protocol: /^https?$/ })` instead of a hand-rolled
+  `new URL()` try/catch plus a manual scheme check (`web_fetch`) or no
+  validation at all (`baseURL`/`braveEndpoint`/MCP `url` previously accepted
+  any string and only failed later, as an opaque native `TypeError`, the
+  first time something tried to actually use it). `web_fetch`'s scheme/parse
+  errors now surface through `runTool`'s normal `ok:false` path (parameter
+  validation, not a thrown error from inside `execute()`), and MCP/config
+  URL typos are now caught at config-load time with a clear message naming
+  the field, not at connect/request time.
 - `runAgent`/`runOneShot` now return `{ text, truncated }` instead of a bare
   string. `truncated` is true when the loop stopped because it hit
   `maxToolIterations` with tool calls still pending, not because the model

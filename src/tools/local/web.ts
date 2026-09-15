@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { NodeHtmlMarkdown } from 'node-html-markdown'
 import { defineTool } from '../registry.ts'
 import { fetchSafely, readBounded } from './http.ts'
@@ -110,24 +110,25 @@ export const webFetchTool = () =>
     description:
       "Fetch a URL and return its content. With format=markdown (default) HTML pages are converted to Markdown and JSON is pretty-printed; format=text or format=html return the body unconverted. Binary payloads are described, not dumped. Use to read a specific page, doc, or API response when you already know the URL; use web_search to discover URLs you don't know yet.",
     parameters: z.object({
-      url: z.string().describe('Absolute http(s) URL to fetch'),
+      // z.url() validates both "is this a parseable URL" and "is the scheme
+      // http(s)" in one check (the protocol regex), so runTool's own
+      // tool.parameters.parse(raw) call rejects a malformed or wrong-scheme
+      // URL before execute() ever runs — no hand-rolled try/catch + scheme
+      // check needed here.
+      url: z
+        .url({
+          protocol: /^https?$/,
+          error: 'must be an absolute http(s) URL',
+        })
+        .describe('Absolute http(s) URL to fetch'),
       format: z
         .enum(['markdown', 'text', 'html'])
         .optional()
         .describe('How to return the content (default markdown)'),
     }),
     async execute(args, ctx) {
-      let target: URL
-      try {
-        target = new URL(args.url)
-      } catch {
-        throw new Error(`invalid URL: ${args.url}`)
-      }
-      if (target.protocol !== 'http:' && target.protocol !== 'https:') {
-        throw new Error(
-          `unsupported scheme (${target.protocol}); only http(s) is allowed`,
-        )
-      }
+      // Schema validation already guarantees this parses and is http(s).
+      const target = new URL(args.url)
       const format = args.format ?? 'markdown'
       let res: Response
       try {

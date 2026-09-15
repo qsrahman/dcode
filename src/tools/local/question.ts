@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import { select, multiselect, text, isCancel, cancel } from '@clack/prompts'
 import { defineTool } from '../registry.ts'
 

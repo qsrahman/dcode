@@ -1,6 +1,6 @@
 import { execa } from 'execa'
 import type { ExecaError } from 'execa'
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import type { ToolContext } from '../../agent/types.ts'
 import { defineTool } from '../registry.ts'
 

@@ -1,7 +1,7 @@
 import { relative, resolve } from 'node:path'
 import { execa } from 'execa'
 import { rgPath } from '@vscode/ripgrep'
-import { z } from 'zod'
+import { z } from 'zod/v4'
 import type { ToolContext } from '../../agent/types.ts'
 import { defineTool } from '../registry.ts'
 import { errorMessage } from '../../util/log.ts'
