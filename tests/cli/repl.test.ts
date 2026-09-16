@@ -20,45 +20,11 @@ import {
 import { parseCommand, type Session } from '../../src/cli/commands.ts'
 import { createLogger } from '../../src/util/log.ts'
 import { cfg, fakeClient, makeSink } from '../helpers.ts'
-import type { Client, OpenAIResponse } from '../../src/agent/client.ts'
 import { getVersion } from '../../src/util/version.ts'
 
 function makeSession(over: Partial<Config> = {}): Promise<Session> {
   const config = cfg(over)
   return createSession(config, createLogger(config))
-}
-
-// fakeClient (helpers.ts) never sets `usage` on its response — needed here
-// specifically to exercise session.lastUsage.
-function fakeClientWithUsage(
-  text: string,
-  usage: { input: number; output: number },
-): Client {
-  return {
-    stream() {
-      return {
-        async *[Symbol.asyncIterator]() {
-          yield text
-        },
-        finalResponse: async () =>
-          ({
-            output: [
-              {
-                type: 'message',
-                role: 'assistant',
-                status: 'completed',
-                content: [{ type: 'output_text', text, annotations: [] }],
-              },
-            ],
-            output_text: text,
-            usage: {
-              input_tokens: usage.input,
-              output_tokens: usage.output,
-            },
-          }) as unknown as OpenAIResponse,
-      }
-    },
-  }
 }
 
 describe('parseCommand', () => {
@@ -259,24 +225,15 @@ describe('handleLine prompt turn', () => {
     expect(stripVTControlCharacters(out.join(''))).toBe('\nhi there\n\n')
   })
 
-  it("increments session.turn and records the last turn's usage", async () => {
+  it("records the last turn's usage", async () => {
     const s = await makeSession()
-    s.client = fakeClientWithUsage('hi there', { input: 12, output: 34 })
+    s.client = fakeClient('hi there', false, undefined, {
+      input: 12,
+      output: 34,
+    })
     const { sink } = makeSink()
-    expect(s.turn).toBe(0)
     await handleLine(s, 'hello', { sink })
-    expect(s.turn).toBe(1)
     expect(s.lastUsage).toEqual({ input: 12, output: 34 })
-    await handleLine(s, 'again', { sink })
-    expect(s.turn).toBe(2)
-  })
-
-  // A slash command isn't a model turn — the status line shouldn't move.
-  it('does not increment session.turn for a slash command', async () => {
-    const s = await makeSession()
-    const { sink } = makeSink()
-    await handleLine(s, '/version', { sink })
-    expect(s.turn).toBe(0)
   })
 
   // Some OpenAI-compatible endpoints omit `usage` entirely — lastUsage
@@ -286,7 +243,6 @@ describe('handleLine prompt turn', () => {
     s.client = fakeClient('hi there')
     const { sink } = makeSink()
     await handleLine(s, 'hello', { sink })
-    expect(s.turn).toBe(1)
     expect(s.lastUsage).toBeUndefined()
   })
 
@@ -588,12 +544,51 @@ describe('formatStatusLine', () => {
 
   it("includes this turn's ↑/↓ usage once lastUsage is set", async () => {
     const s = await makeSession({ color: false })
-    s.turn = 3
+    // Turn count is derived from history (one 'user' item per turn), not
+    // stored separately — see repl.ts's turnCount.
+    s.history.push(
+      { role: 'user', content: 'one' },
+      { role: 'user', content: 'two' },
+      { role: 'user', content: 'three' },
+    )
     s.lastUsage = { input: 105, output: 221 }
     const line = formatStatusLine(s)
     expect(line).toContain('turn 3')
     expect(line).toContain('↑105')
     expect(line).toContain('↓221')
+  })
+
+  // Deriving turn count from history means /undo and /reset can't leave a
+  // separate counter stale the way earlier stored state could — this is the
+  // regression test for exactly that bug.
+  it('reflects a shorter turn count immediately after /undo', async () => {
+    const s = await makeSession({ color: false })
+    s.client = fakeClient('hi there', false, undefined, {
+      input: 1,
+      output: 2,
+    })
+    const { sink } = makeSink()
+    await handleLine(s, 'first', { sink })
+    await handleLine(s, 'second', { sink })
+    expect(formatStatusLine(s)).toContain('turn 2')
+    await handleLine(s, '/undo', { sink })
+    expect(formatStatusLine(s)).toContain('turn 1')
+    // The undone turn's usage must not linger either.
+    expect(s.lastUsage).toBeUndefined()
+  })
+
+  it('resets to turn 0 after /reset confirm', async () => {
+    const s = await makeSession({ color: false })
+    s.client = fakeClient('hi there', false, undefined, {
+      input: 1,
+      output: 2,
+    })
+    const { sink } = makeSink()
+    await handleLine(s, 'hello', { sink })
+    expect(formatStatusLine(s)).toContain('turn 1')
+    await handleLine(s, '/reset confirm', { sink })
+    expect(formatStatusLine(s)).toContain('turn 0')
+    expect(s.lastUsage).toBeUndefined()
   })
 
   // color:false is threaded through paintFor the same way the rest of the

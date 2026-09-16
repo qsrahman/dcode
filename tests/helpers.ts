@@ -26,6 +26,10 @@ export function fakeClient(
   text: string,
   split = false,
   output?: unknown[],
+  // Real usage (input/output token counts) for tests that need
+  // response.usage populated — omitted by default, matching most fakes'
+  // OpenAI-compatible endpoints, which don't always report it either.
+  usage?: { input: number; output: number },
 ): Client {
   const resolvedOutput = output ?? (text ? [messageItem(text)] : [])
   return {
@@ -43,6 +47,12 @@ export function fakeClient(
           ({
             output: resolvedOutput,
             output_text: text,
+            ...(usage && {
+              usage: {
+                input_tokens: usage.input,
+                output_tokens: usage.output,
+              },
+            }),
           }) as unknown as OpenAIResponse,
       }
     },

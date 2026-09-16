@@ -33,14 +33,17 @@ export interface Session {
   tasks: TaskStore
   root: string
   mcp: McpManager
-  // REPL status-line state (cli/repl.ts's prompt) — how many completed
-  // prompt-turns this session has had, and the most recent turn's token
-  // usage when the provider reported it (see agent/loop.ts's AgentResult).
-  // One-shot mode never reads these (there's no persistent prompt to show
-  // them in), but they live on Session rather than as REPL-local state
-  // since handleLine — not the REPL loop itself — is what runs the turn and
-  // knows the result.
-  turn: number
+  // REPL status-line state (cli/repl.ts's formatStatusLine) — the most
+  // recent turn's token usage, when the provider reported it (see
+  // agent/loop.ts's AgentResult). The turn *count* itself isn't stored here:
+  // it's derived from `history` (cli/repl.ts's turnCount), specifically so
+  // /undo and /reset can't leave a separate counter stale. lastUsage can't
+  // be derived the same way (history doesn't carry token counts), so /undo
+  // and /reset both clear it explicitly instead — see their handlers below.
+  // One-shot mode never reads this (there's no persistent prompt to show it
+  // in), but it lives on Session rather than as REPL-local state since
+  // handleLine — not the REPL loop itself — is what runs the turn and knows
+  // the result.
   lastUsage?: { input: number; output: number }
 }
 
@@ -221,6 +224,9 @@ export function createCommands(): CommandRegistry {
         return 'ok'
       }
       session.history = []
+      // The status line's ↑/↓ segment would otherwise keep showing the
+      // now-gone last turn's usage against a freshly emptied conversation.
+      session.lastUsage = undefined
       sink.write('session reset\n')
       return 'ok'
     },
@@ -310,6 +316,10 @@ export function createCommands(): CommandRegistry {
         return 'ok'
       }
       h.splice(lastUser)
+      // The undone exchange was the one lastUsage came from — clear it
+      // rather than leave the status line showing usage for a turn that no
+      // longer exists in history.
+      session.lastUsage = undefined
       sink.write('undid last exchange\n')
       return 'ok'
     },

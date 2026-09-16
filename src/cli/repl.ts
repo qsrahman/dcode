@@ -17,6 +17,7 @@ import {
 import { createCompleter } from './completer.ts'
 import { openInEditor, resolveEditor, NO_EDITOR_MESSAGE } from './editor.ts'
 import { paintFor } from '../util/color.ts'
+import type { ResponseItemFields } from '../agent/types.ts'
 
 const HINT = 'Ask anything, /help for commands...'
 
@@ -42,7 +43,6 @@ export async function createSession(
     tasks,
     root: process.cwd(),
     mcp,
-    turn: 0,
   }
 }
 
@@ -96,8 +96,10 @@ export async function handleLine(
       },
     )
     // Recorded even on a truncated/incomplete turn — the status line reports
-    // what actually happened, not just clean completions.
-    session.turn++
+    // what actually happened, not just clean completions. Turn count itself
+    // isn't stored here (see formatStatusLine): it's derived from history,
+    // so /undo and /reset can't leave it stale the way separately-tracked
+    // state would.
     if (result.inputTokens !== undefined && result.outputTokens !== undefined) {
       session.lastUsage = {
         input: result.inputTokens,
@@ -128,6 +130,16 @@ export async function handleLine(
   return 'ok'
 }
 
+// Turns aren't tracked as separate counter state — deriving the count from
+// history (one user-role item per turn, the same shape /undo's own
+// findLastIndex scan already relies on) means /undo and /reset can't leave
+// it stale the way a separately-incremented field could (and did, before
+// this): splicing or clearing history is automatically reflected here with
+// no second piece of state to remember to update in step.
+function turnCount(history: Session['history']): number {
+  return history.filter((h) => (h as ResponseItemFields).role === 'user').length
+}
+
 // The REPL's dynamic status line: model, completed-turn count, the most
 // recent turn's token usage (when the provider reported it), and cumulative
 // context usage against the model's usable window (the same {used, usable}
@@ -144,7 +156,8 @@ export function formatStatusLine(session: Session): string {
   const usage = session.lastUsage
     ? ` · ↑${session.lastUsage.input} ↓${session.lastUsage.output}`
     : ''
-  const text = `${session.config.model} · turn ${session.turn}${usage} · ${rep.used}/${rep.usable} (${pct}% used)`
+  const turn = turnCount(session.history)
+  const text = `${session.config.model} · turn ${turn}${usage} · ${rep.used}/${rep.usable} (${pct}% used)`
   return paintFor(session.config.color).dim(text)
 }
 
