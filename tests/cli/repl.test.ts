@@ -11,15 +11,54 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Config } from '../../src/config/schema.ts'
-import { createSession, handleLine, startRepl } from '../../src/cli/repl.ts'
+import {
+  createSession,
+  formatStatusLine,
+  handleLine,
+  startRepl,
+} from '../../src/cli/repl.ts'
 import { parseCommand, type Session } from '../../src/cli/commands.ts'
 import { createLogger } from '../../src/util/log.ts'
 import { cfg, fakeClient, makeSink } from '../helpers.ts'
+import type { Client, OpenAIResponse } from '../../src/agent/client.ts'
 import { getVersion } from '../../src/util/version.ts'
 
 function makeSession(over: Partial<Config> = {}): Promise<Session> {
   const config = cfg(over)
   return createSession(config, createLogger(config))
+}
+
+// fakeClient (helpers.ts) never sets `usage` on its response — needed here
+// specifically to exercise session.lastUsage.
+function fakeClientWithUsage(
+  text: string,
+  usage: { input: number; output: number },
+): Client {
+  return {
+    stream() {
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield text
+        },
+        finalResponse: async () =>
+          ({
+            output: [
+              {
+                type: 'message',
+                role: 'assistant',
+                status: 'completed',
+                content: [{ type: 'output_text', text, annotations: [] }],
+              },
+            ],
+            output_text: text,
+            usage: {
+              input_tokens: usage.input,
+              output_tokens: usage.output,
+            },
+          }) as unknown as OpenAIResponse,
+      }
+    },
+  }
 }
 
 describe('parseCommand', () => {
@@ -218,6 +257,37 @@ describe('handleLine prompt turn', () => {
     expect(last.type).toBe('message')
     expect(last.role).toBe('assistant')
     expect(stripVTControlCharacters(out.join(''))).toBe('\nhi there\n\n')
+  })
+
+  it("increments session.turn and records the last turn's usage", async () => {
+    const s = await makeSession()
+    s.client = fakeClientWithUsage('hi there', { input: 12, output: 34 })
+    const { sink } = makeSink()
+    expect(s.turn).toBe(0)
+    await handleLine(s, 'hello', { sink })
+    expect(s.turn).toBe(1)
+    expect(s.lastUsage).toEqual({ input: 12, output: 34 })
+    await handleLine(s, 'again', { sink })
+    expect(s.turn).toBe(2)
+  })
+
+  // A slash command isn't a model turn — the status line shouldn't move.
+  it('does not increment session.turn for a slash command', async () => {
+    const s = await makeSession()
+    const { sink } = makeSink()
+    await handleLine(s, '/version', { sink })
+    expect(s.turn).toBe(0)
+  })
+
+  // Some OpenAI-compatible endpoints omit `usage` entirely — lastUsage
+  // should stay unset rather than record a misleading {undefined, undefined}.
+  it('leaves lastUsage unset when the provider reports no usage', async () => {
+    const s = await makeSession()
+    s.client = fakeClient('hi there')
+    const { sink } = makeSink()
+    await handleLine(s, 'hello', { sink })
+    expect(s.turn).toBe(1)
+    expect(s.lastUsage).toBeUndefined()
   })
 
   it('asPrompt sends slash-prefixed text as a prompt, not a command', async () => {
@@ -503,6 +573,37 @@ describe('REPL commands /save and /limit', () => {
     await expect(
       handleLine(s, '/save blocker/notes.json', { sink }),
     ).resolves.toBe('ok')
+  })
+})
+
+describe('formatStatusLine', () => {
+  it('shows model, turn 0, and 0/usable before any turn has run', async () => {
+    const s = await makeSession({ color: false })
+    const line = formatStatusLine(s)
+    expect(line).toContain(s.config.model)
+    expect(line).toContain('turn 0')
+    expect(line).not.toContain('↑') // no ↑/↓ segment before a real turn
+    expect(line).toMatch(/0\/\d+ \(0% used\)/)
+  })
+
+  it("includes this turn's ↑/↓ usage once lastUsage is set", async () => {
+    const s = await makeSession({ color: false })
+    s.turn = 3
+    s.lastUsage = { input: 105, output: 221 }
+    const line = formatStatusLine(s)
+    expect(line).toContain('turn 3')
+    expect(line).toContain('↑105')
+    expect(line).toContain('↓221')
+  })
+
+  // color:false is threaded through paintFor the same way the rest of the
+  // REPL's output is (see util/color.ts) — the --no-color bug this codebase
+  // has fixed before was exactly a case that looked colored-off but wasn't.
+  it('emits no ANSI codes when color is false', async () => {
+    const s = await makeSession({ color: false })
+    s.lastUsage = { input: 1, output: 2 }
+    const line = formatStatusLine(s)
+    expect(line).toBe(stripVTControlCharacters(line))
   })
 })
 

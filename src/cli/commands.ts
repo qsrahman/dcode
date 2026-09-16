@@ -33,6 +33,15 @@ export interface Session {
   tasks: TaskStore
   root: string
   mcp: McpManager
+  // REPL status-line state (cli/repl.ts's prompt) — how many completed
+  // prompt-turns this session has had, and the most recent turn's token
+  // usage when the provider reported it (see agent/loop.ts's AgentResult).
+  // One-shot mode never reads these (there's no persistent prompt to show
+  // them in), but they live on Session rather than as REPL-local state
+  // since handleLine — not the REPL loop itself — is what runs the turn and
+  // knows the result.
+  turn: number
+  lastUsage?: { input: number; output: number }
 }
 
 // 'edit' asks the REPL loop to open the user's editor and submit the result as

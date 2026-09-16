@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Added
+- REPL: the prompt is now two lines — a dim status line (`model · turn N ·
+  ↑in ↓out · used/usable (pct% used)`) above the usual `> ` input marker —
+  rebuilt before every `rl.prompt()` call so it's never more than one turn
+  stale. No new dependency: readline's own multi-line prompt support does
+  the rendering. `AgentResult` (`agent/loop.ts`) gained optional
+  `inputTokens`/`outputTokens` from the final turn's `response.usage` to
+  feed it, and `Session` (`cli/commands.ts`) gained `turn`/`lastUsage` to
+  hold the running state.
+
 ### Changed
 - System prompt (`agent/system.ts`) synced with the current tool set and
   sub-agent behavior:

@@ -31,6 +31,14 @@ export interface AgentResult {
   // — see cli/commands.ts's `/limit` — a `/continue` command that resumes
   // without requiring a throwaway follow-up prompt is a natural next step.)
   truncated: boolean
+  // Token usage from the *final* turn's response, when the provider reported
+  // it (real OpenAI always does; some OpenAI-compatible endpoints omit
+  // `usage` entirely — hence optional). Surfaced so a caller displaying
+  // per-turn stats (the REPL's status line) doesn't have to plumb the whole
+  // Response through itself; a multi-iteration tool-calling exchange only
+  // ever needs the last turn's numbers, not a running sum of every retry.
+  inputTokens?: number
+  outputTokens?: number
 }
 
 // A context overflow is recovered by compacting and retrying; a truncated
@@ -94,6 +102,7 @@ export async function runAgent(
   let finalText = ''
   let truncated = false
   let prevHadTools = false
+  let lastUsage: OpenAIResponse['usage']
 
   for (let i = 0; i < config.maxToolIterations; i++) {
     // Before each request, shrink the history if it's near the model's context
@@ -119,6 +128,7 @@ export async function runAgent(
       logger: opts.logger,
     })
     finalText = text
+    lastUsage = response.usage
     // Recalibrate the token estimate against the provider's real usage.
     opts.context?.observe(response.usage, history)
     pushResponseOutput(history, response)
@@ -156,7 +166,12 @@ export async function runAgent(
   // answer; this catches a query that ends on tools with no closing text
   // (an empty final answer, or the maxToolIterations ceiling above).
   progress.freeze()
-  return { text: finalText, truncated }
+  return {
+    text: finalText,
+    truncated,
+    inputTokens: lastUsage?.input_tokens,
+    outputTokens: lastUsage?.output_tokens,
+  }
 }
 
 // Run one streaming turn, recovering from two provider-side conditions before

@@ -42,6 +42,7 @@ export async function createSession(
     tasks,
     root: process.cwd(),
     mcp,
+    turn: 0,
   }
 }
 
@@ -94,6 +95,15 @@ export async function handleLine(
         context: session.context,
       },
     )
+    // Recorded even on a truncated/incomplete turn — the status line reports
+    // what actually happened, not just clean completions.
+    session.turn++
+    if (result.inputTokens !== undefined && result.outputTokens !== undefined) {
+      session.lastUsage = {
+        input: result.inputTokens,
+        output: result.outputTokens,
+      }
+    }
     // session.history already has every executed tool call paired with its
     // output (see AgentResult.truncated's own comment) — the task is
     // resumable right now, just not yet through a dedicated command; raising
@@ -116,6 +126,26 @@ export async function handleLine(
     }
   }
   return 'ok'
+}
+
+// The REPL's dynamic status line: model, completed-turn count, the most
+// recent turn's token usage (when the provider reported it), and cumulative
+// context usage against the model's usable window (the same {used, usable}
+// /context already reports). Rebuilt before every rl.prompt() call (see
+// runRepl's refreshPrompt) so it's never more than one turn stale — the
+// closest a plain readline prompt gets to the pinned status footer a
+// full-screen TUI would show, without needing one (PLAN.md §10's "Considered
+// and rejected" already turned down a React/Ink-style TUI as more complexity
+// than a terminal tool needs). Exported for direct testing without a real
+// readline interface.
+export function formatStatusLine(session: Session): string {
+  const rep = session.context.report(session.history)
+  const pct = rep.usable > 0 ? Math.round((rep.used / rep.usable) * 100) : 0
+  const usage = session.lastUsage
+    ? ` · ↑${session.lastUsage.input} ↓${session.lastUsage.output}`
+    : ''
+  const text = `${session.config.model} · turn ${session.turn}${usage} · ${rep.used}/${rep.usable} (${pct}% used)`
+  return paintFor(session.config.color).dim(text)
 }
 
 // Run the /edit round-trip: open the user's editor on a scratch buffer and
@@ -162,7 +192,7 @@ async function runRepl(session: Session): Promise<void> {
   // Session-scoped, not a module-level constant: it has to read config.color
   // (see util/color.ts's paintFor) rather than styleText's own auto-detection,
   // or --no-color could never suppress it.
-  const PROMPT = paintFor(session.config.color).cyan('> ')
+  const INPUT_MARKER = paintFor(session.config.color).cyan('> ')
 
   const rl = createInterface({
     input: process.stdin,
@@ -170,7 +200,15 @@ async function runRepl(session: Session): Promise<void> {
     terminal: true,
     completer: createCompleter(session.root),
   })
-  rl.setPrompt(PROMPT)
+  // Rebuilds the two-line prompt (dim status line, cyan input marker) from
+  // current session state — called right before every rl.prompt(), so the
+  // status always reflects the most recent completed turn. readline supports
+  // a multi-line prompt string natively (it tracks each line for cursor
+  // positioning on redraw), so this needs no extra rendering of its own.
+  const refreshPrompt = () => {
+    rl.setPrompt(`${formatStatusLine(session)}\n${INPUT_MARKER}`)
+  }
+  refreshPrompt()
 
   // `ac` is set only while a turn is in flight, so it doubles as the "busy"
   // flag: SIGINT aborts the current turn when present, otherwise just re-prompts.
@@ -207,10 +245,12 @@ async function runRepl(session: Session): Promise<void> {
     }
     idleSigintAt = now
     session.logger.warn('(To exit, press Ctrl-C again or type /exit)')
+    refreshPrompt()
     rl.prompt()
   })
 
   process.stdout.write(`${HINT}\n`)
+  refreshPrompt()
   rl.prompt()
 
   // One turn through handleLine with a fresh abort controller. `ac` is the
@@ -244,11 +284,15 @@ async function runRepl(session: Session): Promise<void> {
       if (text) {
         // Echo the composed prompt so the terminal (and any later /save) has a
         // record of what was sent — it was typed in an external buffer, so
-        // nothing of it reached the screen otherwise.
-        process.stdout.write(`${PROMPT}${text.trim()}\n`)
+        // nothing of it reached the screen otherwise. Just the input marker,
+        // not the full status-line prompt: the status above it is about to go
+        // stale the moment runTurn below updates it, so echoing it here would
+        // just be a snapshot no more meaningful than omitting it.
+        process.stdout.write(`${INPUT_MARKER}${text.trim()}\n`)
         await runTurn(text, true)
       }
     }
+    refreshPrompt()
     rl.prompt()
   }
 }
