@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { stripVTControlCharacters } from 'node:util'
-import { runTurn } from '../../src/agent/run.ts'
+import { runTurn } from '../../src/agent/turn.ts'
 import { runOneShot } from '../../src/agent/loop.ts'
 import { createLogger } from '../../src/util/log.ts'
 import type { Client, OpenAIResponse } from '../../src/agent/client.ts'
@@ -70,6 +70,6 @@ describe('runTurn', () => {
       sink,
       logger: createLogger(config),
     })
-    expect(result.text).toBe('part one part two')
+    expect(result.output_text).toBe('part one part two')
   })
 })

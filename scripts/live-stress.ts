@@ -8,7 +8,7 @@ import { connectMcpServers } from '../src/tools/mcp/manager.ts'
 import { formatMcpServers } from '../src/cli/commands.ts'
 import { TaskStore } from '../src/agent/types.ts'
 import { ContextManager } from '../src/agent/context/manager.ts'
-import { CapturingSink } from '../src/agent/run.ts'
+import { CapturingSink } from '../src/ui/sink.ts'
 import { createLogger, errorMessage } from '../src/util/log.ts'
 import { stripVTControlCharacters } from 'node:util'
 

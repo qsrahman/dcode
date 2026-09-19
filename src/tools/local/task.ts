@@ -13,7 +13,7 @@ import {
 import { TaskStore } from '../../agent/types.ts'
 import { errorMessage } from '../../util/log.ts'
 import { todoTool } from './todo.ts'
-import type { RunSink } from '../../agent/run.ts'
+import type { RunSink } from '../../ui/sink.ts'
 
 const MAX_DEPTH = 1
 

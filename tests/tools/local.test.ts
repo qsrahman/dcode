@@ -30,7 +30,7 @@ import {
   processManager,
 } from '../../src/tools/local/process.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
-import { runTool } from '../../src/agent/run.ts'
+import { runTool } from '../../src/agent/exec.ts'
 import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
 import { z } from 'zod/v4'
 import { getEventListeners } from 'node:events'

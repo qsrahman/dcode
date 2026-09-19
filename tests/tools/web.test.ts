@@ -8,7 +8,7 @@ import {
   webFetchTool,
   htmlToMarkdown,
 } from '../../src/tools/local/web.ts'
-import { runTool } from '../../src/agent/run.ts'
+import { runTool } from '../../src/agent/exec.ts'
 import type { ToolContext } from '../../src/agent/types.ts'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'

@@ -166,7 +166,7 @@ describe('ask_user tool', () => {
   })
 
   it('validates schema rejects invalid input', async () => {
-    const res = await import('../../src/agent/run.ts').then((m) =>
+    const res = await import('../../src/agent/exec.ts').then((m) =>
       m.runTool(
         {
           id: 'c',

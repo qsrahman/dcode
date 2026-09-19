@@ -261,7 +261,7 @@ describe('task tool', () => {
   })
 
   it('validates schema rejects invalid input', async () => {
-    const { runTool } = await import('../../src/agent/run.ts')
+    const { runTool } = await import('../../src/agent/exec.ts')
     const res = await runTool(
       {
         id: 'c',

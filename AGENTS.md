@@ -139,7 +139,7 @@ Colour goes through `util/color.ts`'s `paintFor(color)` — the one place
 auto-detect. Detection runs at startup, before `--no-color` reaches argv, and
 it reports on stdout rather than the sink being written to.
 
-`runTool` (`agent/run.ts`) races every tool against `config.toolTimeout` and
+`runTool` (`agent/exec.ts`) races every tool against `config.toolTimeout` and
 `ctx.signal` via `withDeadline`. Losing that race **abandons** the tool
 promise — nothing can force a tool to stop from the outside — so a tool that
 spawns or connects must also take `ctx.signal` itself (`baseExecOptions`'

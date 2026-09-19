@@ -55,7 +55,8 @@ AGENTS.md's phase workflow).
 
 ## Architecture
 
-`agent/run.ts` holds the low-level per-turn/per-tool primitives: `runTurn`
+`agent/turn.ts` (`runTurn`) and `agent/exec.ts` (`runTool`, `runCalls`) hold
+the low-level per-turn/per-tool primitives: `runTurn`
 streams deltas from the OpenAI Responses client through a
 `MarkdownStreamRenderer` (`ui/markdown.ts`) to a `sink` for live, styled
 rendering — the renderer buffers deltas and only emits fully-formed lines

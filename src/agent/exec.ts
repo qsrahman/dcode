@@ -1,6 +1,3 @@
-import type { Client, OpenAIResponse, ResponseInput } from './client.ts'
-import type { Config } from '../config/schema.ts'
-import type { Logger } from '../util/log.ts'
 import { errorMessage } from '../util/log.ts'
 import type {
   ToolDefinition,
@@ -8,82 +5,8 @@ import type {
   ToolContext,
   ToolResult,
 } from './types.ts'
-import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
-import { MarkdownStreamRenderer } from '../ui/markdown.ts'
-
-export interface RunSink {
-  write(text: string): void
-}
-
-// A RunSink that accumulates everything written instead of forwarding it —
-// used by scripts/live-stress.ts to capture a turn's rendered output for
-// UI-spacing assertions without printing it live.
-export class CapturingSink implements RunSink {
-  text = ''
-  write(s: string): void {
-    this.text += s
-  }
-}
-
-export interface TurnOpts {
-  sink?: RunSink
-  logger: Logger
-  tools?: ResponsesTool[]
-  instructions?: string
-  signal?: AbortSignal
-  // Called once, immediately before the first visible chunk of this turn's
-  // text reaches the sink. The agent loop uses it to freeze the accumulated
-  // tool summary above the answer: intermediate reasoning turns emit no
-  // visible text, so the first delta reliably marks the tool→answer
-  // transition. Not called for a turn that streams nothing (a pure tool call).
-  onBeforeText?: () => void
-}
-
-// Universal turn runner shared by one-shot and the REPL. Streams output to
-// `sink`; the model request is cancellable via `opts.signal`, which is passed
-// straight into the SDK's own request-level abort support (decision L).
-// Returns the SDK's own aggregated text (Response.output_text) plus the full
-// response (for tool calls) — `response.output_text` is the SDK's own
-// aggregated text, not reconstructed from the deltas. Deltas are rendered as
-// markdown live via MarkdownStreamRenderer, which only emits block-complete
-// lines (see ui/markdown.ts) so a client never sees broken mid-render
-// markdown (an unclosed `**`, a code fence rendered before it closes).
-export async function runTurn(
-  client: Client,
-  config: Config,
-  input: ResponseInput,
-  opts: TurnOpts,
-): Promise<{ text: string; response: OpenAIResponse }> {
-  const { logger, tools } = opts
-  const sink = opts.sink ?? process.stdout
-  logger.debug('run turn model=%s', config.model)
-  const stream = client.stream(input, {
-    tools,
-    instructions: opts.instructions,
-    signal: opts.signal,
-  })
-  const md = new MarkdownStreamRenderer(config.color)
-  let announced = false
-  // Fire onBeforeText exactly once, right before the first *visible* write —
-  // not on every buffered delta that renders to nothing yet.
-  const beforeVisible = () => {
-    if (announced) return
-    announced = true
-    opts.onBeforeText?.()
-  }
-  const emit = (out: string) => {
-    beforeVisible()
-    sink.write(out)
-  }
-  for await (const delta of stream) {
-    const out = md.push(delta)
-    if (out) emit(out)
-  }
-  const response = await stream.finalResponse()
-  const tail = md.finalize()
-  if (tail) emit(tail)
-  return { text: response.output_text, response }
-}
+import type { ToolRegistry } from '../tools/registry.ts'
+import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
 
 // Execute a single tool call with a per-tool timeout (decision: toolTimeout
 // bounds execution), abort support (Ctrl-C via ctx.signal), and output
@@ -96,6 +19,13 @@ export async function runTool(
   ctx: ToolContext,
 ): Promise<ToolResult> {
   const start = Date.now()
+  const outcome = (output: string, ok: boolean): ToolResult => ({
+    id: call.id,
+    name: tool.name,
+    output: truncate(output, ctx.config.maxToolOutputBytes),
+    ok,
+    ms: Date.now() - start,
+  })
   try {
     const raw = call.arguments ? JSON.parse(call.arguments) : {}
     const args = tool.parameters.parse(raw)
@@ -104,24 +34,9 @@ export async function runTool(
       ctx.config.toolTimeout,
       ctx.signal,
     )
-    return {
-      id: call.id,
-      name: tool.name,
-      output: truncate(result, ctx.config.maxToolOutputBytes),
-      ok: true,
-      ms: Date.now() - start,
-    }
+    return outcome(result, true)
   } catch (err) {
-    return {
-      id: call.id,
-      name: tool.name,
-      output: truncate(
-        `error: ${errorMessage(err)}`,
-        ctx.config.maxToolOutputBytes,
-      ),
-      ok: false,
-      ms: Date.now() - start,
-    }
+    return outcome(`error: ${errorMessage(err)}`, false)
   }
 }
 
@@ -193,4 +108,65 @@ function truncate(s: string, maxBytes: number): string {
   }
   const cut = new TextDecoder().decode(bytes.subarray(0, end))
   return `${cut}\n… [output truncated to ${maxBytes} bytes]`
+}
+
+// Execute one turn's tool calls in the order the model emitted them. Parallel-
+// eligible calls (read-only tools; `parallel !== false`) are batched via
+// Promise.all; non-parallel calls (mutating tools) run one at a time in emission
+// order. Every call yields exactly one outcome — an unknown-tool error, an
+// `aborted` marker if the user cancelled before it ran, or the tool's real
+// result — so history and rendering stay aligned and every function_call gets a
+// function_call_output.
+export async function runCalls(
+  calls: ResponseFunctionToolCall[],
+  registry: ToolRegistry,
+  ctx: ToolContext,
+  // Called as each call settles (in completion order, which for a parallel
+  // batch is not emission order), so the caller can render live progress.
+  onResult?: (r: ToolResult) => void,
+): Promise<ToolResult[]> {
+  // A call that never reached a tool still needs an outcome, so the caller
+  // can pair it with its function_call and keep history balanced.
+  const exec = async (
+    c: ResponseFunctionToolCall,
+    tool?: ToolDefinition,
+  ): Promise<ToolResult> => {
+    const result: ToolResult = ctx.signal?.aborted
+      ? { id: c.call_id, name: c.name, output: 'aborted', ok: false, ms: 0 }
+      : !tool
+        ? {
+            id: c.call_id,
+            name: c.name,
+            output: `error: unknown tool "${c.name}"`,
+            ok: false,
+            ms: 0,
+          }
+        : await runTool(
+            { id: c.call_id, name: c.name, arguments: c.arguments },
+            tool,
+            ctx,
+          )
+    onResult?.(result)
+    return result
+  }
+
+  const results: ToolResult[] = []
+  let batch: Promise<ToolResult>[] = []
+  // Flush the accumulated parallel batch, preserving emission order.
+  const flush = async () => {
+    results.push(...(await Promise.all(batch)))
+    batch = []
+  }
+
+  for (const c of calls) {
+    const tool = registry.get(c.name)
+    if (tool && tool.parallel !== false) {
+      batch.push(exec(c, tool))
+    } else {
+      await flush()
+      results.push(await exec(c, tool))
+    }
+  }
+  await flush()
+  return results
 }

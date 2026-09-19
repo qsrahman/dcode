@@ -1,7 +1,7 @@
 import type { Config } from '../config/schema.ts'
 import { paintFor } from '../util/color.ts'
 import type { Client, ResponseInput } from '../agent/client.ts'
-import type { RunSink } from '../agent/run.ts'
+import type { RunSink } from '../ui/sink.ts'
 import type { Logger } from '../util/log.ts'
 import type { ResponseItemFields } from '../agent/types.ts'
 import { contentToText } from '../agent/context/tokens.ts'

@@ -9,7 +9,7 @@ import type {
 } from '../../src/agent/client.ts'
 import { isContextOverflowError } from '../../src/agent/client.ts'
 import { runAgent } from '../../src/agent/loop.ts'
-import { CapturingSink } from '../../src/agent/run.ts'
+import { CapturingSink } from '../../src/ui/sink.ts'
 import { renderToolResult, renderToolOutput } from '../../src/ui/tools.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
 import { ToolRegistry } from '../../src/tools/registry.ts'

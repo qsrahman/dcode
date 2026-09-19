@@ -78,7 +78,8 @@ src/
   config/config.ts    # buildConfig(args) [file+env+args] + readConfigFile(path) + normalizeBaseURL
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
   agent/system.ts     # buildSystemPrompt(opts?: {subagents?}): core+Sub-agents+Style sections, `subagents: false` drops the Sub-agents section (used for the depth-limited `general` sub-agent)
-  agent/run.ts        # runTurn (one model turn) + runTool (one tool call, timeout+truncate)
+  agent/turn.ts       # runTurn (one model turn; streams + renders, returns the Response)
+  agent/exec.ts       # runTool (one tool call, timeout+truncate) + runCalls (parallel/sequential scheduling)
   agent/loop.ts       # runAgent: tool-calling loop; runOneShot wraps it for one-shot
   agent/context/      # context-window management (P10):
                       #   tokens.ts  (cheap ~4c/tok estimate, calibrated by real usage)
@@ -104,6 +105,7 @@ src/
   tools/mcp/manager.ts  # connectMcpServers: connect enabled servers (local/remote), wrap their tools as ToolDefinitions, close() on exit/SIGINT (P6, §11)
   ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
   ui/tools.ts            # tool-call rendering: interactive TTY = a per-query live counter that freezes into a bounded category summary (renderProgressLine/renderCategorySummary/TurnTally); piped/--verbose = per-call lines (renderToolResult/renderToolOutput)
+  ui/sink.ts             # RunSink (write-only output seam) + CapturingSink for tests/stress
   types/marked-terminal.d.ts # local ambient types (marked-terminal ships none; @types/marked-terminal on npm is stale/mismatched)
   util/color.ts         # paintFor(color) — the one place styleText is applied, shared by util/log.ts and ui/tools.ts
   util/log.ts           # diagnostics -> stderr (never console.log); errorMessage, isAbortError
@@ -111,7 +113,7 @@ src/
 
 ### Markdown rendering
 
-Model output is markdown; `runTurn` (`agent/run.ts`) pipes streamed deltas
+Model output is markdown; `runTurn` (`agent/turn.ts`) pipes streamed deltas
 through `ui/markdown.ts`'s `MarkdownStreamRenderer` before writing to the
 sink, instead of writing raw deltas. The renderer buffers text and only
 renders+emits a block once its boundary is unambiguous — a blank line for
@@ -468,7 +470,7 @@ the riskiest item on this list — do it after P15–P17, not first.
 - **Scope.** `agent/client.ts`'s `ModelStream` gains a parallel
   `toolCalls(): AsyncIterable<ResponseFunctionToolCall>`, filtering
   `response.output_item.done` events where `item.type === 'function_call'`
-  (distinct from the existing text-delta iterable). `agent/run.ts`'s
+  (distinct from the existing text-delta iterable). `agent/turn.ts`'s
   `runTurn` surfaces those early-collected calls alongside its normal
   `{text, response}` result. `agent/loop.ts` starts executing a call as soon
   as it arrives from `stream.toolCalls()`, instead of waiting for
@@ -483,7 +485,7 @@ the riskiest item on this list — do it after P15–P17, not first.
   text rendering is unaffected; an aborted stream still yields whatever
   partial tool calls it already collected.
 - **Files.** Modify: `src/agent/client.ts` (tool-call channel),
-  `src/agent/run.ts` (early tools), `src/agent/loop.ts` (start tools early).
+  `src/agent/turn.ts` (early tools), `src/agent/loop.ts` (start tools early).
 
 ### P20 — Skills system (model-invocable prompt templates)
 
@@ -520,7 +522,7 @@ directly and doesn't strictly block on P17 shipping first).
   [{tool, command}] }` (`tool` is an exact name or a `*` wildcard). New
   `agent/hooks.ts`: `runHooks(hooks, toolName, ctx)` runs each matching
   `command` via `execa('sh', ['-c', command], {cwd: ctx.root, timeout:
-  10_000})`. Wired into `agent/run.ts`'s `runTool`: pre-hooks before
+  10_000})`. Wired into `agent/exec.ts`'s `runTool`: pre-hooks before
   `tool.execute()`, post-hooks after. **Non-blocking by default** — a hook
   failure is logged, not surfaced as the tool's own failure (a pre-hook that
   can actually deny execution is a deliberately separate, harder decision:
@@ -530,7 +532,7 @@ directly and doesn't strictly block on P17 shipping first).
   matches every tool; a failing hook is logged but doesn't block the tool
   call.
 - **Files.** New: `src/agent/hooks.ts`, `tests/agent/hooks.test.ts`. Modify:
-  `src/config/schema.ts` (`hooks`), `src/agent/run.ts` (hook execution
+  `src/config/schema.ts` (`hooks`), `src/agent/exec.ts` (hook execution
   around `runTool`).
 
 ### P22 — Plugin system
@@ -612,7 +614,7 @@ crashing the loop.
 removed entirely (see P5); the mutating *tools* and the parallel/sequential
 split survived as pure scheduling (`ToolDefinition.parallel`, default `true`,
 `false` on every side-effectful tool) — see AGENTS.md's Architecture section
-for the current shape (`runCalls` in `agent/loop.ts`).
+for the current shape (`runCalls` in `agent/exec.ts`).
 
 **P5 — Declarative permissions + modes — cancelled.** A full policy design
 was built: four modes (`interactive`/`auto`/`plan`/`dontAsk`), per-tool

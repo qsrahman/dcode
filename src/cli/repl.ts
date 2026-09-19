@@ -6,7 +6,7 @@ import { ContextManager } from '../agent/context/manager.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
 import { connectMcpServers } from '../tools/mcp/manager.ts'
-import type { RunSink } from '../agent/run.ts'
+import type { RunSink } from '../ui/sink.ts'
 import { type Logger, errorMessage, isAbortError } from '../util/log.ts'
 import {
   type Session,
