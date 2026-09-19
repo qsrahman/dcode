@@ -76,3 +76,17 @@ export function buildConfig(args: CliOptions): Config {
   // would strip it, and the strict file parse rejects it as a persisted key.
   return { ...configSchema.parse(merged), verbose: args.verbose === true }
 }
+
+// Cross-field problems that degrade behaviour but shouldn't stop startup, so
+// they warn instead of failing schema validation. `context.reserved` is
+// headroom for both the model's own output and the compaction call, so
+// maxTokens (the ceiling on that output) should leave real room under it.
+export function configWarnings(config: Config): string[] {
+  const warnings: string[] = []
+  if (config.maxTokens >= config.context.reserved) {
+    warnings.push(
+      `maxTokens (${config.maxTokens}) should be less than context.reserved (${config.context.reserved}); a long response can crowd out the headroom compaction needs`,
+    )
+  }
+  return warnings
+}

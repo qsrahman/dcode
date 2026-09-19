@@ -14,6 +14,7 @@ import { getVersion } from '../util/version.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createClient } from '../agent/client.ts'
+import { isUserPrompt } from '../agent/loop.ts'
 import {
   isKnownProvider,
   keyField,
@@ -318,9 +319,7 @@ export const COMMANDS: readonly CommandDefinition[] = [
     description: 'remove the last exchange (user turn + response)',
     handler: (session, _a, sink) => {
       const h = session.history
-      const lastUser = h.findLastIndex(
-        (it) => (it as ResponseItemFields).role === 'user',
-      )
+      const lastUser = h.findLastIndex(isUserPrompt)
       if (lastUser === -1) {
         sink.write('nothing to undo\n')
         return 'ok'

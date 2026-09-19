@@ -11,6 +11,8 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Config } from '../../src/config/schema.ts'
+import type { Client } from '../../src/agent/client.ts'
+import { CONTINUE_PROMPT } from '../../src/agent/loop.ts'
 import {
   createSession,
   formatStatusLine,
@@ -322,7 +324,9 @@ function lastFake(): { emit(line: string): void; closed: boolean } {
   return insts.at(-1)!
 }
 
-vi.mock('../../src/agent/client.ts', () => ({
+vi.mock('../../src/agent/client.ts', async (importOriginal) => ({
+  // Real isContextOverflowError etc. — only createClient is faked.
+  ...(await importOriginal<typeof import('../../src/agent/client.ts')>()),
   createClient: () => ({
     // Echo the newest user message so each turn's output is distinguishable —
     // needed to assert the order in which queued input is drained.
@@ -574,6 +578,47 @@ describe('formatStatusLine', () => {
     await handleLine(s, '/undo', { sink })
     expect(formatStatusLine(s)).toContain('turn 1')
     // The undone turn's usage must not linger either.
+    expect(s.lastUsage).toBeUndefined()
+  })
+
+  it('does not count injected "Continue." retries as turns', async () => {
+    const s = await makeSession({ color: false })
+    s.history.push(
+      { role: 'user', content: 'real prompt' },
+      { role: 'assistant', content: 'partial' },
+      { role: 'user', content: CONTINUE_PROMPT },
+    )
+    expect(formatStatusLine(s)).toContain('turn 1')
+  })
+
+  it('/undo removes a truncated turn back to its real prompt', async () => {
+    const s = await makeSession({ color: false })
+    s.history.push(
+      { role: 'user', content: 'first' },
+      { role: 'assistant', content: 'a1' },
+      { role: 'user', content: 'second' },
+      { role: 'assistant', content: 'partial' },
+      { role: 'user', content: CONTINUE_PROMPT },
+      { role: 'assistant', content: 'rest' },
+    )
+    const { sink } = makeSink()
+    await handleLine(s, '/undo', { sink })
+    expect(s.history.map((h) => (h as { content?: string }).content)).toEqual([
+      'first',
+      'a1',
+    ])
+  })
+
+  it('clears lastUsage when a turn fails', async () => {
+    const s = await makeSession({ color: false })
+    s.lastUsage = { input: 1, output: 2 }
+    s.client = {
+      stream() {
+        throw new Error('boom')
+      },
+    } as unknown as Client
+    const { sink } = makeSink()
+    await handleLine(s, 'hello', { sink })
     expect(s.lastUsage).toBeUndefined()
   })
 

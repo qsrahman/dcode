@@ -30,10 +30,6 @@ describe('configSchema', () => {
 
   it('accepts keepTokens strictly less than window - reserved', () => {
     const c = configSchema.parse({
-      // maxTokens must stay under reserved too (the maxTokens < reserved
-      // refine below) — the default (8192) would fail against this test's
-      // deliberately small reserved.
-      maxTokens: 100,
       context: { window: 1000, reserved: 200, keepTokens: 799 },
     })
     expect(c.context.keepTokens).toBe(799)
@@ -66,29 +62,9 @@ describe('configSchema', () => {
     // above, not some other validation — the same input passes without it.
     expect(() =>
       configSchema.parse({
-        maxTokens: 100, // stay under this test's small reserved (1000)
         context: { window: 100000, reserved: 1000 },
       }),
     ).not.toThrow()
-  })
-
-  // The other half of the maxTokens/reserved relationship — reserved exists
-  // ("headroom kept free for the model's output + the compaction call") so
-  // maxTokens has to leave real room under it; raising maxTokens toward or
-  // past reserved without adjusting the other must fail here, the same way
-  // keepTokens vs. window - reserved does above.
-  it('rejects maxTokens >= context.reserved', () => {
-    expect(() =>
-      configSchema.parse({ maxTokens: 1000, context: { reserved: 1000 } }),
-    ).toThrow(/maxTokens must be less than context.reserved/)
-  })
-
-  it('accepts maxTokens strictly less than context.reserved', () => {
-    const c = configSchema.parse({
-      maxTokens: 999,
-      context: { reserved: 1000 },
-    })
-    expect(c.maxTokens).toBe(999)
   })
 
   // zod returns a `.default()` value verbatim rather than re-parsing it, so a
@@ -156,6 +132,15 @@ describe('configSchema', () => {
       })
       expect(c.mcpServers.local?.enabled).toBe(false)
       expect(c.mcpServers.remote?.enabled).toBe(false)
+    })
+
+    // A bad URL must fail only that server at connect time (manager.ts), not
+    // abort config loading for the whole session.
+    it('does not validate a remote url at load time', () => {
+      const c = configSchema.parse({
+        mcpServers: { remote: { url: 'not a url' } },
+      })
+      expect(c.mcpServers.remote).toMatchObject({ url: 'not a url' })
     })
 
     it('accepts an explicit enabled: true', () => {

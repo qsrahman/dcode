@@ -2,7 +2,7 @@
 
 import { parseCli, formatFlags } from './cli/args.ts'
 import { startRepl } from './cli/repl.ts'
-import { buildConfig } from './config/config.ts'
+import { buildConfig, configWarnings } from './config/config.ts'
 import { configSchema } from './config/schema.ts'
 import { createClient } from './agent/client.ts'
 import { TaskStore } from './agent/types.ts'
@@ -41,6 +41,7 @@ export async function main(): Promise<void> {
     }
     const config = buildConfig(args)
     logger = createLogger(config)
+    for (const w of configWarnings(config)) logger.warn(w)
     // Find, check, and (for a freshly pasted key) persist the API key.
     // Interactive only when no prompt was given: a one-shot run has no TTY to
     // prompt on and keeps the hard failure.

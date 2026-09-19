@@ -7,7 +7,7 @@ import type { RunSink } from '../ui/sink.ts'
 import { runTurn } from './turn.ts'
 import { runCalls } from './exec.ts'
 import { createToolProgress } from '../ui/tools.ts'
-import type { ToolContext, ToolResult } from './types.ts'
+import type { ResponseItemFields, ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import type {
   ResponseFunctionToolCall,
@@ -38,6 +38,16 @@ export interface AgentResult {
   // ever needs the last turn's numbers, not a running sum of every retry.
   inputTokens?: number
   outputTokens?: number
+}
+
+// Injected into history to resume a max_output_tokens-truncated turn. It is a
+// user-role item but not a real prompt, so anything counting or undoing
+// prompts must go through isUserPrompt.
+export const CONTINUE_PROMPT = 'Continue.'
+
+export function isUserPrompt(item: ResponseInputItem): boolean {
+  const it = item as ResponseItemFields
+  return it.role === 'user' && it.content !== CONTINUE_PROMPT
 }
 
 // A context overflow is recovered by compacting and retrying; a truncated
@@ -229,7 +239,7 @@ async function completeTurn(deps: {
     // in history with no matching `function_call_output` — the Responses
     // API rejects that unbalanced pairing on the very next request.
     pushResponseOutput(history, response, { skipToolCalls: true })
-    history.push({ role: 'user', content: 'Continue.' })
+    history.push({ role: 'user', content: CONTINUE_PROMPT })
     response = await requestTurn()
   }
   return response

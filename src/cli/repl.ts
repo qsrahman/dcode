@@ -3,7 +3,7 @@ import type { Config } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
 import { TaskStore } from '../agent/types.ts'
 import { ContextManager } from '../agent/context/manager.ts'
-import { runAgent } from '../agent/loop.ts'
+import { isUserPrompt, runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'
 import { connectMcpServers } from '../tools/mcp/manager.ts'
 import type { RunSink } from '../ui/sink.ts'
@@ -17,7 +17,6 @@ import {
 import { createCompleter } from './completer.ts'
 import { openInEditor, resolveEditor, NO_EDITOR_MESSAGE } from './editor.ts'
 import { paintFor } from '../util/color.ts'
-import type { ResponseItemFields } from '../agent/types.ts'
 
 const HINT = 'Ask anything, /help for commands...'
 
@@ -123,6 +122,9 @@ export async function handleLine(
 
     sink.write('\n')
   } catch (err) {
+    // The failed/aborted turn produced no usage of its own; leaving the last
+    // successful turn's numbers up would misattribute them to this one.
+    session.lastUsage = undefined
     if (!isAbortError(err, opts.signal)) {
       session.logger.error(errorMessage(err))
     }
@@ -131,13 +133,13 @@ export async function handleLine(
 }
 
 // Turns aren't tracked as separate counter state — deriving the count from
-// history (one user-role item per turn, the same shape /undo's own
-// findLastIndex scan already relies on) means /undo and /reset can't leave
+// history (one real user prompt per turn; isUserPrompt skips the injected
+// "Continue." retries, and is the same predicate /undo scans with) means /undo and /reset can't leave
 // it stale the way a separately-incremented field could (and did, before
 // this): splicing or clearing history is automatically reflected here with
 // no second piece of state to remember to update in step.
 function turnCount(history: Session['history']): number {
-  return history.filter((h) => (h as ResponseItemFields).role === 'user').length
+  return history.filter(isUserPrompt).length
 }
 
 // The REPL's dynamic status line: model, completed-turn count, the most

@@ -10,11 +10,13 @@ import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildConfig,
+  configWarnings,
   globalConfigPath,
   readConfigFile,
 } from '../../src/config/config.ts'
 
 import { parseCli } from '../../src/cli/args.ts'
+import { cfg } from '../helpers.ts'
 
 describe('readConfigFile', () => {
   let dir: string
@@ -95,6 +97,19 @@ describe('readConfigFile', () => {
     } finally {
       process.chdir(prev)
     }
+  })
+})
+
+describe('configWarnings', () => {
+  it('is empty for the defaults', () => {
+    expect(configWarnings(cfg())).toEqual([])
+  })
+
+  it('warns (without failing to load) when maxTokens >= context.reserved', () => {
+    const c = cfg({ maxTokens: 30000 })
+    expect(configWarnings(c)).toEqual([
+      expect.stringMatching(/maxTokens \(30000\).*context\.reserved \(20000\)/),
+    ])
   })
 })
 

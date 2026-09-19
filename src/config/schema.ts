@@ -1,9 +1,9 @@
 import { z } from 'zod/v4'
 
 // Shared http(s)-only URL validator (parseable, scheme restricted to
-// http/https). Used by config's baseURL, braveEndpoint and
-// mcpServers.<name>.url here, and by web_fetch's url parameter — one
-// definition so the four can't drift.
+// http/https). Used by config's baseURL and braveEndpoint here, and by
+// web_fetch's url parameter — one
+// definition so the three can't drift.
 export function httpUrl(message?: string) {
   return z.url({
     protocol: /^https?$/,
@@ -44,12 +44,10 @@ const mcpRemoteServerSchema = z
   .object({
     type: z.literal('remote'),
     enabled: enabledField,
-    // Validated (not just typed as a string) via the shared httpUrl() check
-    // (httpUrl) — StreamableHTTPClientTransport only ever talks http(s),
-    // so a malformed or wrong-scheme entry is caught at config-load time
-    // with a clear error naming the field, instead of surfacing later as a
-    // raw `new URL()` TypeError from inside connectOne (manager.ts).
-    url: httpUrl(),
+    // Deliberately a plain string, not httpUrl(): a bad URL must fail only
+    // this server (connectOne records it as 'failed'), never abort config
+    // loading and with it every other server and the whole session.
+    url: z.string(),
     // Static headers only (e.g. a bearer token) — no OAuth flow. A remote
     // server that requires interactive auth isn't supported yet.
     headers: z.record(z.string(), z.string()).optional(),
@@ -107,74 +105,61 @@ const contextSchema = z
     'keepTokens must be less than window - reserved to allow headroom for compaction',
   )
 
-export const configSchema = z
-  .object({
-    model: z.string().default('gpt-5.4-mini'),
-    // OpenAI-compatible endpoint. dcode appends the resource path (`/responses`,
-    // `/models`) to this value, so include the API-version prefix (e.g.
-    // `http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1` for
-    // OpenAI). A missing `/v1` is added automatically during config merge.
-    // Validated (httpUrl()) so a typo'd baseURL fails loudly
-    // at config load, not as an opaque fetch/SDK error the first time a
-    // request is made.
-    baseURL: httpUrl().optional(),
-    apiKey: z.string().optional(),
-    brave: z.string().optional(),
-    // Override for Brave's search endpoint (tests, proxies). Resolved the same
-    // way as `brave` itself: through config, not read from process.env at the
-    // call site, so /key-style runtime overrides and CLI>env>file precedence
-    // apply to it too instead of it being frozen at module load. Validated
-    // (httpUrl()) for the same reason baseURL is: web.ts's `new URL(...)` on
-    // this value has no try/catch of its own, so a malformed override should
-    // fail here, not as an opaque native TypeError from inside
-    // web_search's execute().
-    braveEndpoint: httpUrl().optional(),
-    color: z.boolean().default(true),
-    maxToolIterations: z.number().int().positive().default(16),
-    maxToolOutputBytes: z.number().int().positive().default(32768),
-    maxTokens: z.number().int().positive().default(8192),
-    maxRetries: z.number().int().nonnegative().default(3),
-    toolTimeout: z.number().int().positive().default(30000),
-    // When true, responses are stored server-side so a later turn could chain via
-    // `previous_response_id`. Off by default: server storage isn't available on
-    // local/compatible endpoints and OpenAI's 30-day retention is undesirable here.
-    stateful: z.boolean().default(false),
-    // Directory names skipped by the recursive tools (grep/glob). These flood
-    // results and are almost never what the model wants to search.
-    ignore: z.array(z.string()).default(['.git', 'node_modules']),
-    // The default is derived by parsing `{}` through the schema rather than
-    // restating every field default a second time. zod hands a `.default()`
-    // value back verbatim — it does not re-parse it — so the literal object
-    // that used to live here was a full second copy of the defaults above, and
-    // the two could silently diverge: omitting `context` entirely would yield
-    // the stale literal while writing `"context": {}` would yield the real
-    // field defaults. Same values, two sources of truth, no error either way.
-    //
-    // Context-window management: keep the request within `window` tokens by
-    // pruning old tool outputs (cheap, no model call) and, when still over,
-    // summarizing the oldest history into a single developer message (compact).
-    // `window` must match the model's real context limit; `reserved` is headroom
-    // kept free for the model's output + the compaction call. `compactAt` is the
-    // fraction of that budget at which compaction kicks in *proactively* (before a
-    // context-length error), so the model stays comfortably under the limit.
-    context: contextSchema.default(() => contextSchema.parse({})),
-    // Named MCP servers to connect to at startup (decision I: session-lived,
-    // closed on exit/SIGINT — see tools/mcp/manager.ts). Empty by default: no
-    // startup latency or spawned processes unless the user opts in.
-    mcpServers: z.record(z.string(), mcpServerSchema).default({}),
-  })
-  // Same shape as contextSchema's keepTokens refine above: `reserved` is
-  // documented (see the comment on `context` below) as headroom for *both*
-  // the model's own output and the separate compaction call, so maxTokens —
-  // the ceiling on that output — has to leave real room under it. Without
-  // this, raising maxTokens toward or past reserved silently breaks that
-  // promise instead of failing at config load, the same class of bug fixed
-  // for maxToolOutputBytes vs. the (now-derived) child-process buffer
-  // ceiling in tools/local/exec.ts.
-  .refine(
-    (c) => c.maxTokens < c.context.reserved,
-    'maxTokens must be less than context.reserved to leave headroom for the model’s own output plus the compaction call',
-  )
+export const configSchema = z.object({
+  model: z.string().default('gpt-5.4-mini'),
+  // OpenAI-compatible endpoint. dcode appends the resource path (`/responses`,
+  // `/models`) to this value, so include the API-version prefix (e.g.
+  // `http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1` for
+  // OpenAI). A missing `/v1` is added automatically during config merge.
+  // Validated (httpUrl()) so a typo'd baseURL fails loudly
+  // at config load, not as an opaque fetch/SDK error the first time a
+  // request is made.
+  baseURL: httpUrl().optional(),
+  apiKey: z.string().optional(),
+  brave: z.string().optional(),
+  // Override for Brave's search endpoint (tests, proxies). Resolved the same
+  // way as `brave` itself: through config, not read from process.env at the
+  // call site, so /key-style runtime overrides and CLI>env>file precedence
+  // apply to it too instead of it being frozen at module load. Validated
+  // (httpUrl()) for the same reason baseURL is: web.ts's `new URL(...)` on
+  // this value has no try/catch of its own, so a malformed override should
+  // fail here, not as an opaque native TypeError from inside
+  // web_search's execute().
+  braveEndpoint: httpUrl().optional(),
+  color: z.boolean().default(true),
+  maxToolIterations: z.number().int().positive().default(16),
+  maxToolOutputBytes: z.number().int().positive().default(32768),
+  maxTokens: z.number().int().positive().default(8192),
+  maxRetries: z.number().int().nonnegative().default(3),
+  toolTimeout: z.number().int().positive().default(30000),
+  // When true, responses are stored server-side so a later turn could chain via
+  // `previous_response_id`. Off by default: server storage isn't available on
+  // local/compatible endpoints and OpenAI's 30-day retention is undesirable here.
+  stateful: z.boolean().default(false),
+  // Directory names skipped by the recursive tools (grep/glob). These flood
+  // results and are almost never what the model wants to search.
+  ignore: z.array(z.string()).default(['.git', 'node_modules']),
+  // The default is derived by parsing `{}` through the schema rather than
+  // restating every field default a second time. zod hands a `.default()`
+  // value back verbatim — it does not re-parse it — so the literal object
+  // that used to live here was a full second copy of the defaults above, and
+  // the two could silently diverge: omitting `context` entirely would yield
+  // the stale literal while writing `"context": {}` would yield the real
+  // field defaults. Same values, two sources of truth, no error either way.
+  //
+  // Context-window management: keep the request within `window` tokens by
+  // pruning old tool outputs (cheap, no model call) and, when still over,
+  // summarizing the oldest history into a single developer message (compact).
+  // `window` must match the model's real context limit; `reserved` is headroom
+  // kept free for the model's output + the compaction call. `compactAt` is the
+  // fraction of that budget at which compaction kicks in *proactively* (before a
+  // context-length error), so the model stays comfortably under the limit.
+  context: contextSchema.default(() => contextSchema.parse({})),
+  // Named MCP servers to connect to at startup (decision I: session-lived,
+  // closed on exit/SIGINT — see tools/mcp/manager.ts). Empty by default: no
+  // startup latency or spawned processes unless the user opts in.
+  mcpServers: z.record(z.string(), mcpServerSchema).default({}),
+})
 
 // `verbose` is a CLI-only runtime flag (`--verbose`), never a persisted config
 // key: it lives on the runtime Config type but not in `configSchema`, so the

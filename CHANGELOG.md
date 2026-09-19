@@ -7,8 +7,10 @@
   stale. No new dependency: readline's own multi-line prompt support does
   the rendering. `AgentResult` (`agent/loop.ts`) gained optional
   `inputTokens`/`outputTokens` from the final turn's `response.usage` to
-  feed it, and `Session` (`cli/commands.ts`) gained `turn`/`lastUsage` to
-  hold the running state.
+  feed it, and `Session` (`cli/commands.ts`) gained `lastUsage` (the turn
+  count is derived from history, skipping the injected `Continue.` retries via
+  `isUserPrompt`). `lastUsage` is cleared by `/undo`, `/reset`, and a failed or
+  aborted turn.
 
 ### Changed
 - System prompt (`agent/system.ts`) synced with the current tool set and
@@ -29,29 +31,26 @@
     misleading instructions for a role that structurally cannot do that.
     `explore` is unaffected (it already has its own dedicated prompt, not
     the base one).
-- `configSchema` now rejects `maxTokens >= context.reserved` (a new
-  `.refine()`, mirroring the existing `keepTokens < window - reserved`
-  check). `context.reserved` is documented as headroom for *both* the
-  model's own output and the separate compaction call, so `maxTokens` — the
-  ceiling on that output — has to leave real room under it; previously
-  raising one without the other passed config validation silently.
-  **Breaking:** a `dcode.json` with `maxTokens` at or above `context.reserved`
-  (including if only one of the two was customized) now fails to load —
-  lower `maxTokens` or raise `context.reserved`.
+- Startup now logs a warning when `maxTokens >= context.reserved`
+  (`configWarnings` in `config/config.ts`). `context.reserved` is headroom for
+  *both* the model's own output and the separate compaction call, so
+  `maxTokens` — the ceiling on that output — should leave real room under it.
+  It is a warning, not a validation error, so an existing `dcode.json` that
+  raised `maxTokens` still loads.
 - All `zod` imports now come from `zod/v4` explicitly (previously bare
   `'zod'`, which resolves to the same v4 API today but isn't pinned against
   a future major changing what the bare specifier means).
-  `web_fetch`'s URL argument, `baseURL`, `braveEndpoint`, and the MCP
-  `mcpServers` remote-server `url` field now validate as real http(s) URLs
-  via zod's own `z.url({ protocol: /^https?$/ })` instead of a hand-rolled
+  `web_fetch`'s URL argument, `baseURL`, and `braveEndpoint` now validate as
+  real http(s) URLs via zod's own `z.url({ protocol: /^https?$/ })` instead of a hand-rolled
   `new URL()` try/catch plus a manual scheme check (`web_fetch`) or no
-  validation at all (`baseURL`/`braveEndpoint`/MCP `url` previously accepted
+  validation at all (`baseURL`/`braveEndpoint` previously accepted
   any string and only failed later, as an opaque native `TypeError`, the
   first time something tried to actually use it). `web_fetch`'s scheme/parse
   errors now surface through `runTool`'s normal `ok:false` path (parameter
-  validation, not a thrown error from inside `execute()`), and MCP/config
-  URL typos are now caught at config-load time with a clear message naming
-  the field, not at connect/request time.
+  validation, not a thrown error from inside `execute()`), and `baseURL`/
+  `braveEndpoint` typos are caught at config-load time with a clear message
+  naming the field. MCP remote `url` stays a plain string on purpose: a bad
+  one fails only that server at connect time, never all of config loading.
 - `runAgent`/`runOneShot` now return `{ text, truncated }` instead of a bare
   string. `truncated` is true when the loop stopped because it hit
   `maxToolIterations` with tool calls still pending, not because the model
