@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod/v4'
 import { createLocalTools } from '../../src/tools/index.ts'
-import { TaskStore } from '../../src/agent/todo-store.ts'
+import { TaskStore } from '../../src/agent/types.ts'
 import type { Client } from '../../src/agent/client.ts'
 import { unknownAgentTools } from '../../src/agent/subagent.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'

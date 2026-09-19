@@ -10,7 +10,7 @@ import {
   AGENT_TYPE_NAMES,
   describeAgentTypes,
 } from '../../agent/subagent.ts'
-import { TaskStore } from '../../agent/todo-store.ts'
+import { TaskStore } from '../../agent/types.ts'
 import { errorMessage } from '../../util/log.ts'
 import { todoTool } from './todo.ts'
 import type { RunSink } from '../../agent/run.ts'

@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline/promises'
 import type { Config } from '../config/schema.ts'
 import { createClient } from '../agent/client.ts'
-import { TaskStore } from '../agent/todo-store.ts'
+import { TaskStore } from '../agent/types.ts'
 import { ContextManager } from '../agent/context/manager.ts'
 import { runAgent } from '../agent/loop.ts'
 import { createLocalTools } from '../tools/index.ts'

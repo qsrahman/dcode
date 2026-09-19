@@ -1,5 +1,15 @@
 import { z } from 'zod/v4'
-import { httpUrl } from '../util/zod.ts'
+
+// Shared http(s)-only URL validator (parseable, scheme restricted to
+// http/https). Used by config's baseURL, braveEndpoint and
+// mcpServers.<name>.url here, and by web_fetch's url parameter — one
+// definition so the four can't drift.
+export function httpUrl(message?: string) {
+  return z.url({
+    protocol: /^https?$/,
+    ...(message ? { error: message } : {}),
+  })
+}
 
 // One configured MCP server, either spawned locally (over stdio) or reached
 // over HTTP ("remote"). `type` picks the transport; when the config omits
@@ -35,7 +45,7 @@ const mcpRemoteServerSchema = z
     type: z.literal('remote'),
     enabled: enabledField,
     // Validated (not just typed as a string) via the shared httpUrl() check
-    // (util/zod.ts) — StreamableHTTPClientTransport only ever talks http(s),
+    // (httpUrl) — StreamableHTTPClientTransport only ever talks http(s),
     // so a malformed or wrong-scheme entry is caught at config-load time
     // with a clear error naming the field, instead of surfacing later as a
     // raw `new URL()` TypeError from inside connectOne (manager.ts).
@@ -104,7 +114,7 @@ export const configSchema = z
     // `/models`) to this value, so include the API-version prefix (e.g.
     // `http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1` for
     // OpenAI). A missing `/v1` is added automatically during config merge.
-    // Validated (util/zod.ts's httpUrl()) so a typo'd baseURL fails loudly
+    // Validated (httpUrl()) so a typo'd baseURL fails loudly
     // at config load, not as an opaque fetch/SDK error the first time a
     // request is made.
     baseURL: httpUrl().optional(),

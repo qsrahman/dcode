@@ -1,5 +1,5 @@
 import { ToolRegistry } from './registry.ts'
-import type { TaskStore } from '../agent/todo-store.ts'
+import type { TaskStore } from '../agent/types.ts'
 import type { Client } from '../agent/client.ts'
 import {
   readFileTool,

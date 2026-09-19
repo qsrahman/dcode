@@ -2,7 +2,7 @@ import type { Client, ResponseInput } from '../client.ts'
 import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
 import { errorMessage } from '../../util/log.ts'
-import type { Todo } from '../todo-store.ts'
+import type { Todo } from '../types.ts'
 import type { ResponseItemFields } from '../types.ts'
 import { estimateItem, contentToText } from './tokens.ts'
 

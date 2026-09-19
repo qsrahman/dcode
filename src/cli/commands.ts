@@ -6,9 +6,8 @@ import type { Logger } from '../util/log.ts'
 import type { ResponseItemFields } from '../agent/types.ts'
 import { contentToText } from '../agent/context/tokens.ts'
 import type { ToolRegistry } from '../tools/registry.ts'
-import { CommandRegistry } from './registry.ts'
 import type { ContextManager } from '../agent/context/manager.ts'
-import type { TaskStore } from '../agent/todo-store.ts'
+import type { TaskStore } from '../agent/types.ts'
 import type { McpManager, McpServerStatus } from '../tools/mcp/manager.ts'
 import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../util/version.ts'
@@ -64,7 +63,21 @@ function rebuildClient(session: Session): void {
   session.client = createClient(session.config)
 }
 
-// `/help` text and `SLASH_COMMANDS` are derived from the command registry below.
+export type CommandHandler = (
+  session: Session,
+  args: string,
+  sink: RunSink,
+) => HandleResult | Promise<HandleResult>
+
+export interface CommandDefinition {
+  name: string
+  description: string
+  aliases?: string[]
+  handler: CommandHandler
+}
+
+// `/help` text and `SLASH_COMMANDS` are derived from the COMMANDS table below,
+// so they can't drift from the actual commands.
 
 // Best-effort Markdown rendering of a conversation transcript for `/save`.
 function historyToMarkdown(history: ResponseInput): string {
@@ -152,14 +165,12 @@ function listTasks(
   return 'ok'
 }
 
-// `/help` text derived from the registry so the listing can never drift from the
-// actual commands (no separate description map to keep in sync). Closes over
-// the module-level COMMANDS singleton rather than taking a registry
-// parameter — its one caller below always passes that same singleton.
+// `/help` text derived from COMMANDS so the listing can never drift from the
+// actual commands (no separate description map to keep in sync).
 // `color` comes from the session's config, not styleText's own auto-detection
 // (see util/color.ts's paintFor) — otherwise --no-color couldn't suppress it.
 function buildHelp(color: boolean): string {
-  const defs = COMMANDS.list().sort((a, b) => a.name.localeCompare(b.name))
+  const defs = [...COMMANDS].sort((a, b) => a.name.localeCompare(b.name))
   // Derived from the actual longest name rather than a fixed width, so a
   // future command with a name longer than the old hardcoded 8 can't
   // silently misalign every other line's description column.
@@ -173,25 +184,24 @@ function buildHelp(color: boolean): string {
   return paintFor(color).dim(['Commands:', ...lines].join('\n'))
 }
 
-export function createCommands(): CommandRegistry {
-  const r = new CommandRegistry()
-  r.register({
+export const COMMANDS: readonly CommandDefinition[] = [
+  {
     name: 'help',
     description: 'show this help',
     handler: (session, _a, sink) => {
       sink.write(buildHelp(session.config.color) + '\n')
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'version',
     description: 'print version',
     handler: (_s, _a, sink) => {
       sink.write(`dcode v${getVersion()}\n`)
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'model',
     description: 'show/set model: /model <id>',
     handler: (session, args, sink) => {
@@ -205,8 +215,8 @@ export function createCommands(): CommandRegistry {
       sink.write(`model set to ${id}\n`)
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'reset',
     description: 'clear the conversation (requires: /reset confirm)',
     handler: (session, args, sink) => {
@@ -230,8 +240,8 @@ export function createCommands(): CommandRegistry {
       sink.write('session reset\n')
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'tools',
     description: 'list available tools',
     handler: (session, _a, sink) => {
@@ -243,24 +253,24 @@ export function createCommands(): CommandRegistry {
       )
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'mcp',
     description: 'show configured MCP servers, their status, and tool counts',
     handler: (session, _a, sink) => {
       sink.write(formatMcpServers(session.mcp.servers) + '\n')
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'clear',
     description: 'clear the screen',
     handler: (_s, _a, sink) => {
       sink.write(CLEAR)
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'compact',
     description: 'summarize the oldest conversation into a short summary',
     handler: async (session, _a, sink): Promise<HandleResult> => {
@@ -277,8 +287,8 @@ export function createCommands(): CommandRegistry {
       sink.write('conversation compacted\n')
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'context',
     description: 'show estimated token usage vs. the model window',
     handler: (session, _a, sink) => {
@@ -288,22 +298,22 @@ export function createCommands(): CommandRegistry {
       )
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'tasks',
     description: 'list in-session tasks',
     aliases: ['todo'],
     handler: listTasks,
-  })
-  r.register({
+  },
+  {
     name: 'config',
     description: 'print effective configuration',
     handler: (session, _a, sink) => {
       sink.write(formatConfig(session.config) + '\n')
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'undo',
     description: 'remove the last exchange (user turn + response)',
     handler: (session, _a, sink) => {
@@ -323,8 +333,8 @@ export function createCommands(): CommandRegistry {
       sink.write('undid last exchange\n')
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'key',
     description: 'store/show API keys (openai, brave)',
     handler: (session, args, sink) => {
@@ -368,8 +378,8 @@ export function createCommands(): CommandRegistry {
       sink.write('usage: /key <set|unset|list> [provider] [value]\n')
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'limit',
     description: 'set maxToolIterations at runtime: /limit <n>',
     handler: (session, args, sink) => {
@@ -382,8 +392,8 @@ export function createCommands(): CommandRegistry {
       sink.write(`maxToolIterations set to ${n}\n`)
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'save',
     description:
       'write the conversation transcript to a file (/save [path.md|path.json])',
@@ -412,34 +422,30 @@ export function createCommands(): CommandRegistry {
       sink.write(`saved ${session.history.length} items to ${target}\n`)
       return 'ok'
     },
-  })
-  r.register({
+  },
+  {
     name: 'edit',
     description: 'compose a prompt in $VISUAL/$EDITOR, then send it',
     // The loop performs the editor round-trip (see HandleResult 'edit'); the
     // handler only signals the intent. Args are ignored — the prompt is
     // whatever the editor buffer contains on close.
     handler: () => 'edit',
-  })
-  r.register({
+  },
+  {
     name: 'exit',
     description: 'quit dcode',
     handler: () => 'exit',
-  })
-  return r
-}
+  },
+]
 
-// `createCommands()` is exported so tests can build their own isolated
-// registry (no shared mutable Map across test files) and inspect it
-// directly via .get()/.list()/.names(). Production only ever uses this one
-// instance, though: `dispatch`/`buildHelp`/`SLASH_COMMANDS` below all
-// resolve against the module-level COMMANDS singleton, not whatever
-// registry a caller happens to hold — there's currently no notion of a
-// per-session command set, so there's nothing to inject. If that ever
-// changes (e.g. per-session custom commands), `dispatch` would need a
-// registry parameter instead of closing over COMMANDS.
-const COMMANDS = createCommands()
-export const SLASH_COMMANDS = COMMANDS.names()
+// Every invocable name (aliases included) -> its definition. Built once from
+// the COMMANDS table; there's no per-session command set to inject.
+const BY_NAME = new Map(
+  COMMANDS.flatMap((c) =>
+    [c.name, ...(c.aliases ?? [])].map((n) => [n, c] as const),
+  ),
+)
+export const SLASH_COMMANDS = [...BY_NAME.keys()]
 
 export function parseCommand(
   line: string,
@@ -457,7 +463,7 @@ export async function dispatch(
   cmd: { name: string; args: string },
   sink: RunSink,
 ): Promise<HandleResult> {
-  const def = COMMANDS.get(cmd.name)
+  const def = BY_NAME.get(cmd.name)
   if (!def) {
     sink.write(`unknown command: /${cmd.name} (try /help)\n`)
     return 'ok'

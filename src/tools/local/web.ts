@@ -3,7 +3,7 @@ import { NodeHtmlMarkdown } from 'node-html-markdown'
 import { defineTool } from '../registry.ts'
 import { fetchSafely, readBounded } from './http.ts'
 import { errorMessage } from '../../util/log.ts'
-import { httpUrl } from '../../util/zod.ts'
+import { httpUrl } from '../../config/schema.ts'
 
 const htmlMarkdown = new NodeHtmlMarkdown()
 
@@ -111,7 +111,7 @@ export const webFetchTool = () =>
     description:
       "Fetch a URL and return its content. With format=markdown (default) HTML pages are converted to Markdown and JSON is pretty-printed; format=text or format=html return the body unconverted. Binary payloads are described, not dumped. Use to read a specific page, doc, or API response when you already know the URL; use web_search to discover URLs you don't know yet.",
     parameters: z.object({
-      // httpUrl() (util/zod.ts) validates both "is this a parseable URL" and
+      // httpUrl() validates both "is this a parseable URL" and
       // "is the scheme http(s)" in one check, so runTool's own
       // tool.parameters.parse(raw) call rejects a malformed or wrong-scheme
       // URL before execute() ever runs — no hand-rolled try/catch + scheme

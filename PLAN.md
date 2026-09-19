@@ -86,7 +86,7 @@ src/
                       #   compact.ts (summarize oldest history via a model call)
                       #   manager.ts (ContextManager: prune→compact, overflow retry, breaker)
   agent/types.ts      # ToolDefinition<P> (incl. optional jsonSchema for MCP tools), ToolContext (incl. depth), ToolCall, ToolResult, ResponseItemFields
-  agent/todo-store.ts # TaskStore: in-session todo list (replace/list — the model sends the whole list)
+  agent/types.ts      # shared types + TaskStore: in-session todo list (replace/list — the model sends the whole list)
   agent/subagent.ts   # AGENT_TYPES (general, explore): per-type ToolPolicy ({allow} | {deny}) + system prompt; describeAgentTypes/unknownAgentTools
   tools/index.ts      # createLocalTools(tasks, client, mcpTools?): hub that registers all built-in tools (+ any already-connected MCP tools, P6) into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema (or a tool's own jsonSchema verbatim); defineTool (infers a tool's arg type from its schema)
@@ -644,7 +644,7 @@ handling, and a documentation pass. No new locked decisions.
 
 **P8 — In-session task list.** A single `todowrite` tool (the model resends
 the whole list each call, so its view and dcode's can't drift field-by-field)
-backed by `agent/todo-store.ts`'s `TaskStore`. Sub-agent orchestration was
+backed by `agent/types.ts`'s `TaskStore`. Sub-agent orchestration was
 explicitly deferred here and shipped later as part of the task tool (see
 "landed outside phases" in §8) — when it landed, the sub-agent's own
 `TaskStore` conventions (per-agent, not shared) trace back to this phase's

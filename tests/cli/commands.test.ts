@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
-  createCommands,
+  COMMANDS,
   SLASH_COMMANDS,
   parseCommand,
 } from '../../src/cli/commands.ts'
 
-describe('command registry', () => {
+describe('slash commands', () => {
   it('exposes every command plus aliases for completion', () => {
     for (const name of [
       'help',
@@ -30,27 +30,17 @@ describe('command registry', () => {
     }
   })
 
-  it('resolves an alias to the same definition as its canonical name', () => {
-    const r = createCommands()
-    expect(r.get('todo')).toBe(r.get('tasks'))
-    // list() yields canonical commands only, so the alias is not double-listed.
-    const names = r.list().map((c) => c.name)
+  it('lists canonical commands only; aliases are completion-only', () => {
+    const names = COMMANDS.map((c) => c.name)
     expect(names).toContain('tasks')
     expect(names).not.toContain('todo')
+    expect(SLASH_COMMANDS).toEqual(expect.arrayContaining(['tasks', 'todo']))
   })
 
-  it('derives listings from one source (no separate description map)', () => {
-    const r = createCommands()
-    for (const c of r.list()) {
+  it('gives every command a description', () => {
+    for (const c of COMMANDS) {
       expect(c.description.length).toBeGreaterThan(0)
     }
-    // names() includes both canonical names and aliases for tab completion.
-    expect(r.names()).toEqual(expect.arrayContaining(['tasks', 'todo']))
-  })
-
-  it('misses unknown commands instead of throwing', () => {
-    const r = createCommands()
-    expect(r.get('nope')).toBeUndefined()
   })
 
   it('parseCommand normalizes only the command name, not the args', () => {
