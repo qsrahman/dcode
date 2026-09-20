@@ -101,7 +101,7 @@ src/
     todo.ts           #   todowrite (single tool over TaskStore: the model sends the full list each call)
     question.ts       #   ask_user (@clack/prompts; refuses when stdin isn't a TTY)
     task.ts           #   task (sub-agent: filtered tool registry + own TaskStore, depth-limited to 1)
-    web.ts            #   web_search (Brave; key from ctx.config.brave only), web_fetch
+    web.ts            #   web_search (Brave; key from ctx.config.braveApiKey only), web_fetch
   tools/mcp/manager.ts  # connectMcpServers: connect enabled servers (local/remote), wrap their tools as ToolDefinitions, close() on exit/SIGINT (P6, §11)
   ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
   ui/tools.ts            # tool-call rendering: interactive TTY = a per-query live counter that freezes into a bounded category summary (renderProgressLine/renderCategorySummary/TurnTally); piped/--verbose = per-call lines (renderToolResult/renderToolOutput)
@@ -704,7 +704,7 @@ new locked decisions):
   `TaskStore`, a silent sink, and a nesting depth limit of 1. See
   CLAUDE.md's Sub-agents paragraph.
 - **Global API-key storage** (`cli/keys.ts`, the `/key` command) — persists
-  `apiKey`/`brave` into `~/.config/dcode/dcode.json` (`0600`, directory
+  `apiKey`/`braveApiKey` into `~/.config/dcode/dcode.json` (`0600`, directory
   `0700`) so a globally installed dcode doesn't need per-shell env vars.
 - **REPL tab-completion** (`cli/completer.ts`) — slash commands from the
   known list; otherwise the last token completes as a `resolvePath`-confined

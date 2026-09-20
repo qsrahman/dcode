@@ -281,7 +281,7 @@ global config is the canonical store for a globally installed `dcode`, so a fixe
 `model`/`baseURL`/`apiKey` applies no matter which directory you run it from.
 
 API keys (`OPENAI_API_KEY`, `BRAVE_API_KEY`) are read from the environment
-(first), then the global config (`apiKey` / `brave` fields), then the schema
+(first), then the global config (`apiKey` / `braveApiKey` fields), then the schema
 default. For a global install, store them once without editing JSON
 or exporting them per shell: start `dcode` and run `/key set openai <key>`
 (and `/key set brave <key>` for web search). `/key` always writes to

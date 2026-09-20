@@ -13,14 +13,14 @@ import { errorMessage } from '../util/log.ts'
 // to the config field that holds its key. The allowlist is deliberately small so
 // `/key` can't be used to write arbitrary config keys.
 //
-// `as const` (not `Record<string, 'apiKey' | 'brave'>`) so `keyof typeof
+// `as const` (not `Record<string, 'apiKey' | 'braveApiKey'>`) so `keyof typeof
 // PROVIDERS` is the exact `'openai' | 'brave'` union — keyField below can
 // then require that narrowed type instead of a bare `string`, so indexing
 // PROVIDERS is checked by the compiler rather than relying on every caller
 // having already called isKnownProvider() first.
 const PROVIDERS = {
   openai: 'apiKey',
-  brave: 'brave',
+  brave: 'braveApiKey',
 } as const
 
 // Object.keys() always widens to string[] regardless of the source object's
@@ -35,7 +35,9 @@ export function isKnownProvider(p: string): p is keyof typeof PROVIDERS {
   return p in PROVIDERS
 }
 
-export function keyField(provider: keyof typeof PROVIDERS): 'apiKey' | 'brave' {
+export function keyField(
+  provider: keyof typeof PROVIDERS,
+): 'apiKey' | 'braveApiKey' {
   return PROVIDERS[provider]
 }
 
@@ -64,13 +66,16 @@ function readGlobalRaw(): Record<string, unknown> {
 // Persist a single secret into the global config. The file is written owner-only
 // (0o600) and the directory is locked to 0o700 so keys never become world- or
 // group-readable. Other global-config fields are preserved.
-export function setGlobalKey(field: 'apiKey' | 'brave', value: string): void {
+export function setGlobalKey(
+  field: 'apiKey' | 'braveApiKey',
+  value: string,
+): void {
   const data = readGlobalRaw()
   data[field] = value
   writeGlobalConfig(data)
 }
 
-export function unsetGlobalKey(field: 'apiKey' | 'brave'): void {
+export function unsetGlobalKey(field: 'apiKey' | 'braveApiKey'): void {
   // No existsSync guard: readGlobalRaw already returns {} for a missing file,
   // and writing the (possibly empty) result back is what creates the
   // correctly-permissioned config directory in the first place.

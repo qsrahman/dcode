@@ -13,6 +13,10 @@
   aborted turn.
 
 ### Changed
+- **Breaking:** the `brave` config key (Brave Search API key) is renamed
+  `braveApiKey`, matching `apiKey` and `braveEndpoint`. A `dcode.json` still
+  using `"brave"` now fails the strict config parse — rename it, or re-run
+  `/key set brave <key>` (the `/key` provider name is unchanged).
 - System prompt (`agent/system.ts`) synced with the current tool set and
   sub-agent behavior:
   - The tool-use section now names `read_process` alongside `run_process`/

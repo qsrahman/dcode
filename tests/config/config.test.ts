@@ -205,16 +205,16 @@ describe('buildConfig', () => {
     expect(buildConfig(parseCli([])).model).toBe('gpt-5.4-mini')
   })
 
-  it('reads apiKey and brave from the global config when env is unset', () => {
+  it('reads apiKey and braveApiKey from the global config when env is unset', () => {
     delete process.env.OPENAI_API_KEY
     delete process.env.BRAVE_API_KEY
     writeFileSync(
       globalConfigPath(),
-      JSON.stringify({ apiKey: 'sk-global', brave: 'br-global' }),
+      JSON.stringify({ apiKey: 'sk-global', braveApiKey: 'br-global' }),
     )
     const cfg = buildConfig(parseCli([]))
     expect(cfg.apiKey).toBe('sk-global')
-    expect(cfg.brave).toBe('br-global')
+    expect(cfg.braveApiKey).toBe('br-global')
   })
 
   it('resolves the full precedence chain defaults < global < env < cli', () => {

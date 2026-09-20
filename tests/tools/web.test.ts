@@ -17,7 +17,7 @@ const tool = webSearchTool()
 const fetchTool = webFetchTool()
 const ctx: ToolContext = {
   root: '/tmp',
-  config: cfg({ brave: 'test-key' }),
+  config: cfg({ braveApiKey: 'test-key' }),
   logger: createLogger(cfg()),
 }
 
@@ -93,10 +93,10 @@ describe('web_search', () => {
     )
   })
 
-  // ctx.config.brave is the only source dcode reads for this key (buildConfig
+  // ctx.config.braveApiKey is the only source dcode reads for this key (buildConfig
   // already folds BRAVE_API_KEY into it before a tool ever runs) — a bare
   // process.env value with no matching config must not work.
-  it('ignores process.env.BRAVE_API_KEY; only ctx.config.brave is used', async () => {
+  it('ignores process.env.BRAVE_API_KEY; only ctx.config.braveApiKey is used', async () => {
     process.env.BRAVE_API_KEY = 'env-key'
     try {
       const noKeyCtx: ToolContext = { ...ctx, config: cfg() }

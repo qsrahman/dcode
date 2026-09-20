@@ -56,10 +56,10 @@ describe('key storage', () => {
 
   it('merges with existing global-config fields', () => {
     setGlobalKey('apiKey', 'sk-secret')
-    setGlobalKey('brave', 'br-secret')
+    setGlobalKey('braveApiKey', 'br-secret')
     const data = JSON.parse(readFileSync(globalConfigPath(), 'utf8'))
     expect(data.apiKey).toBe('sk-secret')
-    expect(data.brave).toBe('br-secret')
+    expect(data.braveApiKey).toBe('br-secret')
   })
 
   it('removes a key on unset', () => {

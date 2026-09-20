@@ -167,7 +167,7 @@ argument silently breaks patterns like `sub/**`. `grep`/`glob` are the
 tools with a native-binary dependency (the old pure-JS `traverse.ts`
 `walkDir`/`globToRegExp`/`createIgnore` implementation was deleted once both
 tools moved to ripgrep). `web_search`'s Brave
-key comes from `ctx.config.brave` only — `buildConfig` already resolves
+key comes from `ctx.config.braveApiKey` only — `buildConfig` already resolves
 `BRAVE_API_KEY` (env) over the stored config file into it before any tool
 runs, so the tool itself doesn't re-read `process.env`.
 `createLocalTools(tasks, client, mcpTools?)` is the single hub that registers

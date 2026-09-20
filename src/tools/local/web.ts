@@ -46,12 +46,12 @@ export const webSearchTool = () =>
         .describe('Number of results to return (default 5)'),
     }),
     async execute(args, ctx) {
-      // ctx.config.brave is the single source of truth: buildConfig already
+      // ctx.config.braveApiKey is the single source of truth: buildConfig already
       // resolves BRAVE_API_KEY (env) over the stored config file into it, so
       // reading process.env here too would just re-derive the same value (or,
       // if they ever diverge, wrongly prefer the stale env over a key set at
       // runtime via `/key set brave`).
-      const key = ctx.config.brave
+      const key = ctx.config.braveApiKey
       if (!key) {
         throw new Error(
           'BRAVE_API_KEY is not set; cannot search the web (store it with: /key set brave <key>)',
