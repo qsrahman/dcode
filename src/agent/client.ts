@@ -21,6 +21,8 @@ export interface Client {
       maxOutputTokens?: number
       instructions?: string
       signal?: AbortSignal
+      reasoningEffort?: Config['reasoningEffort']
+      verbosity?: Config['verbosity']
     },
   ): ModelStream
 }
@@ -72,6 +74,10 @@ export function createClient(config: Config): Client {
       }
       if (opts?.tools) params.tools = opts.tools
       if (opts?.instructions) params.instructions = opts.instructions
+      if (opts?.reasoningEffort) {
+        params.reasoning = { effort: opts.reasoningEffort }
+      }
+      if (opts?.verbosity) params.text = { verbosity: opts.verbosity }
       // Explicit, unconditional: `store` is always exactly `config.stateful`
       // (default false, so no server-side 30-day retention on real OpenAI
       // unless the user opts in). Earlier this branched on whether the

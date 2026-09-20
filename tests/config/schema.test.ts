@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { configSchema } from '../../src/config/schema.ts'
 
 describe('configSchema', () => {
+  it('leaves reasoningEffort and verbosity unset by default', () => {
+    const c = configSchema.parse({})
+    expect(c.reasoningEffort).toBeUndefined()
+    expect(c.verbosity).toBeUndefined()
+  })
+
+  it('accepts known values and rejects unknown ones', () => {
+    const c = configSchema.parse({ reasoningEffort: 'low', verbosity: 'high' })
+    expect(c.reasoningEffort).toBe('low')
+    expect(c.verbosity).toBe('high')
+    expect(() => configSchema.parse({ reasoningEffort: 'huge' })).toThrow()
+    expect(() => configSchema.parse({ verbosity: 'loud' })).toThrow()
+  })
+
   it('applies documented defaults', () => {
     const c = configSchema.parse({})
     expect(c.model).toBe('gpt-5.4-mini')

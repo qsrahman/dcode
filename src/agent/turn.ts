@@ -40,6 +40,8 @@ export async function runTurn(
     tools,
     instructions: opts.instructions,
     signal: opts.signal,
+    reasoningEffort: config.reasoningEffort,
+    verbosity: config.verbosity,
   })
   const md = new MarkdownStreamRenderer(config.color)
   let announced = false

@@ -32,6 +32,23 @@ describe('runOneShot', () => {
 })
 
 describe('runTurn', () => {
+  it('passes config.reasoningEffort and config.verbosity to the client', async () => {
+    let seen: Record<string, unknown> = {}
+    const base = fakeClient('ok')
+    const client: Client = {
+      stream(input, opts) {
+        seen = { ...opts }
+        return base.stream(input, opts)
+      },
+    }
+    const config = cfg({ reasoningEffort: 'minimal', verbosity: 'low' })
+    await runTurn(client, config, [], {
+      sink: makeSink().sink,
+      logger: createLogger(config),
+    })
+    expect(seen).toMatchObject({ reasoningEffort: 'minimal', verbosity: 'low' })
+  })
+
   // The real OpenAI SDK's EventStream expects the stream to be fully
   // consumed before finalResponse() is called (it otherwise has to wait for
   // completion itself) — the documented, standard usage pattern. This can't

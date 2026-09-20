@@ -293,6 +293,15 @@ dcode *reads* its config from, not where `/key` *writes* to. A key set via
 command's own output always names the actual file it wrote. `/key list`
 shows which providers are set without revealing values.
 
+Two optional model-tuning keys, both unset by default (the provider's default
+applies and nothing extra is sent): `reasoningEffort`
+(`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`, sent as
+`reasoning.effort`; lower values make a reasoning model explore less before
+acting) and `verbosity` (`low`/`medium`/`high`, sent as `text.verbosity`;
+controls answer length). They apply to agent turns and sub-agents, not to
+compaction, and which values a model accepts is up to the provider. `/config`
+shows the effective values.
+
 See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 
 ## Project instructions

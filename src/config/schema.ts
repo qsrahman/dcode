@@ -130,6 +130,16 @@ export const configSchema = z.object({
   maxToolIterations: z.number().int().positive().default(16),
   maxToolOutputBytes: z.number().int().positive().default(32768),
   maxTokens: z.number().int().positive().default(8192),
+  // Sent to the model on each agent turn only when set (compaction keeps the
+  // provider default), so an unset value changes nothing for endpoints that
+  // reject the fields. Effort is the main control for how much a reasoning
+  // model explores before acting; verbosity controls final-answer length. The
+  // effort values mirror the SDK's ReasoningEffort; which ones a model
+  // accepts is the provider's call.
+  reasoningEffort: z
+    .enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    .optional(),
+  verbosity: z.enum(['low', 'medium', 'high']).optional(),
   maxRetries: z.number().int().nonnegative().default(3),
   toolTimeout: z.number().int().positive().default(30000),
   // When true, responses are stored server-side so a later turn could chain via

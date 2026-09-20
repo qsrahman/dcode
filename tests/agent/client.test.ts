@@ -53,6 +53,20 @@ describe('createClient', () => {
     return createClient(config).stream([{ role: 'user', content: 'hi' }], opts)
   }
 
+  describe('reasoning and verbosity params', () => {
+    it('omits both by default so endpoints that reject them are unaffected', () => {
+      streamOnce(cfg(), {})
+      expect(streamCalls[0]!.params).not.toHaveProperty('reasoning')
+      expect(streamCalls[0]!.params).not.toHaveProperty('text')
+    })
+
+    it('sends reasoning.effort and text.verbosity when requested', () => {
+      streamOnce(cfg(), { reasoningEffort: 'low', verbosity: 'high' })
+      expect(streamCalls[0]!.params.reasoning).toEqual({ effort: 'low' })
+      expect(streamCalls[0]!.params.text).toEqual({ verbosity: 'high' })
+    })
+  })
+
   describe('store param', () => {
     // store is always exactly config.stateful, unconditionally — no
     // branching on the configured endpoint. See the comment in client.ts

@@ -137,6 +137,8 @@ function formatConfig(c: Config): string {
     `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
     `toolTimeout:  ${c.toolTimeout} ms`,
     `maxRetries:   ${c.maxRetries}`,
+    `reasoning:    ${c.reasoningEffort ?? '(provider default)'}`,
+    `verbosity:    ${c.verbosity ?? '(provider default)'}`,
     `context:      window=${c.context.window} reserved=${c.context.reserved} keep=${c.context.keepTokens} prune=${c.context.prune} auto=${c.context.auto}`,
     `mcpServers:   ${Object.keys(c.mcpServers).length} configured, ${Object.values(c.mcpServers).filter((s) => s.enabled).length} enabled (see /mcp)`,
   ]

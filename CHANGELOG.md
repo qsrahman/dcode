@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Added
+- Optional `reasoningEffort` and `verbosity` config keys, forwarded to the
+  Responses API as `reasoning.effort` and `text.verbosity` on agent turns
+  (`runTurn` passes them to `Client.stream`; compaction keeps the provider
+  default). Both are unset by default, so nothing changes — and nothing new is
+  sent to endpoints that might reject the fields — unless configured. `/config`
+  prints them.
 - Project instructions: `buildSystemPrompt` now appends the working
   directory's `AGENTS.md` (falling back to `CLAUDE.md`) to the system prompt,
   after the static sections and before the per-run lines so the cacheable

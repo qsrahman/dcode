@@ -149,6 +149,14 @@ describe('handleLine new commands', () => {
     expect(text).toContain(`model:        ${s.config.model}`)
     expect(text).toContain('context:')
     expect(text).toContain('mcpServers:   0 configured')
+    expect(text).toContain('reasoning:    (provider default)')
+  })
+  it('/config shows a configured reasoning effort and verbosity', async () => {
+    const s = await makeSession({ reasoningEffort: 'high', verbosity: 'low' })
+    const { sink, out } = makeSink()
+    await handleLine(s, '/config', { sink })
+    expect(out.join('')).toContain('reasoning:    high')
+    expect(out.join('')).toContain('verbosity:    low')
   })
   it('/mcp reports no servers configured by default', async () => {
     const s = await makeSession()
