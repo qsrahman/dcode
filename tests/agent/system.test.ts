@@ -13,6 +13,12 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt()).toMatch(/Current date: \d{4}-\d{2}-\d{2}/)
   })
 
+  // run_shell shells out to the host, and BSD (macOS) vs GNU (Linux) tools
+  // differ, so the model needs to know which it's on.
+  it('includes the platform', () => {
+    expect(buildSystemPrompt()).toContain(`Platform: ${process.platform}`)
+  })
+
   it('embeds the base instructions', () => {
     expect(buildSystemPrompt()).toContain(BASE_SYSTEM_PROMPT)
   })
@@ -56,6 +62,20 @@ describe('buildSystemPrompt', () => {
   // unlike the plain read-only tools excluded above.
   it('names read_process alongside run_process/kill_process', () => {
     expect(prompt).toContain('read_process')
+  })
+
+  it('tells the model to finish, verify, and summarize', () => {
+    expect(prompt).toContain('Keep working until the request is fully resolved')
+    expect(prompt).toContain("run the project's relevant checks")
+    expect(prompt).toContain(
+      'End any task that used tools with a short summary',
+    )
+  })
+
+  // The tool-progress freeze (ui/tools.ts, via onBeforeText) assumes tool
+  // turns emit no visible text, so the model is told not to narrate them.
+  it('tells the model not to narrate between tool calls', () => {
+    expect(prompt).toContain("don't narrate between tool calls")
   })
 
   // A general sub-agent has `task` denied by policy and rejected again by

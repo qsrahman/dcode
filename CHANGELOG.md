@@ -13,6 +13,26 @@
   aborted turn.
 
 ### Changed
+- System prompt revised against OpenAI's GPT-5/5.1 and Anthropic's prompting
+  guidance:
+  - New "Completing the task" section: keep going until the request is
+    resolved, run the project's checks after changing code (and say so when
+    they can't be run), fix root causes rather than special-casing tests.
+  - Style: don't narrate between tool calls (the terminal already shows tool
+    progress, and `onBeforeText`'s summary freeze assumes tool turns emit no
+    text), and end tool-using tasks with a short what-changed/what-verified
+    summary.
+  - Contradictions resolved: the ask-vs-assume bullets are merged, the
+    "outline before editing" step now goes through `todowrite` instead of
+    visible text, "inspect first" gains a stop-searching criterion, and the
+    duplicated no-guessing and git-history lines are folded.
+  - Per-tool usage detail (`edit_file`/`write_file` semantics, read caps) is
+    dropped from the prompt — the tool descriptions already carry it — leaving
+    only cross-cutting policy; a scope guard (no unrequested refactors, extra
+    abstractions or files; match project style; clean up scratch files) is
+    added, and a few bare rules gain a one-clause reason.
+  - `Platform: <os>` is added beside the working directory and date, since
+    `run_shell` behaviour differs between macOS and Linux.
 - **Breaking:** the `brave` config key (Brave Search API key) is renamed
   `braveApiKey`, matching `apiKey` and `braveEndpoint`. A `dcode.json` still
   using `"brave"` now fails the strict config parse — rename it, or re-run
