@@ -328,7 +328,7 @@ that can run any shell command.
 | P6 | MCP integration | **Done** |
 | P7 | Polish (verbose/stderr, --no-color, SIGINT, docs pass) | **Done** |
 | P8 | Task list (in-session: create/list/update) | **Done** |
-| P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done** |
+| P9 | Git tool (scoped status/diff/log/show/add/commit/branch) | **Done, then removed** — git is reached via `run_shell` |
 | P10 | Context-window management (prune + compact + overflow retry) | **Done** |
 | P11 | File lifecycle (move/copy/delete/mkdir) + background process tools | **Done** |
 | P12 | Symbol search (`find_symbol` / `find_references`) | **Planned** |
@@ -339,7 +339,7 @@ that can run any shell command.
 - Standard tasks: `pnpm dev`, `pnpm test`, `pnpm typecheck`, `pnpm format`.
 - `pnpm stress` runs a **live** end-to-end stress test (`scripts/live-stress.ts`):
   it drives the real agent loop and tools against the configured model
-  (Ollama via env or `dcode.json`) with heavy sequential scenarios plus a concurrency burst,
+  (any OpenAI-compatible endpoint, via env or `dcode.json`) with heavy sequential scenarios plus a concurrency burst,
   and also connects whatever MCP servers are configured (same as a real session — a
   failed/unreachable one just shows as `failed` in the startup report). It requires a
   reachable model endpoint and is intentionally outside the unit suite so `pnpm test`
@@ -347,4 +347,4 @@ that can run any shell command.
 
 ## License
 
-Internal / MIT (TBD).
+MIT — see [LICENSE](./LICENSE).

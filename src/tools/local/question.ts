@@ -20,9 +20,10 @@ const questionSchema = z.object({
 
 // @clack/prompts renders its menu and then waits for a keypress that will
 // never arrive when stdin isn't interactive (a piped one-shot run, CI), so
-// the tool promise never settles — and runTool's deadline awaits that
-// promise rather than racing it, so nothing rescues the hang. Refuse up
-// front instead, and tell the model to decide for itself.
+// the tool promise never settles. runTool's deadline would only abandon it
+// after toolTimeout (it can't cancel the prompt itself — see withDeadline),
+// so the call would stall until then. Refuse up front instead, and tell the
+// model to decide for itself.
 function interactive(): boolean {
   return Boolean(process.stdin.isTTY)
 }

@@ -62,9 +62,9 @@ streams deltas from the OpenAI Responses client through a
 rendering — the renderer buffers deltas and only emits fully-formed lines
 once their block boundary is safe (a blank line for prose, a closing fence
 for code), so partial markdown syntax is never shown broken mid-stream —
-then returns the SDK's own aggregated text (`Response.output_text` from
-`stream.finalResponse()`) plus the full response (so callers can inspect
-tool calls) — it does not reconstruct text from the deltas itself; only what's
+then returns the SDK's own aggregated `Response` from
+`stream.finalResponse()` (so callers can read `output_text` and inspect tool
+calls) — it does not reconstruct text from the deltas itself; only what's
 *displayed* goes through the renderer. `runTool`
 executes a single tool call with output truncation and a real
 `Promise.race` deadline (`withDeadline`) against `config.toolTimeout` and
@@ -114,15 +114,16 @@ one-line-per-call form (`renderToolResult`/`renderToolOutput`) — a log wants
 one record per call, and only a TTY can rewrite a line in place. The turn
 itself is run through `completeTurn`, which quarantines the two provider-side
 recovery paths (compact-and-retry on a context overflow via
-`recoverFromOverflow`; inject `Continue.` and retry on a `max_output_tokens`
-truncation) so the main loop reads as a linear sequence. `paintFor` takes an explicit flag rather than letting Node
+`ContextManager.onOverflow`; inject `Continue.` and retry on a
+`max_output_tokens` truncation) so the main loop reads as a linear sequence. `paintFor` takes an explicit flag rather than letting Node
 auto-detect, for two reasons: colour support is resolved at startup, before
 `--no-color` is parsed out of argv, and the answer describes stdout rather
 than whichever sink the caller writes to. Exhausting `maxToolIterations`
 with tool calls still pending logs a warning naming the setting, since the
 loop would otherwise return the last turn's text — nothing at all, for a
 pure tool-call turn.
-`runOneShot` is a thin wrapper that builds `[system, user]` and delegates to
+`runOneShot` is a thin wrapper that wraps the prompt as the sole `user` history
+item (the system prompt travels separately, as `instructions`) and delegates to
 `runAgent`. Tools live under `tools/`: `tools/registry.ts`'s `ToolRegistry` (built once
 per session; `toResponsesTools()` is memoized) registers `ToolDefinition<P>` objects — a
 generic with zod-typed params and a type-safe `execute(args: P, ctx)`;
@@ -218,8 +219,8 @@ list). Sub-agent sessions are never resumable — every call starts from a
 fresh history.
 
 The REPL (`cli/repl.ts` + `cli/commands.ts`) reuses `runAgent` directly,
-keeping a module-local `Session` (`{ config, client, logger, history, tools,
-mcp }`) and dispatching slash commands (`parseCommand`/`dispatch` in
+keeping a `Session` (`{ config, logger, client, history, tools, context, tasks,
+root, mcp, lastUsage? }`, defined in `commands.ts`) and dispatching slash commands (`parseCommand`/`dispatch` in
 `commands.ts`) before falling through to a model turn. `createSession` is
 `async` (connecting MCP servers is), and `startRepl` wraps the REPL loop in
 `try { … } finally { await session.mcp.close() }` so every exit path closes

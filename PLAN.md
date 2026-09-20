@@ -86,8 +86,7 @@ src/
                       #   prune.ts   (collapse old tool outputs to a marker)
                       #   compact.ts (summarize oldest history via a model call)
                       #   manager.ts (ContextManager: prune→compact, overflow retry, breaker)
-  agent/types.ts      # ToolDefinition<P> (incl. optional jsonSchema for MCP tools), ToolContext (incl. depth), ToolCall, ToolResult, ResponseItemFields
-  agent/types.ts      # shared types + TaskStore: in-session todo list (replace/list — the model sends the whole list)
+  agent/types.ts      # shared types (ToolDefinition<P> incl. optional jsonSchema for MCP tools, ToolContext incl. depth, ToolCall, ToolResult, ResponseItemFields) + TaskStore: in-session todo list (replace/list — the model sends the whole list)
   agent/subagent.ts   # AGENT_TYPES (general, explore): per-type ToolPolicy ({allow} | {deny}) + system prompt; describeAgentTypes/unknownAgentTools
   tools/index.ts      # createLocalTools(tasks, client, mcpTools?): hub that registers all built-in tools (+ any already-connected MCP tools, P6) into the registry
   tools/registry.ts   # ToolRegistry: register/list/get (built once; toResponsesTools memoized); zod->JSON-schema via z.toJSONSchema (or a tool's own jsonSchema verbatim); defineTool (infers a tool's arg type from its schema)

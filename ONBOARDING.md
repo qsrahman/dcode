@@ -985,13 +985,3 @@ All confirmed in the code or in `AGENTS.md`/`CLAUDE.md`:
 > **Why:** The README documents it, but it wasn't run.
 >
 > **Where to investigate:** run it; check `package.json` `bin` and the shebang in `src/index.ts`.
-
-**Documentation drift** (the code is authoritative; none of these are bugs):
-
-- `CLAUDE.md` says `runOneShot` "builds `[system, user]`". It builds only the user item; the system prompt goes in `instructions`.
-- `CLAUDE.md` describes the REPL `Session` as `{ config, client, logger, history, tools, mcp }`. The real interface (`cli/commands.ts`) also has `context`, `tasks`, `root`, and `lastUsage`.
-- `CLAUDE.md` still names `recoverFromOverflow`. That logic is now inside `loop.ts::completeTurn` (the function was folded in during a refactor).
-- `PLAN.md` §5's module tree lists `agent/types.ts` twice (an older line and a newer one).
-- `README.md` says the stress test uses "Ollama via env or `dcode.json`". It uses whatever the config resolves to (I also ran it against `gpt-5.4-mini` on the default endpoint). It also lists P9 (git tool) as "Done" in the phases table, while `PLAN.md` says it was removed.
-- `README.md` lists the license as "Internal / MIT (TBD)", while `LICENSE` is a plain MIT license.
-- A comment in `tools/local/question.ts` says `runTool`'s deadline "awaits that promise rather than racing it". `agent/exec.ts::withDeadline` does use `Promise.race`, so that comment is stale.
