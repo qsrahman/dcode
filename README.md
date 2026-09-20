@@ -295,6 +295,17 @@ shows which providers are set without revealing values.
 
 See [PLAN.md](./PLAN.md) for the full schema and the locked design decisions.
 
+## Project instructions
+
+If the working directory has an `AGENTS.md` (or, failing that, a `CLAUDE.md`),
+dcode appends its contents to the system prompt at the start of each prompt, so
+edits take effect on your next message. Only the current directory is read
+(not parent directories), an empty file is ignored, and a file over 32,000
+characters is truncated with a note. It applies to the main agent and the
+`general` sub-agent. **Only run dcode in repositories you trust:** with no
+permission layer, instructions in a cloned repo's `AGENTS.md` steer a model
+that can run any shell command.
+
 ## Phases
 
 | Phase | Scope | Status |

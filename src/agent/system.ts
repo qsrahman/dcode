@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 // Core instructions, shared by the top-level session and every sub-agent that
 // reuses this prompt (currently just `general` — `explore` has its own
 // dedicated, fully self-contained prompt in subagent.ts). The Sub-agents
@@ -64,11 +67,47 @@ export const BASE_SYSTEM_PROMPT = [
   STYLE_SECTION,
 ].join('\n\n')
 
-export function buildSystemPrompt(opts: { subagents?: boolean } = {}): string {
-  const root = process.cwd()
+// Project-provided instructions, read from the working directory. AGENTS.md is
+// the cross-tool convention, CLAUDE.md the fallback for repos that only have
+// that one. The cap bounds prompt size (and cost) for an oversized file.
+const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md']
+const MAX_INSTRUCTION_CHARS = 32_000
+
+function loadProjectInstructions(
+  root: string,
+): { file: string; text: string } | undefined {
+  for (const file of INSTRUCTION_FILES) {
+    let text: string
+    try {
+      text = readFileSync(join(root, file), 'utf8').trim()
+    } catch {
+      continue // missing or unreadable: same as absent, try the next name
+    }
+    if (!text) continue
+    if (text.length > MAX_INSTRUCTION_CHARS) {
+      text = `${text.slice(0, MAX_INSTRUCTION_CHARS)}\n… [${file} truncated at ${MAX_INSTRUCTION_CHARS} characters]`
+    }
+    return { file, text }
+  }
+}
+
+// `root` is the working directory the project instructions are read from and
+// the one advertised to the model; it defaults to the process cwd.
+export function buildSystemPrompt(
+  opts: { subagents?: boolean; root?: string } = {},
+): string {
+  const root = opts.root ?? process.cwd()
   const today = new Date().toISOString().slice(0, 10)
   const sections = [CORE_SYSTEM_PROMPT]
   if (opts.subagents ?? true) sections.push(SUBAGENT_SECTION)
   sections.push(STYLE_SECTION)
+  // After the static sections and before the per-run lines, so the stable
+  // prefix stays cacheable.
+  const project = loadProjectInstructions(root)
+  if (project) {
+    sections.push(
+      `## Project instructions (${project.file})\nThe project's own conventions, loaded from ${project.file} in the working directory. Follow them for this project; the safety rules above take precedence.\n\n${project.text}`,
+    )
+  }
   return `${sections.join('\n\n')}\n\nWorking directory: ${root}\nPlatform: ${process.platform}\nCurrent date: ${today}`
 }

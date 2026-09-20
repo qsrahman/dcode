@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Added
+- Project instructions: `buildSystemPrompt` now appends the working
+  directory's `AGENTS.md` (falling back to `CLAUDE.md`) to the system prompt,
+  after the static sections and before the per-run lines so the cacheable
+  prefix is unchanged. Cwd only, an empty file counts as absent, and content is
+  capped at 32,000 characters. The `general` sub-agent gets it too; `explore`
+  keeps its own dedicated prompt. `buildSystemPrompt` also takes an optional
+  `root` so tests don't pick up this repo's own `AGENTS.md`.
 - REPL: the prompt is now two lines — a dim status line (`model · turn N ·
   ↑in ↓out · used/usable (pct% used)`) above the usual `> ` input marker —
   rebuilt before every `rl.prompt()` call so it's never more than one turn

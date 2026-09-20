@@ -1,8 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   BASE_SYSTEM_PROMPT,
   buildSystemPrompt,
 } from '../../src/agent/system.ts'
+
+const tmpRoots: string[] = []
+function tmpRoot(files: Record<string, string> = {}): string {
+  const dir = mkdtempSync(join(tmpdir(), 'dcode-system-'))
+  tmpRoots.push(dir)
+  for (const [name, text] of Object.entries(files)) {
+    writeFileSync(join(dir, name), text)
+  }
+  return dir
+}
+afterEach(() => {
+  for (const d of tmpRoots.splice(0)) rmSync(d, { recursive: true })
+})
 
 describe('buildSystemPrompt', () => {
   it('uses process.cwd() as the working directory', () => {
@@ -23,7 +39,9 @@ describe('buildSystemPrompt', () => {
     expect(buildSystemPrompt()).toContain(BASE_SYSTEM_PROMPT)
   })
 
-  const prompt = buildSystemPrompt()
+  // An empty root: the repo's own AGENTS.md would otherwise be included and
+  // trip the tool-name assertions below.
+  const prompt = buildSystemPrompt({ root: tmpRoot() })
 
   it('tells the model to use its (system-supplied) tools', () => {
     expect(prompt).toContain('tools')
@@ -83,7 +101,7 @@ describe('buildSystemPrompt', () => {
   // instructions telling it to delegate to a sub-agent of its own would be
   // dead, misleading guidance for that role specifically.
   it('omits the Sub-agents section when subagents: false', () => {
-    const noSubagents = buildSystemPrompt({ subagents: false })
+    const noSubagents = buildSystemPrompt({ subagents: false, root: tmpRoot() })
     expect(noSubagents).not.toContain('## Sub-agents')
     expect(noSubagents).not.toContain('Use the task tool to delegate')
     // The rest of the prompt is unaffected.
@@ -93,5 +111,74 @@ describe('buildSystemPrompt', () => {
 
   it('includes the Sub-agents section by default', () => {
     expect(prompt).toContain('## Sub-agents')
+  })
+
+  describe('project instructions', () => {
+    it('loads AGENTS.md from the working directory', () => {
+      const p = buildSystemPrompt({
+        root: tmpRoot({ 'AGENTS.md': 'Use pnpm.' }),
+      })
+      expect(p).toContain('## Project instructions (AGENTS.md)')
+      expect(p).toContain('Use pnpm.')
+    })
+
+    it('falls back to CLAUDE.md when there is no AGENTS.md', () => {
+      const p = buildSystemPrompt({
+        root: tmpRoot({ 'CLAUDE.md': 'Use yarn.' }),
+      })
+      expect(p).toContain('## Project instructions (CLAUDE.md)')
+      expect(p).toContain('Use yarn.')
+    })
+
+    it('prefers AGENTS.md and ignores CLAUDE.md when both exist', () => {
+      const p = buildSystemPrompt({
+        root: tmpRoot({
+          'AGENTS.md': 'from agents',
+          'CLAUDE.md': 'from claude',
+        }),
+      })
+      expect(p).toContain('from agents')
+      expect(p).not.toContain('from claude')
+    })
+
+    it('treats an empty AGENTS.md as absent', () => {
+      const p = buildSystemPrompt({
+        root: tmpRoot({ 'AGENTS.md': '  \n', 'CLAUDE.md': 'from claude' }),
+      })
+      expect(p).toContain('from claude')
+    })
+
+    it('adds no section when neither file exists', () => {
+      expect(buildSystemPrompt({ root: tmpRoot() })).not.toContain(
+        'Project instructions',
+      )
+    })
+
+    it('truncates an oversized file with a note', () => {
+      const p = buildSystemPrompt({
+        root: tmpRoot({ 'AGENTS.md': 'x'.repeat(40_000) }),
+      })
+      expect(p).toContain('AGENTS.md truncated at 32000 characters')
+      expect(p).not.toContain('x'.repeat(32_001))
+    })
+
+    it('is still included for a sub-agent prompt', () => {
+      const p = buildSystemPrompt({
+        subagents: false,
+        root: tmpRoot({ 'AGENTS.md': 'Use pnpm.' }),
+      })
+      expect(p).toContain('Use pnpm.')
+      expect(p).not.toContain('## Sub-agents')
+    })
+
+    it('comes after the static sections and before the per-run lines', () => {
+      const p = buildSystemPrompt({
+        root: tmpRoot({ 'AGENTS.md': 'Use pnpm.' }),
+      })
+      expect(p.indexOf('## Style')).toBeLessThan(p.indexOf('Use pnpm.'))
+      expect(p.indexOf('Use pnpm.')).toBeLessThan(
+        p.indexOf('Working directory:'),
+      )
+    })
   })
 })
