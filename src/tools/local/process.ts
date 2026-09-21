@@ -13,16 +13,6 @@ const PROC_MAX_OUTPUT = 64 * 1024
 // entry holding up to PROC_MAX_OUTPUT of buffered output.
 const PROC_MAX_ENTRIES = 50
 
-// kill_process's schema accepts either a signal name ("SIGTERM") or a bare
-// numeric string ("9") — but Node's ChildProcess.kill() only accepts a
-// numeric signal as an actual `number`, not a numeric string; passed a
-// string like "9" it throws `TypeError: Unknown signal: 9` synchronously
-// instead of returning false, which would otherwise skip the tool's
-// intended 'failed' outcome and leak a raw Node error to the model.
-function toKillSignal(sig: string): NodeJS.Signals | number {
-  return /^[0-9]+$/.test(sig) ? Number(sig) : (sig as NodeJS.Signals)
-}
-
 interface ManagedProcess {
   handle: string
   cmd: string
@@ -31,7 +21,7 @@ interface ManagedProcess {
   exited: boolean
   exitCode: number | null
   exitSignal: string | null
-  kill(signal: string): boolean
+  kill(signal: NodeJS.Signals): boolean
 }
 
 // Spawned via execa with killDescendants: true, which runs the child in its own
@@ -78,7 +68,7 @@ class ProcessManager {
       exited: false,
       exitCode: null,
       exitSignal: null,
-      kill: (sig) => subprocess.kill(toKillSignal(sig)),
+      kill: (sig) => subprocess.kill(sig),
     }
     const onData = (d: Buffer) => {
       proc.output += d.toString('utf8')
@@ -115,7 +105,7 @@ class ProcessManager {
   // reporting 'signaled' even when nothing was actually sent.
   kill(
     handle: string,
-    sig: string,
+    sig: NodeJS.Signals,
   ): 'notfound' | 'exited' | 'signaled' | 'failed' {
     const proc = this.procs.get(handle)
     if (!proc) return 'notfound'
@@ -151,7 +141,7 @@ const runProcessTool = () =>
     category: 'run',
     parallel: false,
     description:
-      'Start a long-running shell command in the background and return a handle. Use read_process to get its output and kill_process to stop it. The process keeps running after this turn ends (across turns, until stopped); it is killed automatically only when dcode itself exits.',
+      'Start a long-running shell command in the background and return a handle. Use read_process to get its output and kill_process to stop it. The process keeps running after this turn ends (across turns, until stopped) and /undo does not stop it; it is killed automatically only when dcode itself exits. Each call starts a new process, so do not repeat it to check on one.',
     parameters: z.object({
       command: z.string().describe('Shell command to execute'),
       cwd: z
@@ -171,7 +161,7 @@ const readProcessTool = () =>
     name: 'read_process',
     category: 'run',
     description:
-      'Return recent output from a background process started with run_process. Shows the last lines and whether it is still running or has exited (with its exit code).',
+      'Return recent output from a background process started with run_process: the last lines (only the latest 64 KiB is kept) and whether it is still running or has exited (with its exit code). Read-only; safe to call repeatedly.',
     parameters: z.object({
       handle: z
         .string()
@@ -202,12 +192,11 @@ const killProcessTool = () =>
     category: 'run',
     parallel: false,
     description:
-      'Stop a background process started with run_process. Sends SIGTERM by default; use signal to choose another (e.g. SIGKILL).',
+      'Stop a background process started with run_process. Sends SIGTERM by default; use signal to choose another (e.g. SIGKILL). Safe to repeat: a process that already exited is reported, not an error.',
     parameters: z.object({
       handle: z.string().describe('Handle returned by run_process'),
       signal: z
-        .string()
-        .regex(/^SIG[A-Z]+$|^[0-9]+$/)
+        .enum(['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGKILL'])
         .optional()
         .describe('Signal to send (default SIGTERM)'),
     }),

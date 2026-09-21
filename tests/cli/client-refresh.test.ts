@@ -6,7 +6,7 @@ import { createLogger } from '../../src/util/log.ts'
 import { cfg, makeSink, messageItem } from '../helpers.ts'
 
 // Records which key/model every model request was actually sent with. Mocks
-// only the SDK, so the real createClient/createSession/`task` tool run.
+// only the SDK, so the real createClient/createSession/`sub_agent` tool run.
 const requests: { apiKey?: string; model: string }[] = []
 
 vi.mock('openai', () => {
@@ -35,10 +35,10 @@ vi.mock('openai', () => {
 
 const { createSession, handleLine } = await import('../../src/cli/repl.ts')
 
-// The `task` tool captures the client it was built with, so it is the place a
+// The `sub_agent` tool captures the client it was built with, so it is the place a
 // stale client shows up: the REPL's own turns always read session.client.
 async function runSubAgent(session: Awaited<ReturnType<typeof createSession>>) {
-  const task = session.tools.get('task')!
+  const task = session.tools.get('sub_agent')!
   await task.execute(
     { description: 'probe', prompt: 'hi', subagent_type: 'explore' },
     { root: process.cwd(), config: session.config, logger: session.logger },

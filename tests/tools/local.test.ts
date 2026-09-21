@@ -248,14 +248,11 @@ describe('read-only tools', () => {
     expect(out).toMatch(/showing first 10 of 50/)
   })
 
-  it('glob accepts multiple patterns', async () => {
+  it('glob accepts brace alternatives', async () => {
     await writeFile(join(root, 'a.ts'), 'x')
     await writeFile(join(root, 'b.js'), 'x')
     await writeFile(join(root, 'c.md'), 'x')
-    const out = await tool('glob').execute(
-      { pattern: ['**/*.ts', '**/*.js'] },
-      ctx,
-    )
+    const out = await tool('glob').execute({ pattern: '**/*.{ts,js}' }, ctx)
     expect(out).toContain('a.ts')
     expect(out).toContain('b.js')
     expect(out).not.toContain('c.md')
@@ -679,6 +676,19 @@ describe('background process tools', () => {
     await expect(
       tool('read_process').execute({ handle: 'proc-999' }, ctx),
     ).rejects.toThrow(/unknown process handle/)
+  })
+
+  it('kill_process only accepts a named signal from its enum', () => {
+    const schema = tool('kill_process').parameters
+    expect(
+      schema.safeParse({ handle: 'proc-1', signal: 'SIGKILL' }).success,
+    ).toBe(true)
+    expect(schema.safeParse({ handle: 'proc-1', signal: '9' }).success).toBe(
+      false,
+    )
+    expect(
+      schema.safeParse({ handle: 'proc-1', signal: 'SIGFOO' }).success,
+    ).toBe(false)
   })
 
   it('kill_process rejects an unknown handle', async () => {

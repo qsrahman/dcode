@@ -128,7 +128,7 @@ const grepTool = () =>
     name: 'grep',
     category: 'search',
     description:
-      'Search file contents for a regular expression under the working directory (backed by ripgrep — Rust regex syntax: no lookaround/backreferences, but no catastrophic-backtracking risk either).',
+      'Search file contents for a regular expression under the working directory (Rust regex syntax: no lookaround or backreferences). Returns matching lines as "path:line: text", with context lines using "-" in place of ":", capped at 200 matches. Skips binary files, files over 5 MiB (the result says how many), and paths on the ignore list (.git and node_modules by default); matching lines over 500 characters are cut. To find files by name use glob. Read-only: independent searches can run in parallel.',
     parameters: z.object({
       pattern: z.string().describe('Regular expression to search for'),
       path: z
@@ -270,26 +270,18 @@ const globTool = () =>
     name: 'glob',
     category: 'search',
     description:
-      'List files matching glob pattern(s) under the working directory (backed by ripgrep --files — gitignore-style globs: `**` matches any depth, and a bare pattern like `*.ts` with no `/` also matches at any depth, not just the top level; anchor with a leading `/` for root-only).',
+      'Find files by name under the working directory using a gitignore-style glob: `**` matches any depth, a bare pattern like `*.ts` with no `/` also matches at any depth, a leading `/` anchors to the root, and braces work (`*.{ts,js}`). Returns paths relative to the root, sorted alphabetically and capped at 200 (see limit); paths on the ignore list (.git and node_modules by default) are left out. To search file contents use grep. Read-only: independent searches can run in parallel.',
     parameters: z.object({
-      pattern: z
-        .union([z.string(), z.array(z.string())])
-        .describe(
-          'Glob pattern or patterns, e.g. "**/*.ts" or ["**/*.ts","**/*.js"]',
-        ),
+      pattern: z.string().describe('Glob pattern, e.g. "**/*.{ts,tsx}"'),
       limit: z
         .number()
         .int()
         .min(1)
         .optional()
-        .describe('Maximum entries to return'),
+        .describe('Maximum paths to return; default 200'),
     }),
     async execute(args, ctx) {
-      const patterns = Array.isArray(args.pattern)
-        ? args.pattern
-        : [args.pattern]
-      const rgArgs = ['--files', ...BASE_RG_ARGS]
-      for (const p of patterns) rgArgs.push('-g', p)
+      const rgArgs = ['--files', ...BASE_RG_ARGS, '-g', args.pattern]
       // After the caller's patterns — see ignoreArgs on why the order binds.
       rgArgs.push(...ignoreArgs(ctx.config.ignore))
       // '.' rather than ctx.root: an anchored pattern like "sub/**" is

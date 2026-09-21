@@ -57,7 +57,7 @@ const readFileTool = () =>
     name: 'read_file',
     category: 'read',
     description:
-      'Read a UTF-8 text file, or list a directory, under the working directory. File lines are prefixed with their 1-based number and a tab ("12<TAB>text"); never include that prefix when passing text to edit_file. A long result is cut with a note naming the offset to continue from. A directory is listed one entry per line, "/" marking a subdirectory and "@" a symlink.',
+      'Read a UTF-8 text file, or list a directory, under the working directory. Each file line is prefixed with its 1-based number and a tab ("12<TAB>text"); never include that prefix in edit_file arguments. A cut-off result ends with a note naming the offset to continue from; lines over 2,000 characters are cut, only the first 8 MiB of a file is readable, and binary files are described rather than shown. A directory lists one entry per line, "/" marking a subdirectory and "@" a symlink. Read-only: call it in parallel to read several files.',
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
       offset: z
@@ -65,13 +65,15 @@ const readFileTool = () =>
         .int()
         .min(1)
         .optional()
-        .describe('1-based line (or directory entry) to start from'),
+        .describe('1-based line (or directory entry) to start from; default 1'),
       limit: z
         .number()
         .int()
         .min(1)
         .optional()
-        .describe('Maximum number of lines (or entries) to return'),
+        .describe(
+          'Maximum number of lines (or entries) to return; default as many as fit in the output cap',
+        ),
     }),
     async execute(args, ctx) {
       const offset = args.offset ?? 1
@@ -149,7 +151,7 @@ const writeFileTool = () =>
     category: 'edit',
     parallel: false,
     description:
-      'Create a UTF-8 text file under the working directory, or replace an existing one entirely. Parent directories are created. To change part of an existing file use edit_file instead.',
+      'Create a UTF-8 text file under the working directory, or replace an existing one entirely; the old content is not backed up, and the result says when a file was replaced. Parent directories are created. Repeating the same call is harmless. To change part of an existing file use edit_file instead.',
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
       content: z.string().describe('Full file contents to write'),
@@ -178,7 +180,7 @@ const editFileTool = () =>
     category: 'edit',
     parallel: false,
     description:
-      "Replace text in a file under the working directory. old_string must match the file exactly, whitespace and indentation included, and be unique unless replace_all is set — include surrounding lines to make it unique. Read the file first, and copy text without read_file's line-number prefix.",
+      "Replace text in a file under the working directory. Read the file first. old_string must match it exactly, whitespace and indentation included (copy it without read_file's line-number prefix), and be unique unless replace_all is set — include surrounding lines to make it unique. If old_string is missing or ambiguous the call fails and the file is left unchanged. After a successful edit, repeating the call fails with 'not found' because the old text is gone. Files over 8 MiB are refused; use run_shell (sed, perl) for those.",
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
       old_string: z.string().describe('Text to replace'),

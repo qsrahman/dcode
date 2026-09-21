@@ -80,7 +80,7 @@ flowchart TD
     API -->|"function_call items"| RC["runCalls → runTool (agent/exec.ts)"]
     RC --> T1["local tools (tools/local/*)"]
     RC --> T2["MCP tools (tools/mcp/manager.ts)"]
-    RC --> T3["task → nested runAgent (sub-agent)"]
+    RC --> T3["sub_agent → nested runAgent (sub-agent)"]
     RC -->|"function_call_output"| RA
 ```
 
@@ -101,7 +101,7 @@ Two ideas to hold onto:
 | `src/agent/` | The agent runtime: loop, single turn, tool execution, model client, prompt, sub-agent types, and the shared startup wiring. | `loop.ts`, `turn.ts`, `exec.ts`, `client.ts`, `system.ts`, `subagent.ts`, `runtime.ts`, `types.ts` |
 | `src/agent/context/` | Context-window management: token estimate, prune, compact, the manager. | `manager.ts`, `compact.ts`, `prune.ts`, `tokens.ts` |
 | `src/tools/` | Tool framework: registry, `defineTool`, the hub that registers built-ins. | `registry.ts`, `index.ts` |
-| `src/tools/local/` | Built-in tools, split by concern, plus shared helpers. | `fs.ts`, `search.ts`, `exec.ts`, `process.ts`, `web.ts`, `todo.ts`, `question.ts`, `task.ts`; helpers `paths.ts`, `http.ts` |
+| `src/tools/local/` | Built-in tools, split by concern, plus shared helpers. | `fs.ts`, `search.ts`, `exec.ts`, `process.ts`, `web.ts`, `todo.ts`, `question.ts`, `sub-agent.ts`; helpers `paths.ts`, `http.ts` |
 | `src/tools/mcp/` | MCP client: connects servers, wraps their tools as `ToolDefinition`s. | `manager.ts` |
 | `src/ui/` | Terminal rendering: streamed markdown, tool-progress display, the output `RunSink` seam. | `markdown.ts`, `tools.ts`, `sink.ts` |
 | `src/util/` | Logger (stderr), colour, version. | `log.ts`, `color.ts`, `version.ts` |
@@ -259,9 +259,9 @@ Execution begins at `src/index.ts::main()`. Nothing else runs at import time, ap
 
 A thin wrapper. It creates a `ContextManager` (given the session's `TaskStore`, so a compaction summary would carry the plan), makes `history = [{role: 'user', content: prompt}]`, and delegates to `runAgent`.
 
-### 6.4 Nested agent: `src/tools/local/task.ts` → `runAgent`
+### 6.4 Nested agent: `src/tools/local/sub-agent.ts` → `runAgent`
 
-The `task` tool re-enters `runAgent` for a sub-agent (see [§8.7](#87-sub-agents)).
+The `sub_agent` tool re-enters `runAgent` for a sub-agent (see [§8.7](#87-sub-agents)).
 
 ### 6.5 Other executables
 
@@ -438,7 +438,7 @@ The next prompt sends this entire array again, plus the new user item. That is w
 | `ToolDefinition`, `ToolContext`, `ToolCall`, `ToolResult`, `TaskStore`, `Todo`, `ResponseItemFields`, `isUserPrompt`, `CONTINUE_PROMPT` | `types.ts` | Shared types, the todo store class, and the prompt-vs-`Continue.` helper. |
 
 **Dependencies:** `openai` SDK, context manager, tool registry, `ui/tools.ts` (progress), `ui/markdown.ts`.
-**Consumers:** `index.ts`, `repl.ts`, `tools/local/task.ts`, the stress script.
+**Consumers:** `index.ts`, `repl.ts`, `tools/local/sub-agent.ts`, the stress script.
 **Notes:**
 - `createClient` reads `config` on every request and rebuilds its SDK instance if `apiKey`, `baseURL`, or `maxRetries` change, so `/key` reaches every holder of the client (the REPL and sub-agents, which capture it at startup) without a new `Client` being handed out. `/model` works the same way, because the model is read per request.
 - `Client` is an interface with one method, `stream()`. Tests substitute fakes (`tests/helpers.ts::fakeClient`) without touching the network.
@@ -461,7 +461,7 @@ The next prompt sends this entire array again, plus the new user item. That is w
 **Location:** `src/agent/context/`.
 **Public API:** `ContextManager` (`beforeTurn`, `observe`, `predict`, `onOverflow`, `manual`, `report`, `usable`); `pruneHistory`; `compactHistory`; `estimateHistory`, `contentToText`.
 **Dependencies:** `Client` (compaction is a model call), `TaskStore` (the task list is injected into the summary as authoritative).
-**Consumers:** `loop.ts`, `repl.ts` (`/compact`, `/context`, status line), `task.ts` (a per-sub-agent manager with `auto: false`).
+**Consumers:** `loop.ts`, `repl.ts` (`/compact`, `/context`, status line), `sub-agent.ts` (a per-sub-agent manager with `auto: false`).
 **Behaviour** (`manager.ts`, `compact.ts`, `prune.ts`):
 
 ```mermaid
@@ -486,11 +486,11 @@ flowchart TD
 
 **Purpose:** define, register, schema-ify, and run tools.
 **Location:** `src/tools/registry.ts` (`ToolRegistry`, `defineTool`, `toResponsesTool`), `src/tools/index.ts` (`createLocalTools`), `src/tools/local/*`.
-**Built-in tools (14):** `read_file`, `grep`, `glob`, `write_file`, `edit_file`, `run_shell`, `run_process`, `read_process`, `kill_process`, `web_search`, `web_fetch`, `todowrite`, `ask_user`, `task`. `createLocalTools` registers them all, plus any MCP tools passed in. `task` is registered **last** so its description reflects the full tool set.
+**Built-in tools (14):** `read_file`, `grep`, `glob`, `write_file`, `edit_file`, `run_shell`, `run_process`, `read_process`, `kill_process`, `web_search`, `web_fetch`, `todowrite`, `ask_user`, `sub_agent`. `createLocalTools` registers them all, plus any MCP tools passed in. `sub_agent` is registered **last** so its description reflects the full tool set.
 **Notes:**
 - A tool is `defineTool({ name, description, parallel?, parameters: zod, execute(args, ctx) => Promise<string> })`. `args` is inferred from the zod schema, so don't hand-write a `ToolDefinition<{…}>` annotation.
 - Tools throw to signal failure. The thrown message becomes the model-visible `error: …`.
-- `parallel: false` marks mutating or stateful tools: `write_file`, `edit_file`, `run_shell`, `run_process`, `kill_process`, `ask_user`, `task`. Everything else defaults to parallel-eligible. `read_process` is read-only, so it's parallel.
+- `parallel: false` marks mutating or stateful tools: `write_file`, `edit_file`, `run_shell`, `run_process`, `kill_process`, `ask_user`, `sub_agent`. Everything else defaults to parallel-eligible. `read_process` is read-only, so it's parallel.
 - `keep: 'ends'` on a tool (`run_shell`) makes `runTool` keep the start and the end of an oversized result instead of only the start, because a failing build or test prints its verdict last. `read_file` pages itself instead (`pageItems` in `fs.ts`) so its cut-off note can name the offset to resume from.
 - `createLocalTools` throws if a sub-agent policy names a tool nobody registered (`unknownAgentTools`).
 - Filesystem tools confine paths via `tools/local/paths.ts::resolvePath` (lexical `..` check plus a `realpath` check that also catches symlink escapes). `run_shell` is **not** confined beyond `cwd`.
@@ -501,12 +501,12 @@ flowchart TD
 ### 8.7 Sub-agents
 
 **Purpose:** delegate self-contained work to a nested agent with its own history.
-**Location:** `src/agent/subagent.ts` (agent types), `src/tools/local/task.ts` (the tool).
+**Location:** `src/agent/subagent.ts` (agent types), `src/tools/local/sub-agent.ts` (the tool).
 **Behaviour:**
-- Two types: `general` (policy `{deny: ['task']}`, so "everything except `task`") and `explore` (policy `{allow: [read_file, grep, glob, web_search, web_fetch]}`, read-only by construction).
+- Two types: `general` (policy `{deny: ['sub_agent']}`, so "everything except `sub_agent`") and `explore` (policy `{allow: [read_file, grep, glob, web_search, web_fetch]}`, read-only by construction).
 - `runSubAgent` builds a filtered `ToolRegistry`, rebinds `todowrite` to a fresh `TaskStore` (so it can't overwrite the parent's plan), uses a `ContextManager` with `auto: false`, a silent sink, `depth + 1`, and its own `instructions`. `MAX_DEPTH = 1`.
 - The result is wrapped as `<task state=… description=… agent=…>…</task>` and returned to the parent as a normal tool result.
-- Sub-agents run one at a time (`task` is `parallel: false`) and are never resumable.
+- Sub-agents run one at a time (`sub_agent` is `parallel: false`) and are never resumable.
 
 ### 8.8 MCP integration
 
@@ -849,8 +849,8 @@ All confirmed in the code or in `AGENTS.md`/`CLAUDE.md`:
 *Why it matters:* `context.auto: false` makes recovery purely reactive (see the long comment in `schema.ts`).
 
 **Decision — Sub-agents are filtered, depth-limited, silent, and sequential.**
-*Evidence:* `subagent.ts` policies, `task.ts` (`MAX_DEPTH = 1`, silent sink, `parallel: false`).
-*Why it matters:* `explore`'s read-only guarantee comes from an **allow-list**, so a new writing tool won't leak into it. `general` uses a deny-list so it stays "everything except `task`".
+*Evidence:* `subagent.ts` policies, `sub-agent.ts` (`MAX_DEPTH = 1`, silent sink, `parallel: false`).
+*Why it matters:* `explore`'s read-only guarantee comes from an **allow-list**, so a new writing tool won't leak into it. `general` uses a deny-list so it stays "everything except `sub_agent`".
 
 **Decision — Newline-gated streamed markdown; tool progress collapsed to one line per query on a TTY.**
 *Evidence:* `MarkdownStreamRenderer.findSafeBoundary`; `createToolProgress`.

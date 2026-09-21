@@ -21,56 +21,40 @@ const MAX_DEPTH = 1
 // returned to the parent.
 const silentSink: RunSink = { write() {} }
 
-// taskTool closes over the parent's client and tool registry so the sub-agent
+// subAgentTool closes over the parent's client and tool registry so the sub-agent
 // can reuse the same LLM client and know which tools the parent has available
 // (to filter down for the child).
-const taskParameters = z.object({
-  description: z
+const subAgentParameters = z.object({
+  description: z.string().describe('A short (3-5 words) label for the job'),
+  prompt: z
     .string()
-    .describe('A short (3-5 words) description of the task'),
-  prompt: z.string().describe('The task for the agent to perform'),
-  subagent_type: z
-    .enum(AGENT_TYPE_NAMES)
-    .describe('The type of specialized agent to use for this task'),
+    .describe(
+      'Complete instructions for the sub-agent, including what to return',
+    ),
+  subagent_type: z.enum(AGENT_TYPE_NAMES).describe('Which agent type to use'),
 })
 
-type TaskArgs = z.infer<typeof taskParameters>
+type SubAgentArgs = z.infer<typeof subAgentParameters>
 
-export const taskTool = (parentClient: Client, parentTools: ToolRegistry) =>
+export const subAgentTool = (parentClient: Client, parentTools: ToolRegistry) =>
   defineTool({
-    name: 'task',
+    name: 'sub_agent',
     category: 'plan',
     parallel: false,
-    description: `Launch a new agent to handle complex, multistep tasks autonomously.
+    description: `Delegate a self-contained job to a sub-agent. It works in its own fresh context and returns only its final message, so its searching and reading stay out of yours. Use it for a broad codebase search or a multi-step job you don't need to watch. Don't use it to read a known file or look up a known symbol; call read_file, glob or grep directly.
 
-When using this task tool, you must specify a subagent_type parameter to select which agent type to use.
+Sub-agents run one at a time, can't spawn sub-agents, and can't be resumed, so the prompt must be complete: say exactly what to return, and whether the sub-agent may change code or should only research. The result is not shown to the user; report what matters from it yourself, and treat a result that says it stopped early as incomplete.
 
-When NOT to use the Task tool:
-- If you want to read a specific file path, use the Read or Glob tool instead, to find the match more quickly
-- If you are searching for a specific class definition like "class Foo", use the Grep tool instead, to find the match more quickly
-- If you are searching for code within a specific file or set of 2-3 files, use the Read tool instead of the Task tool, to find the match more quickly
-- If no available agent is a good fit for the task, use other tools directly
-
-
-Usage notes:
-1. Sub-agents run one at a time, in the order you call them — issuing several in one message queues them rather than running them in parallel, so prefer one well-scoped delegation over several speculative ones.
-2. Once you have delegated work to an agent, do not duplicate that work yourself. Continue with non-overlapping tasks.
-3. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.
-4. Every agent invocation starts with a fresh context; sessions cannot be resumed. Your prompt must be a complete, self-contained task description, and should say exactly what information the agent is to return in its final and only message to you.
-5. The agent's outputs should generally be trusted
-6. Clearly tell the agent whether you expect it to write code or just to do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent. Tell it how to verify its work if possible (e.g., relevant test commands).
-7. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
-
-Available agent types and the tools they have access to:
+Agent types and their tools:
 ${describeAgentTypes(parentTools.list().map((t) => t.name))}`,
-    parameters: taskParameters,
+    parameters: subAgentParameters,
     async execute(args, ctx) {
       return runSubAgent(args, ctx, parentClient, parentTools)
     },
   })
 
 async function runSubAgent(
-  args: TaskArgs,
+  args: SubAgentArgs,
   ctx: ToolContext,
   client: Client,
   parentTools: ToolRegistry,
@@ -153,16 +137,16 @@ async function runSubAgent(
 // be matched to the delegation that produced it — otherwise the field would
 // be accepted and silently discarded, which is what made `task_id` misleading.
 function wrapResult(
-  args: TaskArgs,
+  args: SubAgentArgs,
   state: 'completed' | 'error',
   body: string,
 ): string {
-  const tag = state === 'error' ? 'task_error' : 'task_result'
+  const tag = state === 'error' ? 'sub_agent_error' : 'sub_agent_result'
   return [
-    `<task state="${state}" description="${args.description}" agent="${args.subagent_type}">`,
+    `<sub_agent state="${state}" description="${args.description}" agent="${args.subagent_type}">`,
     `<${tag}>`,
     body,
     `</${tag}>`,
-    '</task>',
+    '</sub_agent>',
   ].join('\n')
 }

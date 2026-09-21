@@ -7,7 +7,7 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 `dcode` — a CLI coding agent built on the OpenAI Responses SDK. One-shot
 (`dcode "prompt"`) or REPL (`dcode`). Runs locally via Node's type stripping
 (no build step). Phases P0–P11 and P6 are complete, plus streamed markdown
-rendering, `ask_user`, and sub-agents (the `task` tool). P5 (declarative
+rendering, `ask_user`, and sub-agents (the `sub_agent` tool). P5 (declarative
 permissions) was cancelled and its gate removed — **all tool calls run
 unconditionally, MCP tools included**. P9's scoped `git` tool was removed (it
 added no safety over the ungated `run_shell`); git is reached via `run_shell`.
@@ -82,7 +82,7 @@ ONBOARDING.md §17 says why.
 - **Search.** `grep`/`glob` spawn ripgrep directly (its exit code 1 means "no
   matches"), and `config.ignore` globs must be appended *after* the caller's.
 - **Sub-agents.** `explore` is a read-only **allow-list** on purpose; `general`
-  is a deny-list (`task`). `createLocalTools` throws on a policy name nobody
+  is a deny-list (`sub_agent`). `createLocalTools` throws on a policy name nobody
   registers.
 - **Config.** The file parse is strict (a typo'd key fails), nested defaults are
   derived rather than literal, `verbose` is CLI-only, and `/key` always writes the

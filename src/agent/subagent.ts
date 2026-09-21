@@ -43,12 +43,12 @@ const EXPLORE_TOOLS = [
   'web_fetch',
 ] as const
 
-// The general agent gets everything the parent has except `task` itself:
-// sub-agents don't spawn sub-agents (the depth limit in task.ts enforces that
+// The general agent gets everything the parent has except `sub_agent` itself:
+// sub-agents don't spawn sub-agents (the depth limit in sub-agent.ts enforces that
 // independently). Expressed as a deny-list so it stays literally true as
 // tools come and go, rather than as a copy of the registry that
 // silently rots the first time someone adds a tool and doesn't update it.
-const GENERAL_TOOLS = { deny: ['task'] } as const
+const GENERAL_TOOLS = { deny: ['sub_agent'] } as const
 
 const EXPLORE_PROMPT = `You are a fast, focused code exploration agent. Your job is to investigate the codebase and return precise, actionable findings.
 
@@ -73,9 +73,9 @@ export const AGENT_TYPES: Record<string, AgentType> = {
     description:
       'General-purpose agent for researching complex questions and executing multi-step tasks. Use this when you need to delegate work to a sub-agent.',
     tools: GENERAL_TOOLS,
-    // `task` is denied by GENERAL_TOOLS and rejected again by task.ts's
+    // `sub_agent` is denied by GENERAL_TOOLS and rejected again by sub-agent.ts's
     // MAX_DEPTH even if it weren't, so the base prompt's Sub-agents section
-    // (instructions to delegate via `task`) would be dead — and misleading —
+    // (instructions to delegate via `sub_agent`) would be dead — and misleading —
     // guidance for this role. Omit it rather than let a general sub-agent be
     // told to do something it structurally cannot do.
     buildPrompt: () => buildSystemPrompt({ subagents: false }),
@@ -97,7 +97,7 @@ export function listAgentTypes(): AgentType[] {
   return Object.values(AGENT_TYPES)
 }
 
-// The agent-type names as a non-empty tuple, so the task tool can build a
+// The agent-type names as a non-empty tuple, so the sub_agent tool can build a
 // `z.enum` from them: an unknown subagent_type is then rejected by schema
 // validation with the valid names listed, instead of reaching execute() and
 // coming back as a hand-written error string.
@@ -124,7 +124,7 @@ export function unknownAgentTools(registered: Iterable<string>): string[] {
   return [...missing].sort()
 }
 
-// One-line-per-type summary for the task tool's description, resolved against
+// One-line-per-type summary for the sub_agent tool's description, resolved against
 // the tools the parent actually holds. Generated rather than written by hand
 // beside AGENT_TYPES: a hand-maintained copy is how the tool description came
 // to advertise a `list_directory` tool that doesn't exist, while the filter

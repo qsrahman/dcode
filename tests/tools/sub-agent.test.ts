@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { taskTool } from '../../src/tools/local/task.ts'
+import { subAgentTool } from '../../src/tools/local/sub-agent.ts'
 import type { ToolContext } from '../../src/agent/types.ts'
 import { cfg, fakeClient } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'
@@ -40,7 +40,7 @@ beforeEach(() => {
       execute: async () => 'ok',
     },
     {
-      name: 'task',
+      name: 'sub_agent',
       description: 'spawn',
       parameters: undefined as never,
       execute: async () => 'ok',
@@ -53,13 +53,13 @@ beforeEach(() => {
   }
 })
 
-describe('task tool', () => {
+describe('sub_agent tool', () => {
   it('has correct name', () => {
-    expect(taskTool(client, parentTools).name).toBe('task')
+    expect(subAgentTool(client, parentTools).name).toBe('sub_agent')
   })
 
   it('runs sub-agent with filtered tools for explore type', async () => {
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     const result = await tool.execute(
       {
         description: 'find files',
@@ -70,7 +70,7 @@ describe('task tool', () => {
     )
 
     expect(result).toMatch(
-      /^<task state="completed" description="[^"]*" agent="[^"]*">/m,
+      /^<sub_agent state="completed" description="[^"]*" agent="[^"]*">/m,
     )
     expect(result).toContain('sub-agent result text')
 
@@ -82,11 +82,11 @@ describe('task tool', () => {
     expect(childNames).toContain('read_file')
     expect(childNames).toContain('grep')
     expect(childNames).not.toContain('write_file')
-    expect(childNames).not.toContain('task')
+    expect(childNames).not.toContain('sub_agent')
   })
 
   it('runs sub-agent with full tools for general type', async () => {
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     await tool.execute(
       {
         description: 'refactor code',
@@ -103,7 +103,7 @@ describe('task tool', () => {
     expect(childNames).toContain('read_file')
     expect(childNames).toContain('write_file')
     expect(childNames).toContain('grep')
-    expect(childNames).not.toContain('task')
+    expect(childNames).not.toContain('sub_agent')
   })
 
   // The point of expressing general's tool set as a deny-list rather than a
@@ -117,7 +117,7 @@ describe('task tool', () => {
       parameters: undefined as never,
       execute: async () => 'ok',
     })
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     await tool.execute(
       { description: 'x', prompt: 'y', subagent_type: 'general' },
       ctx,
@@ -135,7 +135,7 @@ describe('task tool', () => {
       parameters: undefined as never,
       execute: async () => 'ok',
     })
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     await tool.execute(
       { description: 'x', prompt: 'y', subagent_type: 'explore' },
       ctx,
@@ -147,7 +147,7 @@ describe('task tool', () => {
   })
 
   it('returns error for unknown agent type', async () => {
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     const result = await tool.execute(
       {
         description: 'do stuff',
@@ -158,14 +158,14 @@ describe('task tool', () => {
     )
 
     expect(result).toMatch(
-      /^<task state="error" description="[^"]*" agent="[^"]*">/m,
+      /^<sub_agent state="error" description="[^"]*" agent="[^"]*">/m,
     )
     expect(result).toContain('unknown agent type')
     expect(mockedRunAgent).not.toHaveBeenCalled()
   })
 
   it('returns error at depth limit', async () => {
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     const deepCtx: ToolContext = { ...ctx, depth: 1 }
     const result = await tool.execute(
       {
@@ -177,13 +177,13 @@ describe('task tool', () => {
     )
 
     expect(result).toMatch(
-      /^<task state="error" description="[^"]*" agent="[^"]*">/m,
+      /^<sub_agent state="error" description="[^"]*" agent="[^"]*">/m,
     )
     expect(result).toContain('nesting limit reached')
     expect(mockedRunAgent).not.toHaveBeenCalled()
   })
 
-  // Sub-agent sessions can't be resumed (unlike the REPL — see task.ts's
+  // Sub-agent sessions can't be resumed (unlike the REPL — see sub-agent.ts's
   // module comment), so a sub-agent that hit its own maxToolIterations must
   // tell the parent the result is incomplete rather than returning it as if
   // it were a normal, trustworthy completion.
@@ -192,7 +192,7 @@ describe('task tool', () => {
       text: 'partial findings',
       truncated: true,
     })
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     const result = await tool.execute(
       {
         description: 'explore',
@@ -203,7 +203,7 @@ describe('task tool', () => {
     )
 
     expect(result).toMatch(
-      /^<task state="completed" description="[^"]*" agent="[^"]*">/m,
+      /^<sub_agent state="completed" description="[^"]*" agent="[^"]*">/m,
     )
     expect(result).toContain('partial findings')
     expect(result).toContain('stopped after')
@@ -212,7 +212,7 @@ describe('task tool', () => {
 
   it('wraps errors from runAgent', async () => {
     mockedRunAgent.mockRejectedValue(new Error('LLM timeout'))
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     const result = await tool.execute(
       {
         description: 'fail',
@@ -223,13 +223,13 @@ describe('task tool', () => {
     )
 
     expect(result).toMatch(
-      /^<task state="error" description="[^"]*" agent="[^"]*">/m,
+      /^<sub_agent state="error" description="[^"]*" agent="[^"]*">/m,
     )
     expect(result).toContain('LLM timeout')
   })
 
   it('passes depth+1 to child agent', async () => {
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     await tool.execute(
       {
         description: 'deep',
@@ -244,7 +244,7 @@ describe('task tool', () => {
   })
 
   it('passes custom instructions from agent type', async () => {
-    const tool = taskTool(client, parentTools)
+    const tool = subAgentTool(client, parentTools)
     await tool.execute(
       {
         description: 'explore',
@@ -265,10 +265,10 @@ describe('task tool', () => {
     const res = await runTool(
       {
         id: 'c',
-        name: 'task',
+        name: 'sub_agent',
         arguments: JSON.stringify({ description: 'x' }),
       },
-      taskTool(client, parentTools),
+      subAgentTool(client, parentTools),
       ctx,
     )
     expect(res.ok).toBe(false)

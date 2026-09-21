@@ -12,7 +12,7 @@ build step (Node 26 runs TypeScript directly).
 > architecture**. Every tool, including mutating ones (`write_file`, `edit_file`,
 > `run_shell`), runs **automatically** the moment the
 > model calls it — there is no confirmation prompt, allow-list, sandbox, or
-> dry-run mode. Sub-agents launched with `task` run the same ungated tools.
+> dry-run mode. Sub-agents launched with `sub_agent` run the same ungated tools.
 > The model can edit files and execute arbitrary shell commands in
 > the working directory entirely on its own initiative. **Use with caution:**
 > point dcode only at sandboxed or disposable directories, and review its
@@ -134,10 +134,10 @@ built yet.)
 | `web_fetch` | Fetch a URL and return its content (`format`: `markdown` default → HTML to Markdown + pretty JSON, or `text`/`html` unconverted); no API key required. |
 | `todowrite` | Replace the in-session todo list (the model sends the whole list each call) to plan and track multi-step work. |
 | `ask_user` | Ask the user a multiple-choice or free-text question mid-run (interactive terminals only). |
-| `task` | Delegate self-contained work to a sub-agent (`general` or `explore`) with its own context. |
+| `sub_agent` | Delegate self-contained work to a sub-agent (`general` or `explore`) with its own context. |
 | `run_process` | Spawn a background process and return a handle. |
 | `read_process` | Tail a background process's output and exit status. |
-| `kill_process` | Stop a background process by handle. |
+| `kill_process` | Stop a background process by handle (`SIGTERM` by default; `SIGINT`, `SIGHUP`, `SIGKILL` selectable). |
 
 `web_search` needs a Brave Search API key in the `BRAVE_API_KEY` environment
 variable (or `/key set brave <key>`); without it the tool returns an error
@@ -173,10 +173,10 @@ optional free-text answer). It needs an interactive terminal: with piped or
 redirected stdin it returns immediately, telling the model to proceed on its
 own judgement, rather than blocking on a keypress that will never come.
 
-The `task` tool runs a **sub-agent** — a nested agent loop with its own
+The `sub_agent` tool runs a **sub-agent** — a nested agent loop with its own
 history, its own todo list, and only the tools its agent type allows:
 `explore` is read-only (search, read, web), `general` gets everything except
-`task` itself. Sub-agents can't spawn sub-agents, they run one at a time
+`sub_agent` itself. Sub-agents can't spawn sub-agents, they run one at a time
 rather than in parallel, their output isn't streamed to the terminal (only the
 final result returns to the parent), and each call starts from a fresh
 context — there is no way to resume one.
@@ -209,7 +209,7 @@ the window; leave it on (the default) otherwise.
 
 dcode connects to any MCP (Model Context Protocol) servers named under
 `mcpServers` in `dcode.json` and exposes their tools to the agent alongside
-its own built-in ones — the loop, `task`'s sub-agent filtering, and `/tools`
+its own built-in ones — the loop, `sub_agent`'s tool filtering, and `/tools`
 all treat an MCP-sourced tool identically to a built-in. Two transports:
 
 ```json

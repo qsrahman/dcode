@@ -12,17 +12,17 @@ import {
 import { webSearchTool, webFetchTool } from './local/web.ts'
 import { todoTool } from './local/todo.ts'
 import { askUserTool } from './local/question.ts'
-import { taskTool } from './local/task.ts'
+import { subAgentTool } from './local/sub-agent.ts'
 import { unknownAgentTools } from '../agent/subagent.ts'
 import type { ToolDefinition } from '../agent/types.ts'
 
 // Central registry builder: the single place that assembles all built-in
 // tools (filesystem, search, shell/process, web, todo list, ask_user, and the
-// task sub-agent) into the ToolRegistry, plus whatever MCP tools the caller
+// sub_agent tool) into the ToolRegistry, plus whatever MCP tools the caller
 // already connected (tools/mcp/manager.ts's connectMcpServers — connecting is
 // async and per-server fallible, so it happens before this call, not inside
 // it; this stays a synchronous, always-succeeds assembly step). `todowrite`
-// closes over the per-session TaskStore and `task` over the parent's Client
+// closes over the per-session TaskStore and `sub_agent` over the parent's Client
 // and the registry itself (to filter tools for child agents), so all three
 // are passed in.
 export function createLocalTools(
@@ -46,13 +46,13 @@ export function createLocalTools(
     askUserTool(),
     ...mcpTools,
   ])
-  // The task tool captures the registry by reference, so by the time it's
+  // The sub_agent tool captures the registry by reference, so by the time it's
   // called the registry is fully populated — no chicken-and-egg problem for
   // *execution*. Registered last so its own *description* (generated from
   // the resolved tool sets, see describeAgentTypes) also reflects MCP tools
   // — registering it before they're added would freeze a description that's
   // already stale the moment a server is configured.
-  registry.register(taskTool(client, registry))
+  registry.register(subAgentTool(client, registry))
   // Fail loudly on an agent-type allow-list that names a tool nobody
   // registers: the filter would otherwise just drop it, leaving sub-agents
   // quietly less capable than their own description claims. This can only

@@ -94,14 +94,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain("don't narrate between tool calls")
   })
 
-  // A general sub-agent has `task` denied by policy and rejected again by
-  // task.ts's MAX_DEPTH — see subagent.ts's own buildPrompt comment — so
+  // A general sub-agent has `sub_agent` denied by policy and rejected again by
+  // sub-agent.ts's MAX_DEPTH — see subagent.ts's own buildPrompt comment — so
   // instructions telling it to delegate to a sub-agent of its own would be
   // dead, misleading guidance for that role specifically.
   it('omits the Sub-agents section when subagents: false', () => {
     const noSubagents = buildSystemPrompt({ subagents: false, root: tmpRoot() })
     expect(noSubagents).not.toContain('## Sub-agents')
-    expect(noSubagents).not.toContain('Use the task tool to delegate')
+    expect(noSubagents).not.toContain('Use the sub_agent tool to delegate')
     // The rest of the prompt is unaffected.
     expect(noSubagents).toContain('## Tool use')
     expect(noSubagents).toContain('## Style')

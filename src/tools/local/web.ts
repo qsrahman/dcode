@@ -35,7 +35,7 @@ export const webSearchTool = () =>
     name: 'web_search',
     category: 'web',
     description:
-      'Search the web for a query and return the top results (title, URL, snippet). Use for current information, library or API docs, or anything not found in the working directory.',
+      'Search the web for a query and return the top results (title, URL, snippet); snippets only, so use web_fetch to read a result. Use for current information, library or API docs, or anything not found in the working directory. Needs a Brave Search API key; without one the call fails.',
     parameters: z.object({
       query: z.string().describe('Search query'),
       count: z
@@ -111,7 +111,7 @@ export const webFetchTool = () =>
     name: 'web_fetch',
     category: 'web',
     description:
-      "Fetch a URL and return its content. With format=markdown (default) HTML pages are converted to Markdown and JSON is pretty-printed; format=text or format=html return the body unconverted. Binary payloads are described, not dumped. Use to read a specific page, doc, or API response when you already know the URL; use web_search to discover URLs you don't know yet.",
+      "Fetch a URL and return its content. With format=markdown (default) HTML pages are converted to Markdown and JSON is pretty-printed; format=text or format=html return the body unconverted. Binary payloads are described, not dumped. Use to read a specific page, doc, or API response when you already know the URL; use web_search to discover URLs you don't know yet. Pages are not rendered (no JavaScript), a non-2xx response is an error, and the result is cut at the output cap (about 32 KiB) with no way to page further, so prefer a specific page over a large index.",
     parameters: z.object({
       // httpUrl() validates both "is this a parseable URL" and
       // "is the scheme http(s)" in one check, so runTool's own

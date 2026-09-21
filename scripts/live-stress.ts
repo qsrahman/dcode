@@ -17,7 +17,7 @@ import { stripVTControlCharacters } from 'node:util'
 // `pnpm stress`. Exercises tool iteration, truncation, context compaction
 // (proactive + todo-aware), mutating writes, background processes,
 // ripgrep-backed grep/glob, web search/fetch, the todowrite list, sub-agents
-// (the task tool), project-instructions loading (AGENTS.md in the system
+// (the sub_agent tool), project-instructions loading (AGENTS.md in the system
 // prompt), MCP servers configured in the global config (connected the
 // same way index.ts/repl.ts do — best-effort, a bad/unreachable server just
 // shows as 'failed' rather than failing the whole run), and concurrent runs
@@ -139,12 +139,12 @@ const scenarios: Scenario[] = [
     // a softer phrasing gets answered with a direct grep/glob instead and the
     // sub-agent path never runs.
     prompt:
-      'Delegate this to a sub-agent — you must call the task tool with subagent_type "explore", and you must not call grep, glob, or read_file yourself. Ask the sub-agent to find every file under src/tools/local that defines a ToolDefinition. Report the list it returns.',
+      'Delegate this to a sub-agent — you must call the sub_agent tool with subagent_type "explore", and you must not call grep, glob, or read_file yourself. Ask the sub-agent to find every file under src/tools/local that defines a ToolDefinition. Report the list it returns.',
     check: (f) => {
-      requireTool(f, 'task')
+      requireTool(f, 'sub_agent')
       // Sub-agent output goes to a silent sink; only the parent's own single
-      // `task` status line may appear for it.
-      if (/task_result|task_error/.test(f.out)) {
+      // `sub_agent` status line may appear for it.
+      if (/sub_agent_result|sub_agent_error/.test(f.out)) {
         throw new Error('sub-agent transcript leaked into the parent sink')
       }
     },

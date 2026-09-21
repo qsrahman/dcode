@@ -6,53 +6,35 @@ const todoSchema = z.object({
   content: z.string().describe('Brief description of the task'),
   status: z
     .enum(['pending', 'in_progress', 'completed', 'cancelled'])
-    .describe('Current status: pending, in_progress, completed, or cancelled'),
+    .describe('Current status'),
   priority: z
     .enum(['high', 'medium', 'low'])
-    .describe('Priority level: high, medium, or low'),
+    .optional()
+    .describe('Priority (default medium)'),
 })
 
 export const todoTool = (store: TaskStore) =>
   defineTool({
     name: 'todowrite',
     category: 'plan',
-    description: `Create and maintain a structured task list for the current coding session. Tracks progress, organizes multi-step work, and surfaces status to the user.
+    description: `Create and update the session's task list to plan and track multi-step work; the user sees it. Send the whole list on every call.
 
-## When to use
-Use proactively when:
-- The task requires 3+ distinct steps or actions (not just 3 tool calls for a single conceptual step)
-- The work is non-trivial and benefits from planning
-- The user provides multiple tasks (numbered or comma-separated) or explicitly asks for a todo list
-- New instructions arrive - capture them as todos
-- You start a task - mark it \`in_progress\` (only one at a time) before working
-- You finish a task - mark it \`completed\` and add any follow-ups discovered during the work
+Use it for work with 3 or more distinct steps, for several requests at once, or when asked. Skip it for a single simple step or a purely informational request.
 
-## When NOT to use
-Skip when:
-- The work is a single, straightforward task (or <3 trivial steps)
-- The request is purely informational or conversational
-- Tracking adds no organizational value
-
-## States
-- \`pending\` - not started
-- \`in_progress\` - actively working (exactly ONE at a time)
-- \`completed\` - finished successfully
-- \`cancelled\` - no longer needed
-
-## Rules
-- Update status in real time; don't batch completions
-- Mark \`completed\` only after the required work is actually done, including any required verification. Never based on intent.
-- Keep exactly one \`in_progress\` while work remains
-- If blocked or partial, keep it \`in_progress\` and add a follow-up todo describing the blocker
-- Preserve user-provided commands verbatim (flags, args, order)
-- Items should be specific and actionable; break large work into smaller steps`,
+Statuses: pending, in_progress (exactly one at a time while work remains), completed, cancelled. Mark a task in_progress before starting it and completed only once it is done and verified; update as you go rather than in a batch. If blocked, keep the task in_progress and add one for the blocker. Keep tasks specific and actionable, and keep commands the user gave you verbatim.`,
     parameters: z.object({
       todos: z
         .array(todoSchema)
-        .describe('The updated todo list (send the full list each time)'),
+        .describe('The full updated list; it replaces the previous one'),
     }),
     async execute({ todos }) {
-      store.replace(todos)
-      return JSON.stringify(todos, null, 2)
+      // The store and its readers (/tasks, compaction) want every field, but
+      // making the model invent a priority per item bought nothing.
+      const full = todos.map((t) => ({
+        ...t,
+        priority: t.priority ?? 'medium',
+      }))
+      store.replace(full)
+      return JSON.stringify(full, null, 2)
     },
   })

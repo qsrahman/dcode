@@ -128,7 +128,7 @@ export const runShellTool = () =>
     // keeps its end as well as its start.
     keep: 'ends',
     description:
-      'Run a shell command in the working directory and return its combined stdout/stderr; a non-zero exit is reported as an error. The command has no stdin (it sees EOF) and is killed at the timeout, so start servers, watchers, and anything long-running with run_process instead. Also use this for file operations such as mv, cp, rm, mkdir, and for git.',
+      'Run a shell command in the working directory and return its combined stdout/stderr; a non-zero exit is reported as an error. The command has no stdin (it sees EOF) and is killed at the timeout, so start servers, watchers, and anything long-running with run_process instead. Output over the size cap keeps its start and end. Changes take effect immediately, so check before repeating a command that may already have run. Use it for file operations such as mv, cp, rm, mkdir, and for git.',
     parameters: z.object({
       command: z.string().describe('Shell command to execute'),
       timeout: z
@@ -137,7 +137,7 @@ export const runShellTool = () =>
         .min(1)
         .optional()
         .describe(
-          'Timeout for this command in ms, capped by the session tool timeout; defaults to it',
+          'Timeout for this command in ms; the default and the maximum are the session tool timeout (120000 unless configured)',
         ),
     }),
     async execute(args, ctx) {

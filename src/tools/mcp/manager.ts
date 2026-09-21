@@ -15,7 +15,7 @@ import { safeEnv } from '../local/exec.ts'
 // Connects to every configured MCP server (decision I, PLAN.md §6: spawn/
 // connect at startup, session-lived, close on exit/SIGINT) and exposes each
 // server's tools as ordinary ToolDefinitions that slot into the same
-// ToolRegistry as dcode's built-in tools — the agent loop, task tool, and
+// ToolRegistry as dcode's built-in tools — the agent loop, sub_agent tool, and
 // sub-agent filtering all treat them identically; nothing downstream needs to
 // know a tool came from MCP rather than tools/local/.
 

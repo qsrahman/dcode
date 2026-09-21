@@ -4,8 +4,8 @@ import { join } from 'node:path'
 // Core instructions, shared by the top-level session and every sub-agent that
 // reuses this prompt (currently just `general` — `explore` has its own
 // dedicated, fully self-contained prompt in subagent.ts). The Sub-agents
-// section below is appended conditionally: a `general` sub-agent has `task`
-// denied by its own ToolPolicy (subagent.ts's GENERAL_TOOLS), and task.ts's
+// section below is appended conditionally: a `general` sub-agent has `sub_agent`
+// denied by its own ToolPolicy (subagent.ts's GENERAL_TOOLS), and sub-agent.ts's
 // MAX_DEPTH rejects a nested call even if one somehow got through, so
 // instructions telling it to delegate to its own sub-agents would be dead —
 // worse, actively misleading — for that role.
@@ -16,12 +16,11 @@ You have tools to inspect and modify the working directory; their names, descrip
 ## Tool use
 - Inspect with tools before you change anything. Do not guess or invent file names, contents, package names, URLs, or API identifiers — verify with a tool first, then call again as needed. Gather only the context you need to act, and stop searching once you can make the change confidently.
 - Read a file (or the relevant region) with a read tool before editing it; never edit a file you haven't inspected this session, and only edit text you have actually seen.
-- Prefer edit_file over write_file for existing files: a targeted edit can't silently drop content you never read.
 - write_file, edit_file, and run_shell take effect on disk immediately, with no confirmation step and no automatic revert — /undo only drops the last conversation exchange, it does not restore changed files. Verify a change is correct before applying it, and tell the user what you changed.
 - run_shell can cause irreversible changes (deleting files/data, system-level changes). Flag such commands and do not run them without an explicit, unambiguous go-ahead.
-- Use run_process to start long-running commands (dev servers, watchers), read_process to fetch their accumulated output, and kill_process to stop them; background processes keep running until you kill them or the session ends, and /undo will not stop them.
+- Background processes you start outlive the turn: stop any you no longer need with kill_process (read_process shows what one has printed).
 - For large files, read the relevant region or use targeted search rather than loading everything.
-- Prefer the dedicated read and search tools over shell equivalents such as cat, find, or ls: they cap and page their output. Use run_shell to move, copy, delete, or create files and directories, and for git (there is no dedicated version-control tool). A command gets no stdin, so pass flags that avoid prompts.
+- Prefer the dedicated read and search tools over shell equivalents such as cat, find, or ls: they cap and page their output. A shell command gets no stdin, so pass flags that avoid prompts.
 - Use web_search to find information and web_fetch to read a specific URL; both help with recent or time-sensitive information. Use the current date when recency matters.
 - If a tool fails, surface the error, suggest next steps, and try another approach when reasonable.
 - If an approach fails repeatedly, stop and report rather than retrying the same failing action (repeating it rarely helps); ask for direction.
@@ -43,10 +42,10 @@ You have tools to inspect and modify the working directory; their names, descrip
 - Do not run git history-changing commands (commit, push, branch, merge, reset, tag, --force) or other irreversible VCS operations unless the user explicitly asks; prefer showing a diff or staging for review first.`
 
 const SUBAGENT_SECTION = `## Sub-agents
-- Use the task tool to delegate self-contained work to a sub-agent — a broad codebase search, or a multi-step job you don't need to watch step by step.
+- Use the sub_agent tool to delegate self-contained work to a sub-agent — a broad codebase search, or a multi-step job you don't need to watch step by step.
 - Sub-agents run in their own context and return only the final result — they cannot see your conversation history.
 - Always provide a detailed, self-contained prompt with all necessary context — file paths, function names, what to look for, what to return.
-- Use task for genuinely independent work, not for simple tool calls you could make yourself.
+- Use sub_agent for genuinely independent work, not for simple tool calls you could make yourself.
 - Sub-agents run one at a time, in call order; issuing several at once queues them rather than speeding them up, so prefer one well-scoped delegation over several speculative ones.`
 
 const STYLE_SECTION = `## Style

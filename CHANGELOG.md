@@ -47,6 +47,49 @@
   per the load-bearing `-g` ordering in `search.ts`).
 
 ### Changed
+- The `task` tool is renamed `sub_agent`. `task` sat next to `todowrite`, whose
+  description talks about a "task list", so the model could reach for the wrong
+  one. The file and export follow (`tools/local/sub-agent.ts`, `subAgentTool`),
+  the system prompt's Sub-agents section and `general`'s deny-list use the new
+  name, and the result wrapper the model sees is now `<sub_agent state=…>` with
+  `<sub_agent_result>`/`<sub_agent_error>` instead of `<task …>`/`<task_result>`.
+  The todo list keeps its "task" vocabulary (`TaskStore`, `/tasks`).
+- `sub_agent`, `todowrite` and `ask_user` descriptions trimmed: `sub_agent`
+  2,586 → 1,251 characters (including the agent-type list it appends),
+  `todowrite` 1,506 → 670, `ask_user` 656 → 508; all tool definitions together
+  16.9 KB → 14.5 KB. They had been copied from tools tuned for other models:
+  numbered "this allows you to" lists, restated enum values, and usage notes
+  seven items long. What stays is when to use it, what the result is, the
+  constraints, and the failure mode (`ask_user` without a terminal; a
+  `sub_agent` that stopped early). Parameter docs no longer repeat the enums.
+- Tool descriptions and parameter docs reviewed against OpenAI's function-calling
+  and GPT-5.x prompting guidance (tool-specific guidance belongs in the tool
+  description: what it does, side effects, retry safety, error modes):
+  - `task` told the model to use "the Read or Glob tool" and "the Grep tool" —
+    claude code's names, copied from opencode — which dcode doesn't have; it now
+    names `read_file`, `glob`, `grep`. A test rejects those names in any
+    built-in description.
+  - Descriptions now state caps and skips (`grep`'s 200-match cap, binary and
+    over-5-MiB skips, ignore list, output format; `glob`'s 200-path cap;
+    `read_file`'s binary/8 MiB/long-line behavior; `web_fetch`'s 32 KiB cut with
+    no paging; `web_search`'s Brave key requirement), side effects and retry
+    safety (`write_file` doesn't back up; `edit_file` fails unchanged on a bad
+    match and can't be repeated after success; `run_shell` may already have run;
+    `run_process` starts a new process each call; `read_process` and
+    `kill_process` are safe to repeat), and defaults (`read_file` offset/limit,
+    `glob` limit, `run_shell` timeout). Implementation trivia (ripgrep,
+    backtracking) is gone. The read-only tools say they can run in parallel.
+  - `kill_process.signal` is an enum (`SIGTERM`, `SIGINT`, `SIGHUP`, `SIGKILL`)
+    instead of a regex-checked string; numeric signals and the helper that
+    converted them are removed.
+  - `glob.pattern` is a single string (braces cover alternatives:
+    `*.{ts,js}`); the array form is gone.
+  - `todowrite`'s `priority` is optional and defaults to `medium`, so the model
+    no longer invents one per item.
+  - System prompt: dropped the per-tool bullets the descriptions now carry
+    (edit vs write, the run/read/kill_process workflow, run_shell's file
+    operations); kept the cross-tool policy (prefer dedicated read/search tools,
+    stop background processes you no longer need).
 - Tool set aligned with claude code and opencode, whose tool behavior was
   compared against dcode's (neither has dedicated move/copy/delete/mkdir/stat
   tools; opencode's `read` lists directories):

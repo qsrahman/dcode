@@ -100,7 +100,7 @@ src/
     process.ts        #   run_process, read_process, kill_process — background, via execa (killDescendants: true)
     todo.ts           #   todowrite (single tool over TaskStore: the model sends the full list each call)
     question.ts       #   ask_user (@clack/prompts; refuses when stdin isn't a TTY)
-    task.ts           #   task (sub-agent: filtered tool registry + own TaskStore, depth-limited to 1)
+    sub-agent.ts      #   sub_agent (sub-agent: filtered tool registry + own TaskStore, depth-limited to 1)
     web.ts            #   web_search (Brave; key from ctx.config.braveApiKey only), web_fetch
   tools/mcp/manager.ts  # connectMcpServers: connect enabled servers (local/remote), wrap their tools as ToolDefinitions, close() on exit/SIGINT (P6, §11)
   ui/markdown.ts         # renderMarkdown, MarkdownStreamRenderer (marked + marked-terminal) — see §5's "Markdown rendering" note
@@ -235,7 +235,7 @@ ordering question — see its §10 entry) so do it after the others, not first.
 §11 has one compact entry per phase — what shipped and the one or two
 decisions worth remembering. Landed outside the numbered phases (no new
 locked decisions): streamed markdown rendering, the compact per-query tool
-summary, `ask_user`, sub-agents (`task`), global API-key storage (`/key`),
+summary, `ask_user`, sub-agents (`sub_agent`), global API-key storage (`/key`),
 REPL tab-completion, `/save`/`/limit`, and dropping `.env`/repo-local config
 discovery in favor of the global config file only — see §11.
 
@@ -634,7 +634,7 @@ opt-in per server) in parallel at startup, over stdio (`type: "local"`) or
 streamable HTTP (`type: "remote"`, static headers only, no OAuth), using the
 official `@modelcontextprotocol/sdk` client. Each server's tools become
 ordinary `ToolDefinition`s named `mcp__<server>__<tool>`, indistinguishable
-to the loop, `task` sub-agent filtering, and `/tools`/`/mcp` from built-ins.
+to the loop, `sub_agent` sub-agent filtering, and `/tools`/`/mcp` from built-ins.
 A `headers`/`env` value that is exactly `${VAR_NAME}` expands from
 `process.env` at connect time, so a server's secret never has to sit in
 `dcode.json`. A server that fails to connect, or is disabled, is recorded in
@@ -648,7 +648,7 @@ handling, and a documentation pass. No new locked decisions.
 **P8 — In-session task list.** A single `todowrite` tool (the model resends
 the whole list each call, so its view and dcode's can't drift field-by-field)
 backed by `agent/types.ts`'s `TaskStore`. Sub-agent orchestration was
-explicitly deferred here and shipped later as part of the task tool (see
+explicitly deferred here and shipped later as part of the sub_agent tool (see
 "landed outside phases" in §8) — when it landed, the sub-agent's own
 `TaskStore` conventions (per-agent, not shared) trace back to this phase's
 groundwork.
@@ -702,9 +702,9 @@ new locked decisions):
 - **`ask_user`** (`tools/local/question.ts`) — interactive questions via
   `@clack/prompts`; refuses immediately (rather than hanging) when stdin
   isn't a TTY.
-- **Sub-agents** (`agent/subagent.ts` + `tools/local/task.ts`) — the `task`
+- **Sub-agents** (`agent/subagent.ts` + `tools/local/sub-agent.ts`) — the `sub_agent`
   tool runs a nested `runAgent` with a filtered tool registry (`explore`
-  read-only via an allow-list, `general` everything-but-`task` via a
+  read-only via an allow-list, `general` everything-but-`sub_agent` via a
   deny-list so it can't silently go stale as tools are added), its own
   `TaskStore`, a silent sink, and a nesting depth limit of 1. See
   ONBOARDING.md's Sub-agents section.

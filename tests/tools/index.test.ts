@@ -39,12 +39,24 @@ describe('createLocalTools', () => {
         'web_fetch',
         'todowrite',
         'ask_user',
-        'task',
+        'sub_agent',
       ].sort(),
     )
     // No accidental name collision silently overwriting an earlier
     // registration (ToolRegistry.register keys by name in a Map).
     expect(new Set(names).size).toBe(names.length)
+  })
+
+  // Descriptions were once copied from claude code / opencode and told the
+  // model to use "the Read or Glob tool" and "the Grep tool" — tools dcode
+  // doesn't have (its own are read_file, glob, grep).
+  it("descriptions never name another agent's tools", () => {
+    const registry = createLocalTools(new TaskStore(), mockClient)
+    for (const t of registry.list()) {
+      expect(t.description, t.name).not.toMatch(
+        /\b(Read|Glob|Grep|Task|Bash|Edit|Write) tool\b/,
+      )
+    }
   })
 
   // The terminal groups tools by this field; a built-in without one would land
@@ -107,16 +119,16 @@ describe('createLocalTools with MCP tools', () => {
     expect(registry.list()).toHaveLength(builtIns + 1)
   })
 
-  it("includes MCP tools in the task tool's own description", () => {
+  it("includes MCP tools in the sub_agent tool's own description", () => {
     const registry = createLocalTools(new TaskStore(), mockClient, [
       fakeMcpTool('mcp__srv__search'),
     ])
-    // The task tool is registered last specifically so its generated
+    // The sub_agent tool is registered last specifically so its generated
     // description (describeAgentTypes) reflects tools registered before it —
-    // MCP tools included. general's tool set is a deny-list of just ['task'],
+    // MCP tools included. general's tool set is a deny-list of just ['sub_agent'],
     // so a newly connected MCP tool reaches it (and so this description)
     // automatically, the same way any other newly-registered tool does.
-    expect(registry.get('task')!.description).toContain('mcp__srv__search')
+    expect(registry.get('sub_agent')!.description).toContain('mcp__srv__search')
   })
 
   it('defaults to no MCP tools when none are given', () => {

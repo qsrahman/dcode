@@ -9,7 +9,7 @@ export interface ToolContext {
   // Aborted when the user cancels the turn (Ctrl-C). Tools that spawn processes
   // forward it so the child is killed; runTool also races against it.
   signal?: AbortSignal
-  // Nesting depth: 0 = parent agent, 1 = sub-agent, etc. Used by the task
+  // Nesting depth: 0 = parent agent, 1 = sub-agent, etc. Used by the sub_agent
   // tool to enforce the depth limit (sub-agents cannot spawn sub-agents).
   depth?: number
 }

@@ -87,7 +87,7 @@ export function createClient(config: Config): Client {
   // apiKey, baseURL and maxRetries are fixed into an SDK instance when it is
   // constructed, but `config` is shared and mutable: `/key` changes the key
   // mid-session. Rebuild the instance when those change, so every holder of this
-  // Client (the REPL, and sub-agents via the `task` tool, which captured it at
+  // Client (the REPL, and sub-agents via the `sub_agent` tool, which captured it at
   // startup) sees the change without being handed a new Client. Everything else
   // (model, token limits, ...) is read from `config` per request below.
   let sdk: OpenAI | undefined

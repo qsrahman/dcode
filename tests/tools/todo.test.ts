@@ -23,6 +23,17 @@ afterEach(async () => {
 })
 
 describe('todowrite tool', () => {
+  it('defaults a missing priority to medium', async () => {
+    const out = await todoTool(store).execute(
+      { todos: [{ content: 'x', status: 'pending' }] },
+      ctx,
+    )
+    expect(JSON.parse(out)).toEqual([
+      { content: 'x', status: 'pending', priority: 'medium' },
+    ])
+    expect(store.list()[0]?.priority).toBe('medium')
+  })
+
   it('replaces the full todo list', async () => {
     const todos = [
       {
