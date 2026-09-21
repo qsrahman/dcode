@@ -485,13 +485,16 @@ describe('REPL commands /save and /limit', () => {
     expect(out.join('')).toContain('usage: /limit')
   })
 
-  it('/model rebuilds the client so the new model takes effect', async () => {
+  // The client reads the model from the shared config on every request, so
+  // switching needs no new Client. tests/cli/client-refresh.test.ts checks the
+  // model actually reaches a request, including from a sub-agent.
+  it('/model sets the model on the shared config and keeps the same client', async () => {
     const s = await makeSession()
     const before = s.client
     const { sink } = makeSink()
     await handleLine(s, '/model gpt-4o', { sink })
     expect(s.config.model).toBe('gpt-4o')
-    expect(s.client).not.toBe(before)
+    expect(s.client).toBe(before)
   })
 
   it('/save writes a JSON transcript and refuses to overwrite', async () => {

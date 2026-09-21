@@ -11,6 +11,11 @@ const streamCalls: CapturedCall[] = []
 // per test so each test controls exactly what the async iterator yields.
 let nextEvents: { type: string; delta?: string; item?: unknown }[] = []
 let finalResponseValue: unknown = {}
+const constructed: {
+  apiKey?: string
+  baseURL?: string
+  maxRetries?: number
+}[] = []
 let nextStreamError: Error | undefined
 let nextFinalError: Error | undefined
 
@@ -20,6 +25,13 @@ let nextFinalError: Error | undefined
 // finalResponse) without any network call.
 vi.mock('openai', () => {
   class FakeOpenAI {
+    constructor(opts: {
+      apiKey?: string
+      baseURL?: string
+      maxRetries?: number
+    }) {
+      constructed.push(opts)
+    }
     responses = {
       stream: (
         params: Record<string, unknown>,
@@ -48,6 +60,7 @@ const { createClient } = await import('../../src/agent/client.ts')
 describe('createClient', () => {
   beforeEach(() => {
     streamCalls.length = 0
+    constructed.length = 0
     nextEvents = []
     finalResponseValue = {}
     nextStreamError = undefined
@@ -60,6 +73,48 @@ describe('createClient', () => {
   ) {
     return createClient(config).stream([{ role: 'user', content: 'hi' }], opts)
   }
+
+  // `/key` mutates the shared config mid-session; the SDK instance fixes these
+  // in at construction, so the client has to notice and rebuild it.
+  describe('SDK instance follows the shared config', () => {
+    it('constructs once and reuses the instance while settings are unchanged', () => {
+      const client = createClient(cfg({ apiKey: 'a' }))
+      client.stream([{ role: 'user', content: 'hi' }])
+      client.stream([{ role: 'user', content: 'hi' }])
+      expect(constructed).toHaveLength(1)
+    })
+
+    it('constructs eagerly, so a missing key fails at startup not first prompt', () => {
+      createClient(cfg({ apiKey: 'a' }))
+      expect(constructed).toHaveLength(1)
+    })
+
+    it.each([
+      ['apiKey', { apiKey: 'b' }],
+      ['baseURL', { baseURL: 'http://localhost:11434/v1' }],
+      ['maxRetries', { maxRetries: 7 }],
+    ])(
+      'rebuilds the instance when %s changes on the config',
+      (_name, change) => {
+        const config = cfg({ apiKey: 'a' })
+        const client = createClient(config)
+        client.stream([{ role: 'user', content: 'hi' }])
+        Object.assign(config, change)
+        client.stream([{ role: 'user', content: 'hi' }])
+        expect(constructed).toHaveLength(2)
+        expect(constructed[1]).toMatchObject(change)
+      },
+    )
+
+    it('a Client created earlier sees a key removed and re-added', () => {
+      const config = cfg({ apiKey: 'a' })
+      const client = createClient(config)
+      delete config.apiKey
+      config.apiKey = 'c'
+      client.stream([{ role: 'user', content: 'hi' }])
+      expect(constructed.at(-1)?.apiKey).toBe('c')
+    })
+  })
 
   describe('reasoning and verbosity params', () => {
     it('omits both by default so endpoints that reject them are unaffected', () => {

@@ -13,7 +13,6 @@ import { globalConfigPath } from '../config/config.ts'
 import { getVersion } from '../util/version.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { createClient } from '../agent/client.ts'
 import { isUserPrompt } from '../agent/types.ts'
 import {
   isKnownProvider,
@@ -56,13 +55,6 @@ export type HandleResult = 'ok' | 'exit' | 'edit'
 
 // ANSI sequence to clear screen + scrollback and move home.
 const CLEAR = '\x1b[2J\x1b[3J\x1b[H'
-
-// The OpenAI client captures the key/model at construction (createClient);
-// a runtime /model or /key change must rebuild it so the new value is used
-// for subsequent requests this session.
-function rebuildClient(session: Session): void {
-  session.client = createClient(session.config)
-}
 
 export type CommandHandler = (
   session: Session,
@@ -214,7 +206,6 @@ export const COMMANDS: readonly CommandDefinition[] = [
         return 'ok'
       }
       session.config.model = id
-      rebuildClient(session)
       sink.write(`model set to ${id}\n`)
       return 'ok'
     },
@@ -368,7 +359,6 @@ export const COMMANDS: readonly CommandDefinition[] = [
           unsetGlobalKey(field)
           delete (session.config as Record<string, unknown>)[field]
         }
-        rebuildClient(session)
         sink.write(
           sub === 'set'
             ? `stored ${provider} key in ${globalConfigPath()}\n`

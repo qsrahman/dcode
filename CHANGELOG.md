@@ -154,6 +154,19 @@
   behavior change at the default (32 KiB `maxToolOutputBytes` still yields
   the 10 MiB floor).
 
+
+### Fixed
+- `/key set|unset` now reaches every user of the model client. `createClient`
+  fixed `apiKey`/`baseURL`/`maxRetries` into its SDK instance at construction,
+  and the REPL only swapped `session.client`, so the `task` tool (which captured
+  the original client at startup) kept sending sub-agent requests with the old
+  key. The client now rebuilds its SDK instance when those settings change on the
+  shared config, and `rebuildClient` is gone; `/model` needed no rebuild (the
+  model is read per request). As a side effect, `/key unset openai` with no key
+  left anywhere no longer throws inside the command (which skipped its
+  confirmation and left the session on the removed key); it confirms, and the
+  next request fails with the SDK's `Missing credentials` error.
+
 ## [0.18.0] - 2026-09-15
 
 ### Changed

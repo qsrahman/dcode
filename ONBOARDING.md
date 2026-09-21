@@ -440,6 +440,7 @@ The next prompt sends this entire array again, plus the new user item. That is w
 **Dependencies:** `openai` SDK, context manager, tool registry, `ui/tools.ts` (progress), `ui/markdown.ts`.
 **Consumers:** `index.ts`, `repl.ts`, `tools/local/task.ts`, the stress script.
 **Notes:**
+- `createClient` reads `config` on every request and rebuilds its SDK instance if `apiKey`, `baseURL`, or `maxRetries` change, so `/key` reaches every holder of the client (the REPL and sub-agents, which capture it at startup) without a new `Client` being handed out. `/model` works the same way, because the model is read per request.
 - `Client` is an interface with one method, `stream()`. Tests substitute fakes (`tests/helpers.ts::fakeClient`) without touching the network.
 - `ModelStream` is `AsyncIterable<string>` plus `finalResponse()`. Only text deltas are yielded; the model starting a reasoning item or tool call is reported through the separate `onActivity` callback so the UI can show life during a silent phase.
 - `pushResponseOutput` uses the SDK's `toResponseInputItems()` so `reasoning` items are replayed (reasoning models require them on stateless turns), then `stripParsedArguments` removes a `parsed_arguments` field the API rejects on replay.

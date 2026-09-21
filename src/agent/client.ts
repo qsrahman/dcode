@@ -84,11 +84,31 @@ function explainStreamError(err: unknown, config: Config): unknown {
 // so the rest of the app can depend on the Client interface and stay
 // testable without network access.
 export function createClient(config: Config): Client {
-  const client = new OpenAI({
-    apiKey: config.apiKey,
-    baseURL: config.baseURL,
-    maxRetries: config.maxRetries,
-  })
+  // apiKey, baseURL and maxRetries are fixed into an SDK instance when it is
+  // constructed, but `config` is shared and mutable: `/key` changes the key
+  // mid-session. Rebuild the instance when those change, so every holder of this
+  // Client (the REPL, and sub-agents via the `task` tool, which captured it at
+  // startup) sees the change without being handed a new Client. Everything else
+  // (model, token limits, ...) is read from `config` per request below.
+  let sdk: OpenAI | undefined
+  let sdkSettings = ''
+  const currentSdk = (): OpenAI => {
+    const settings = JSON.stringify([
+      config.apiKey,
+      config.baseURL,
+      config.maxRetries,
+    ])
+    if (!sdk || settings !== sdkSettings) {
+      sdk = new OpenAI({
+        apiKey: config.apiKey,
+        baseURL: config.baseURL,
+        maxRetries: config.maxRetries,
+      })
+      sdkSettings = settings
+    }
+    return sdk
+  }
+  currentSdk() // fail at startup, not on the first prompt, if no key is configured
 
   return {
     stream(input, opts) {
@@ -120,7 +140,7 @@ export function createClient(config: Config): Client {
       // have to remember to invoke) lets the SDK's own EventStream wire it
       // into its internal AbortController, so cancelling the turn's
       // AbortSignal cancels the HTTP request too — no extra plumbing needed.
-      const s = client.responses.stream(params, { signal: opts?.signal })
+      const s = currentSdk().responses.stream(params, { signal: opts?.signal })
       return {
         async *[Symbol.asyncIterator]() {
           try {
