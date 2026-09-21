@@ -156,6 +156,12 @@
 
 
 ### Fixed
+- One-shot mode built its `ContextManager` without the session's `TaskStore`,
+  so a compaction summary there would have been written without the
+  authoritative task list the REPL includes. `runOneShot` now takes `tasks` and
+  `index.ts` passes them. This is wiring only: in a one-shot run compaction
+  can't currently cut at all (one user prompt, so nothing to summarize), so the
+  omission wasn't reachable. See ONBOARDING.md §17.
 - `/key set|unset` now reaches every user of the model client. `createClient`
   fixed `apiKey`/`baseURL`/`maxRetries` into its SDK instance at construction,
   and the REPL only swapped `session.client`, so the `task` tool (which captured

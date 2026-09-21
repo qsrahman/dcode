@@ -8,7 +8,7 @@ import { runTurn } from './turn.ts'
 import { runCalls } from './exec.ts'
 import { createToolProgress } from '../ui/tools.ts'
 import { CONTINUE_PROMPT } from './types.ts'
-import type { ToolContext, ToolResult } from './types.ts'
+import type { TaskStore, ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import type {
   ResponseFunctionToolCall,
@@ -313,9 +313,14 @@ export async function runOneShot(
     logger: Logger
     tools?: ToolRegistry
     signal?: AbortSignal
+    // The store `todowrite` writes to. Compaction reads it so its summary
+    // carries the authoritative task list; without it the summary would be
+    // written blind to the plan.
+    tasks?: TaskStore
   },
 ): Promise<AgentResult> {
-  const context = new ContextManager(config.context, opts.logger)
+  const { tasks, ...agentOpts } = opts
+  const context = new ContextManager(config.context, opts.logger, tasks)
   const input: ResponseInput = [{ role: 'user', content: prompt }]
-  return runAgent(client, config, input, { ...opts, context })
+  return runAgent(client, config, input, { ...agentOpts, context })
 }

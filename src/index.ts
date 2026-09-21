@@ -53,7 +53,7 @@ export async function main(): Promise<void> {
     }
     // A one-shot run is still a full session, just a short one: same client,
     // MCP servers, and tools as the REPL, closed on the way out (decision I).
-    const { client, mcp, tools } = await createRuntime(config, logger)
+    const { client, tasks, mcp, tools } = await createRuntime(config, logger)
     const ac = new AbortController()
     const onSigint = () => ac.abort()
     process.on('SIGINT', onSigint)
@@ -62,6 +62,7 @@ export async function main(): Promise<void> {
         sink: process.stdout,
         logger,
         tools,
+        tasks,
         signal: ac.signal,
       })
     } catch (err) {

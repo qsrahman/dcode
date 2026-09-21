@@ -257,7 +257,7 @@ Execution begins at `src/index.ts::main()`. Nothing else runs at import time, ap
 
 ### 6.3 One-shot: `src/agent/loop.ts::runOneShot()`
 
-A thin wrapper. It creates a `ContextManager`, makes `history = [{role: 'user', content: prompt}]`, and delegates to `runAgent`.
+A thin wrapper. It creates a `ContextManager` (given the session's `TaskStore`, so a compaction summary would carry the plan), makes `history = [{role: 'user', content: prompt}]`, and delegates to `runAgent`.
 
 ### 6.4 Nested agent: `src/tools/local/task.ts` → `runAgent`
 
@@ -884,6 +884,7 @@ All confirmed in the code or in `AGENTS.md`/`CLAUDE.md`:
 15. **Tests run non-TTY.** `FORCE_COLOR=1` makes colourizers emit ANSI in tests, but live-vs-log tool rendering depends on `process.stdout.isTTY`, which is false under vitest. Tests that need live mode force it (`tests/agent/loop.test.ts` sets `process.stdout.isTTY = true` and restores it). `live-stress.ts` pins it to false so its "one line per call" assertions hold from a real terminal too.
 16. **`main()` only runs as an entry point** (`import.meta.main`). Import it freely in tests.
 17. **Mocked modules in `tests/cli/repl.test.ts`** replace `node:readline/promises` and `agent/client.ts`. The client mock spreads `importOriginal()` so `isContextOverflowError` stays real. A test that throws from `stream()` reaches that function.
+18. **One-shot runs never compact, only prune.** `compactHistory` cuts at a real user prompt (`takeTail`, so a tool-call group is never split), and a one-shot history has exactly one. Checked directly: a one-shot-shaped history (one prompt, five 4 KB tool rounds) returns `null` ("nothing to summarize"), while the same history plus a second prompt compacts. So in one-shot mode old tool outputs are pruned, and a run that still outgrows the window fails instead of being summarized. The REPL is unaffected.
 
 ---
 
