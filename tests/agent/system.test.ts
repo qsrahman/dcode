@@ -50,9 +50,7 @@ describe('buildSystemPrompt', () => {
 
   it('does not enumerate tools in the prompt (the SDK supplies them)', () => {
     expect(prompt).not.toContain('read_file')
-    expect(prompt).not.toContain('list_dir')
     expect(prompt).not.toContain('grep')
-    expect(prompt).not.toContain('stat')
     expect(prompt).not.toContain('glob')
   })
 

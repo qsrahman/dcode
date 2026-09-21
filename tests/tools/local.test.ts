@@ -12,14 +12,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   readFileTool,
-  listDirTool,
-  statTool,
   writeFileTool,
   editFileTool,
-  moveFileTool,
-  copyFileTool,
-  deleteFileTool,
-  makeDirTool,
 } from '../../src/tools/local/fs.ts'
 import { grepTool, globTool } from '../../src/tools/local/search.ts'
 import { runShellTool, childMaxBuffer } from '../../src/tools/local/exec.ts'
@@ -33,6 +27,7 @@ import type { ToolDefinition } from '../../src/agent/types.ts'
 import { runTool } from '../../src/agent/exec.ts'
 import type { ToolCall, ToolContext } from '../../src/agent/types.ts'
 import { z } from 'zod/v4'
+import { defineTool } from '../../src/tools/registry.ts'
 import { getEventListeners } from 'node:events'
 import { cfg } from '../helpers.ts'
 import { createLogger } from '../../src/util/log.ts'
@@ -51,16 +46,10 @@ afterEach(async () => {
 
 const localTools: ToolDefinition[] = [
   readFileTool(),
-  listDirTool(),
   grepTool(),
-  statTool(),
   globTool(),
   writeFileTool(),
   editFileTool(),
-  moveFileTool(),
-  copyFileTool(),
-  deleteFileTool(),
-  makeDirTool(),
   runShellTool(),
   runProcessTool(),
   readProcessTool(),
@@ -101,7 +90,7 @@ describe('read-only tools', () => {
       { path: 'n.txt', offset: 1, limit: 2 },
       ctx,
     )
-    expect(out).toBe('1\ta\n2\tb')
+    expect(out).toBe('1\ta\n2\tb\n… (lines 1–2 of 5; offset=3 to continue)')
   })
 
   it('read_file paging past the read window errors instead of implying EOF', async () => {
@@ -112,35 +101,6 @@ describe('read-only tools', () => {
     await expect(
       tool('read_file').execute({ path: 'big.txt', offset: 2 }, ctx),
     ).rejects.toThrow(/beyond the \d+-byte read window/)
-  })
-
-  it('read_file can disable line numbers', async () => {
-    await writeFile(join(root, 'n.txt'), 'a\nb')
-    const out = await tool('read_file').execute(
-      { path: 'n.txt', line_numbers: false },
-      ctx,
-    )
-    expect(out).toBe('a\nb')
-  })
-
-  it('list_dir lists entries', async () => {
-    await writeFile(join(root, 'a.txt'), 'x')
-    await mkdir(join(root, 'sub'))
-    const out = await tool('list_dir').execute({}, ctx)
-    expect(out).toContain('a.txt')
-    expect(out).toContain('sub')
-  })
-
-  it('list_dir marks symlinks with l and sorts directories first', async () => {
-    await writeFile(join(root, 'a.txt'), 'x')
-    await mkdir(join(root, 'sub'))
-    await symlink(join(root, 'a.txt'), join(root, 'link'))
-    const out = await tool('list_dir').execute({}, ctx)
-    expect(out).toContain('l link')
-    expect(out).toContain('d sub')
-    expect(out).toContain('f a.txt')
-    // 'sub' (directory) should appear before 'a.txt' (file).
-    expect(out.indexOf('sub')).toBeLessThan(out.indexOf('a.txt'))
   })
 
   it('grep finds matching lines', async () => {
@@ -225,39 +185,6 @@ describe('read-only tools', () => {
     expect(out).toMatch(/stopped at 200 matches/)
   })
 
-  it('stat reports a file type/size/mtime', async () => {
-    await writeFile(join(root, 'a.txt'), 'hello')
-    const out = await tool('stat').execute({ path: 'a.txt' }, ctx)
-    expect(out).toContain('type: file')
-    expect(out).toContain('size: 5 bytes')
-    expect(out).toMatch(/modified: \d{4}-\d{2}-\d{2}T/)
-  })
-
-  it('stat reports a directory and defaults to root', async () => {
-    const out = await tool('stat').execute({}, ctx)
-    expect(out).toContain('type: directory')
-  })
-
-  it('stat reports a missing path clearly', async () => {
-    await expect(tool('stat').execute({ path: 'nope' }, ctx)).rejects.toThrow(
-      /no such file or directory/,
-    )
-  })
-
-  it('stat reports line count for small text files', async () => {
-    await writeFile(join(root, 'a.txt'), 'one\ntwo\nthree')
-    const out = await tool('stat').execute({ path: 'a.txt' }, ctx)
-    expect(out).toContain('lines: 3')
-  })
-
-  it('stat reports a symlink target', async () => {
-    await writeFile(join(root, 'a.txt'), 'hello')
-    await symlink(join(root, 'a.txt'), join(root, 'link'))
-    const out = await tool('stat').execute({ path: 'link' }, ctx)
-    expect(out).toContain('type: file')
-    expect(out).toMatch(/target:/)
-  })
-
   it('glob matches recursively with **', async () => {
     await writeFile(join(root, 'a.ts'), 'x')
     await mkdir(join(root, 'sub'))
@@ -311,13 +238,6 @@ describe('read-only tools', () => {
     ).rejects.toThrow(/no such file or directory/)
   })
 
-  it('read_file reports directories clearly', async () => {
-    await mkdir(join(root, 'sub'))
-    await expect(
-      tool('read_file').execute({ path: 'sub' }, ctx),
-    ).rejects.toThrow(/is a directory/)
-  })
-
   it('read_file describes binary files instead of dumping them', async () => {
     await writeFile(
       join(root, 'img.bin'),
@@ -327,22 +247,6 @@ describe('read-only tools', () => {
     expect(out).toContain('(binary img.bin')
     expect(out).toContain('bytes; not shown)')
     expect(out).not.toContain('body')
-  })
-
-  it('read_file truncates content past the output cap', async () => {
-    const big = 'x'.repeat(ctx.config.maxToolOutputBytes + 500)
-    await writeFile(join(root, 'big.txt'), big)
-    const out = await tool('read_file').execute({ path: 'big.txt' }, ctx)
-    expect(out).toMatch(/truncated at/)
-    expect(out.length).toBeLessThanOrEqual(ctx.config.maxToolOutputBytes + 200)
-    expect(out).not.toContain(big)
-  })
-
-  it('list_dir reports non-directories clearly', async () => {
-    await writeFile(join(root, 'a.txt'), 'x')
-    await expect(
-      tool('list_dir').execute({ path: 'a.txt' }, ctx),
-    ).rejects.toThrow(/not a directory/)
   })
 
   it('grep reports an invalid regular expression clearly', async () => {
@@ -443,34 +347,14 @@ describe('mutating tools', () => {
     ).rejects.toThrow(/is a directory/)
   })
 
-  it('write_file refuses to overwrite without overwrite: true', async () => {
-    await writeFile(join(root, 'a.txt'), 'old')
-    await expect(
-      tool('write_file').execute(
-        { path: 'a.txt', content: 'new', overwrite: false },
-        ctx,
-      ),
-    ).rejects.toThrow(/already exists/)
-  })
-
-  it('write_file overwrites when overwrite: true', async () => {
+  it('write_file replaces an existing file and says so', async () => {
     await writeFile(join(root, 'a.txt'), 'old')
     const out = await tool('write_file').execute(
-      { path: 'a.txt', content: 'new', overwrite: true },
+      { path: 'a.txt', content: 'new' },
       ctx,
     )
     expect(out).toContain('overwrote existing')
     expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('new')
-  })
-
-  it('write_file appends with append: true', async () => {
-    await writeFile(join(root, 'a.txt'), 'old')
-    const out = await tool('write_file').execute(
-      { path: 'a.txt', content: 'new', append: true },
-      ctx,
-    )
-    expect(out).toContain('appended')
-    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('oldnew')
   })
 
   it('write_file creates parent directories', async () => {
@@ -735,79 +619,6 @@ describe('runTool', () => {
   })
 })
 
-describe('file lifecycle tools', () => {
-  it('make_dir creates nested directories', async () => {
-    const out = await tool('make_dir').execute({ path: 'a/b/c' }, ctx)
-    expect(out).toContain('created directory')
-    await expect(access(join(root, 'a/b/c'))).resolves.toBeUndefined()
-  })
-
-  it('make_dir rejects escapes', async () => {
-    await expect(
-      tool('make_dir').execute({ path: '../outside' }, ctx),
-    ).rejects.toThrow(/escapes/)
-  })
-
-  it('move_file moves a file and creates the destination parent', async () => {
-    await writeFile(join(root, 'src.txt'), 'data')
-    const out = await tool('move_file').execute(
-      { source: 'src.txt', destination: 'nested/dst.txt' },
-      ctx,
-    )
-    expect(out).toContain('moved')
-    expect(await readFile(join(root, 'nested/dst.txt'), 'utf8')).toBe('data')
-    await expect(readFile(join(root, 'src.txt'))).rejects.toThrow()
-  })
-
-  it('move_file moves a directory', async () => {
-    await mkdir(join(root, 'd'), { recursive: true })
-    await writeFile(join(root, 'd/x.txt'), 'x')
-    await tool('move_file').execute({ source: 'd', destination: 'e' }, ctx)
-    expect(await readFile(join(root, 'e/x.txt'), 'utf8')).toBe('x')
-  })
-
-  it('copy_file copies content and creates the destination parent', async () => {
-    await writeFile(join(root, 'a.txt'), 'hi')
-    const out = await tool('copy_file').execute(
-      { source: 'a.txt', destination: 'sub/b.txt' },
-      ctx,
-    )
-    expect(out).toContain('copied')
-    expect(await readFile(join(root, 'sub/b.txt'), 'utf8')).toBe('hi')
-    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('hi')
-  })
-
-  it('copy_file rejects escapes', async () => {
-    await writeFile(join(root, 'a.txt'), 'hi')
-    await expect(
-      tool('copy_file').execute(
-        { source: 'a.txt', destination: '../out.txt' },
-        ctx,
-      ),
-    ).rejects.toThrow(/escapes/)
-  })
-
-  it('delete_file removes a file', async () => {
-    await writeFile(join(root, 'a.txt'), 'x')
-    const out = await tool('delete_file').execute({ path: 'a.txt' }, ctx)
-    expect(out).toContain('deleted')
-    await expect(readFile(join(root, 'a.txt'))).rejects.toThrow()
-  })
-
-  it('delete_file removes a directory recursively', async () => {
-    await mkdir(join(root, 'd'), { recursive: true })
-    await writeFile(join(root, 'd/a.txt'), 'x')
-    await tool('delete_file').execute({ path: 'd', recursive: true }, ctx)
-    await expect(access(join(root, 'd'))).rejects.toThrow()
-  })
-
-  it('delete_file refuses to delete the working directory root', async () => {
-    await expect(
-      tool('delete_file').execute({ path: '.' }, ctx),
-    ).rejects.toThrow(/refusing to delete/)
-  })
-})
-
 describe('background process tools', () => {
   it('run_process starts and read_process shows output + exit status', async () => {
     const out = await tool('run_process').execute(
@@ -875,5 +686,192 @@ describe('background process tools', () => {
     // The 51st spawn triggers eviction of the oldest already-exited entry.
     await tool('run_process').execute({ command: 'true' }, ctx)
     expect(processManager.get(handles[0]!)).toBeUndefined()
+  })
+})
+
+// Behaviors aligned with claude code / opencode (see CHANGELOG): the model
+// must be told where a cut-off read resumes, edits must be safe on empty and
+// CRLF input, and shell commands must never wait on a terminal nobody types at.
+describe('read_file paging hints', () => {
+  it('names the next offset when the output cap cuts a file short', async () => {
+    const lines = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`)
+    await writeFile(join(root, 'long.txt'), lines.join('\n') + '\n')
+    const out = await tool('read_file').execute({ path: 'long.txt' }, ctx)
+    const m = out.match(/lines 1–(\d+) of 5000; offset=(\d+) to continue/)
+    expect(m).not.toBeNull()
+    expect(Number(m![2])).toBe(Number(m![1]) + 1)
+    expect(Buffer.byteLength(out)).toBeLessThan(ctx.config.maxToolOutputBytes)
+    // Resuming at the named offset picks up exactly where it stopped.
+    const next = await tool('read_file').execute(
+      { path: 'long.txt', offset: Number(m![2]), limit: 1 },
+      ctx,
+    )
+    expect(next).toContain(`${m![2]}\tline ${m![2]}`)
+  })
+
+  it('does not count the trailing newline as a line', async () => {
+    await writeFile(join(root, 'n.txt'), 'a\nb\n')
+    expect(await tool('read_file').execute({ path: 'n.txt' }, ctx)).toBe(
+      '1\ta\n2\tb',
+    )
+  })
+
+  it('shows CRLF files without carriage returns', async () => {
+    await writeFile(join(root, 'w.txt'), 'a\r\nb\r\n')
+    expect(await tool('read_file').execute({ path: 'w.txt' }, ctx)).toBe(
+      '1\ta\n2\tb',
+    )
+  })
+
+  it('caps a single very long line instead of spending the whole budget on it', async () => {
+    await writeFile(join(root, 'min.js'), 'x'.repeat(20_000) + '\nnext\n')
+    const out = await tool('read_file').execute({ path: 'min.js' }, ctx)
+    expect(out).toContain('2\tnext')
+    expect(out).toMatch(/line truncated/)
+  })
+
+  it('errors with the line count when the offset is past the end', async () => {
+    await writeFile(join(root, 'n.txt'), 'a\nb\n')
+    await expect(
+      tool('read_file').execute({ path: 'n.txt', offset: 9 }, ctx),
+    ).rejects.toThrow(/offset 9.*2 lines/)
+  })
+
+  it('lists a directory: subdirectories end in /, symlinks in @', async () => {
+    await writeFile(join(root, 'b.txt'), 'x')
+    await writeFile(join(root, 'a.txt'), 'x')
+    await mkdir(join(root, 'sub'))
+    await symlink(join(root, 'a.txt'), join(root, 'ln'))
+    const out = await tool('read_file').execute({ path: '.' }, ctx)
+    expect(out.split('\n')).toEqual(['a.txt', 'b.txt', 'ln@', 'sub/'])
+  })
+
+  it('pages a directory listing with the same offset/limit and hint', async () => {
+    for (const n of ['a', 'b', 'c']) await writeFile(join(root, n), 'x')
+    const out = await tool('read_file').execute(
+      { path: '.', offset: 2, limit: 1 },
+      ctx,
+    )
+    expect(out).toBe('b\n… (entries 2–2 of 3; offset=3 to continue)')
+  })
+})
+
+describe('edit_file safety', () => {
+  it('rejects an empty old_string instead of inserting between every character', async () => {
+    await writeFile(join(root, 'a.txt'), 'abc')
+    await expect(
+      tool('edit_file').execute(
+        { path: 'a.txt', old_string: '', new_string: '-', replace_all: true },
+        ctx,
+      ),
+    ).rejects.toThrow(/empty/)
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('abc')
+  })
+
+  it('rejects an edit that changes nothing', async () => {
+    await writeFile(join(root, 'a.txt'), 'abc')
+    await expect(
+      tool('edit_file').execute(
+        { path: 'a.txt', old_string: 'abc', new_string: 'abc' },
+        ctx,
+      ),
+    ).rejects.toThrow(/identical/)
+  })
+
+  it('matches multi-line text in a CRLF file and keeps its line endings', async () => {
+    await writeFile(join(root, 'w.txt'), 'one\r\ntwo\r\nthree\r\n')
+    await tool('edit_file').execute(
+      { path: 'w.txt', old_string: 'one\ntwo', new_string: 'uno\ndos' },
+      ctx,
+    )
+    expect(await readFile(join(root, 'w.txt'), 'utf8')).toBe(
+      'uno\r\ndos\r\nthree\r\n',
+    )
+  })
+
+  it('reports how many occurrences replace_all changed', async () => {
+    await writeFile(join(root, 'a.txt'), 'foo foo foo')
+    const out = await tool('edit_file').execute(
+      { path: 'a.txt', old_string: 'foo', new_string: 'x', replace_all: true },
+      ctx,
+    )
+    expect(out).toBe('edited a.txt (3 replacements)')
+  })
+})
+
+describe('run_shell against a non-interactive environment', () => {
+  it('gives commands an empty stdin instead of waiting on one', async () => {
+    const t0 = Date.now()
+    const out = await tool('run_shell').execute(
+      { command: 'cat; echo done' },
+      ctx,
+    )
+    expect(out).toBe('done')
+    expect(Date.now() - t0).toBeLessThan(3000)
+  })
+
+  it('keeps the end of an oversized result, where a build or test failure is reported', async () => {
+    expect(tool('run_shell').keep).toBe('ends')
+    const shell = tool('run_shell')
+    const small = { ...ctx, config: cfg({ maxToolOutputBytes: 200 }) }
+    const res = await runTool(
+      {
+        id: 'c1',
+        name: 'run_shell',
+        arguments: JSON.stringify({
+          command: 'seq 1 500; echo FINAL-FAILURE; exit 2',
+        }),
+      },
+      shell,
+      small,
+    )
+    expect(res.ok).toBe(false)
+    expect(res.output.startsWith('error: ')).toBe(true)
+    expect(res.output).toContain('FINAL-FAILURE')
+    expect(res.output).toContain('exit 2')
+    expect(res.output).toMatch(/bytes omitted/)
+  })
+})
+
+describe('runTool truncation modes', () => {
+  const emoji = (keep?: 'head' | 'ends') =>
+    defineTool({
+      name: 'emit',
+      keep,
+      description: 'test',
+      parameters: z.object({}),
+      execute: async () => '🙂'.repeat(200),
+    })
+  const run = (keep?: 'head' | 'ends') =>
+    runTool({ id: 'c', name: 'emit', arguments: '{}' }, emoji(keep), {
+      ...ctx,
+      config: cfg({ maxToolOutputBytes: 101 }),
+    })
+
+  it('never splits a multi-byte character, whichever end it cuts', async () => {
+    for (const keep of ['head', 'ends'] as const) {
+      const res = await run(keep)
+      expect(res.output).not.toContain('\uFFFD')
+      expect(res.output).toMatch(/omitted|truncated/)
+    }
+  })
+
+  it('keeps only the head by default', async () => {
+    expect((await run()).output).toMatch(/output truncated to 101 bytes\]$/)
+  })
+})
+
+describe('search output caps', () => {
+  it('grep cuts a very long matching line', async () => {
+    await writeFile(join(root, 'min.js'), `needle${'x'.repeat(5000)}\n`)
+    const out = await tool('grep').execute({ pattern: 'needle' }, ctx)
+    expect(out.length).toBeLessThan(1000)
+    expect(out).toContain('min.js:1:')
+  })
+
+  it('glob defaults to a compact cap', async () => {
+    for (let i = 0; i < 250; i++) await writeFile(join(root, `f${i}.txt`), '')
+    const out = await tool('glob').execute({ pattern: '*.txt' }, ctx)
+    expect(out).toMatch(/showing first 200 of 250/)
   })
 })

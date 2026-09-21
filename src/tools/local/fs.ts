@@ -1,40 +1,62 @@
-import {
-  open,
-  readFile,
-  writeFile,
-  readdir,
-  stat,
-  lstat,
-  readlink,
-  mkdir,
-  rename,
-  copyFile,
-  rm,
-} from 'node:fs/promises'
-import type { Stats } from 'node:fs'
+import { open, readFile, writeFile, readdir, stat } from 'node:fs/promises'
 import { z } from 'zod/v4'
 import { defineTool } from '../registry.ts'
-import { resolvePath, ensureParentDir, withResolvedPath } from './paths.ts'
+import { ensureParentDir, withResolvedPath } from './paths.ts'
 
-// Cap directory listings so a huge directory can't flood the model's context
-// (runTool's byte-truncation is a blunt backstop, not a real limit).
-const LIST_MAX = 1000
-// When offset/limit is requested, read up to this much of the file instead of
-// just maxToolOutputBytes — otherwise paging into a large file would only ever
-// see the first ~32 KiB and silently report "no lines in range" past that,
-// which reads as end-of-file when it isn't. runTool still truncates whatever
-// this returns to maxToolOutputBytes, so this only bounds the disk read.
-const PAGE_READ_MAX_BYTES = 8 * 1024 * 1024
-// Only count lines for files up to this size; reading a multi-GB file just to
-// count newlines would defeat the bounded-read discipline elsewhere.
-const LINE_COUNT_MAX = 1_000_000
+// How much of a file read_file loads. Every read uses the same window (not
+// just maxToolOutputBytes) so paging with `offset` can reach past the first
+// ~32 KiB of a large file; the output is then cut to maxToolOutputBytes at a
+// line boundary (see pageItems). This only bounds the disk read.
+const READ_MAX_BYTES = 8 * 1024 * 1024
+// Room kept under the output cap for the footer pageItems appends: runTool
+// cuts anything past the cap from the end, which would be the footer.
+const NOTE_RESERVE = 128
+// A single line this long is minified or generated content. Cut it so one line
+// can't spend the whole output budget (claude code and opencode both do this).
+const MAX_LINE_CHARS = 2000
+
+// Show `items` from the 1-based `offset`, at most `limit` of them and at most
+// maxBytes of output, always at least one. When something is left out, say
+// which offset resumes — a bare "output truncated" note leaves the model
+// guessing where it stopped. `last` is the 1-based index of the final item
+// shown, for callers that add a footer of their own.
+function pageItems(
+  items: string[],
+  offset: number,
+  limit: number | undefined,
+  maxBytes: number,
+  label: string,
+  format: (item: string, n: number) => string,
+): { body: string; last: number } {
+  const start = offset - 1
+  if (start >= items.length) {
+    throw new Error(
+      `offset ${offset} is past the end (${items.length} ${label})`,
+    )
+  }
+  const end = limit ? Math.min(start + limit, items.length) : items.length
+  const shown: string[] = []
+  let bytes = 0
+  for (let i = start; i < end; i++) {
+    const line = format(items[i]!, i + 1)
+    bytes += Buffer.byteLength(line) + 1
+    if (bytes > maxBytes - NOTE_RESERVE && shown.length > 0) break
+    shown.push(line)
+  }
+  const last = start + shown.length
+  const more =
+    last < items.length
+      ? `\n… (${label} ${offset}–${last} of ${items.length}; offset=${last + 1} to continue)`
+      : ''
+  return { body: shown.join('\n') + more, last }
+}
 
 const readFileTool = () =>
   defineTool({
     name: 'read_file',
     category: 'read',
     description:
-      'Read a UTF-8 text file under the working directory. Supports paging (offset/limit in lines) and optional 1-based line numbers.',
+      'Read a UTF-8 text file, or list a directory, under the working directory. File lines are prefixed with their 1-based number and a tab ("12<TAB>text"); never include that prefix when passing text to edit_file. A long result is cut with a note naming the offset to continue from. A directory is listed one entry per line, "/" marking a subdirectory and "@" a symlink.',
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
       offset: z
@@ -42,34 +64,45 @@ const readFileTool = () =>
         .int()
         .min(1)
         .optional()
-        .describe('1-based line to start from'),
+        .describe('1-based line (or directory entry) to start from'),
       limit: z
         .number()
         .int()
         .min(1)
         .optional()
-        .describe('Maximum number of lines to return'),
-      line_numbers: z
-        .boolean()
-        .optional()
-        .describe('Prefix each line with its 1-based number (default true)'),
+        .describe('Maximum number of lines (or entries) to return'),
     }),
     async execute(args, ctx) {
-      const paging = args.offset !== undefined || args.limit !== undefined
-      // Read at most the configured output cap so a huge or symlinked-to-huge
-      // file can't blow up memory before the runner truncates the result.
-      // Paging reads a much larger window instead — otherwise offset/limit
-      // could only ever see the first ~32 KiB of a large file.
-      const limitBytes = paging
-        ? Math.max(PAGE_READ_MAX_BYTES, ctx.config.maxToolOutputBytes)
-        : ctx.config.maxToolOutputBytes
+      const offset = args.offset ?? 1
+      const maxBytes = ctx.config.maxToolOutputBytes
       return withResolvedPath(ctx, args.path, async (file) => {
+        if ((await stat(file)).isDirectory()) {
+          const entries = (await readdir(file, { withFileTypes: true }))
+            .map((e) =>
+              e.isDirectory()
+                ? `${e.name}/`
+                : e.isSymbolicLink()
+                  ? `${e.name}@`
+                  : e.name,
+            )
+            .sort((a, b) => a.localeCompare(b))
+          if (entries.length === 0) return '(empty directory)'
+          return pageItems(
+            entries,
+            offset,
+            args.limit,
+            maxBytes,
+            'entries',
+            (name) => name,
+          ).body
+        }
+
         const handle = await open(file, 'r')
         try {
           // stat through the open handle, not the path again: one syscall
           // fewer, and it can't disagree with the descriptor being read.
           const { size } = await handle.stat()
-          const buf = Buffer.alloc(Math.min(size, limitBytes))
+          const buf = Buffer.alloc(Math.min(size, READ_MAX_BYTES))
           const { bytesRead } = await handle.read(buf, 0, buf.length, 0)
           // A NUL byte means binary: dumping it as text is useless and risks
           // the model acting on mojibake, so describe it instead (as
@@ -77,117 +110,34 @@ const readFileTool = () =>
           if (buf.subarray(0, bytesRead).includes(0)) {
             return `(binary ${args.path}, ${size} bytes; not shown)`
           }
-          const text = buf.toString('utf8', 0, bytesRead)
-          const truncated = size > limitBytes
-          const lines = text.split('\n')
-          // 1-based to match the displayed line numbers (and both claude code /
-          // opencode, which the paging API mirrors).
-          const offset = args.offset ?? 1
-          const start = offset - 1
-          const window = args.limit
-            ? lines.slice(start, start + args.limit)
-            : lines.slice(start)
-          if (window.length === 0) {
-            // Truncated + empty window means the requested offset falls
-            // beyond what was read, not beyond the file's actual end — say
-            // so instead of implying the file has fewer lines than it does.
-            if (truncated) {
-              throw new Error(
-                `offset ${offset} is beyond the ${limitBytes}-byte read window (file is ${size} bytes); narrow the offset or use grep to locate the section you need`,
-              )
-            }
-            return '(no lines in range)'
+          const windowed = size > bytesRead
+          const lines = buf.toString('utf8', 0, bytesRead).split(/\r?\n/)
+          // A final newline ends the last line rather than starting another;
+          // when the window cut the file, its last line is cut mid-way too.
+          if (windowed || lines.at(-1) === '') lines.pop()
+          if (windowed && offset > lines.length) {
+            // The offset lies past what was read, not past the file's actual
+            // end — say so instead of implying the file has fewer lines.
+            throw new Error(
+              `offset ${offset} is beyond the ${READ_MAX_BYTES}-byte read window (file is ${size} bytes); use grep to locate the section you need`,
+            )
           }
-          const numbered = args.line_numbers ?? true
-          const body = window
-            .map((ln, i) => (numbered ? `${offset + i}\t${ln}` : ln))
-            .join('\n')
-          return truncated
-            ? `${body}\n…(${size} bytes total; truncated at ${limitBytes})`
+          if (lines.length === 0) return '(empty file)'
+          const { body, last } = pageItems(
+            lines,
+            offset,
+            args.limit,
+            maxBytes,
+            'lines',
+            (ln, n) =>
+              `${n}\t${ln.length > MAX_LINE_CHARS ? `${ln.slice(0, MAX_LINE_CHARS)}… (line truncated)` : ln}`,
+          )
+          return windowed && last === lines.length
+            ? `${body}\n… (file is ${size} bytes; only the first ${READ_MAX_BYTES} are readable here)`
             : body
         } finally {
           await handle.close()
         }
-      })
-    },
-  })
-
-const listDirTool = () =>
-  defineTool({
-    name: 'list_dir',
-    category: 'read',
-    description: 'List a directory under the working directory.',
-    parameters: z.object({
-      path: z
-        .string()
-        .optional()
-        .describe('Directory under the working directory; defaults to root'),
-    }),
-    async execute(args, ctx) {
-      const target = args.path ?? '.'
-      return withResolvedPath(ctx, target, async (dir) => {
-        const entries = await readdir(dir, { withFileTypes: true })
-        // Directories first, then alphabetical — predictable for the model.
-        entries.sort(
-          (a, b) =>
-            Number(b.isDirectory()) - Number(a.isDirectory()) ||
-            a.name.localeCompare(b.name),
-        )
-        const capped = entries.length > LIST_MAX
-        const shown = capped ? entries.slice(0, LIST_MAX) : entries
-        const body = shown
-          .map(
-            (e) =>
-              `${e.isSymbolicLink() ? 'l' : e.isDirectory() ? 'd' : 'f'} ${e.name}`,
-          )
-          .join('\n')
-        return capped
-          ? `${body}\n… (showing first ${LIST_MAX} of ${entries.length}; narrow the path)`
-          : body
-      })
-    },
-  })
-
-const statTool = () =>
-  defineTool({
-    name: 'stat',
-    category: 'read',
-    description:
-      'Report type, size, modification time, and (for small text files) line count of a path under the working directory. Symlinks report their target.',
-    parameters: z.object({
-      path: z
-        .string()
-        .optional()
-        .describe('Path under the working directory; defaults to root'),
-    }),
-    async execute(args, ctx) {
-      const target = args.path ?? '.'
-      return withResolvedPath(ctx, target, async (full) => {
-        const info: Stats = await stat(full)
-        const parts = [
-          `type: ${info.isDirectory() ? 'directory' : info.isFile() ? 'file' : 'other'}`,
-          `size: ${info.size} bytes`,
-          `modified: ${info.mtime.toISOString()}`,
-        ]
-        // Report the symlink target (lstat doesn't follow the link). No
-        // try/catch around lstat itself: the stat() above already resolved
-        // this same path, and lstat resolves strictly less, so it cannot
-        // fail here. readlink still can — the link may vanish between the
-        // two calls — so that one keeps its own fallback.
-        const lst = await lstat(full)
-        if (lst.isSymbolicLink()) {
-          const linkTarget = await readlink(full).catch(() => '?')
-          parts.push(`target: ${linkTarget}`)
-        }
-        if (info.isFile() && info.size <= LINE_COUNT_MAX) {
-          try {
-            const content = await readFile(full, 'utf8')
-            parts.push(`lines: ${content.split('\n').length}`)
-          } catch {
-            // ignore read errors; size/type are still reported
-          }
-        }
-        return parts.join('\n')
       })
     },
   })
@@ -198,20 +148,10 @@ const writeFileTool = () =>
     category: 'edit',
     parallel: false,
     description:
-      'Create or modify a UTF-8 text file under the working directory. Parent directories are created. Set append to add to the end; overwrite (default true) to replace an existing file, or false to refuse to clobber.',
+      'Create a UTF-8 text file under the working directory, or replace an existing one entirely. Parent directories are created. To change part of an existing file use edit_file instead.',
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
-      content: z.string().describe('Full file contents to write (or append)'),
-      overwrite: z
-        .boolean()
-        .optional()
-        .describe(
-          'Replace an existing file (default true); false refuses to clobber',
-        ),
-      append: z
-        .boolean()
-        .optional()
-        .describe('Append to the file instead of replacing it'),
+      content: z.string().describe('Full file contents to write'),
     }),
     async execute(args, ctx) {
       return withResolvedPath(ctx, args.path, async (file) => {
@@ -219,17 +159,8 @@ const writeFileTool = () =>
         const existed = await stat(file)
           .then(() => true)
           .catch(() => false)
-        if (existed && !args.append && !(args.overwrite ?? true)) {
-          throw new Error(
-            `file already exists: ${args.path} (pass overwrite: true to replace)`,
-          )
-        }
-        await writeFile(file, args.content, {
-          encoding: 'utf8',
-          flag: args.append ? 'a' : 'w',
-        })
+        await writeFile(file, args.content, 'utf8')
         const bytes = Buffer.byteLength(args.content)
-        if (args.append) return `appended ${bytes} bytes to ${args.path}`
         return existed
           ? `wrote ${bytes} bytes to ${args.path} (overwrote existing)`
           : `wrote ${bytes} bytes to ${args.path}`
@@ -246,7 +177,7 @@ const editFileTool = () =>
     category: 'edit',
     parallel: false,
     description:
-      'Replace occurrences of a string in a file under the working directory. Requires an exact, unique match unless replace_all is set.',
+      "Replace text in a file under the working directory. old_string must match the file exactly, whitespace and indentation included, and be unique unless replace_all is set — include surrounding lines to make it unique. Read the file first, and copy text without read_file's line-number prefix.",
     parameters: z.object({
       path: z.string().describe('Relative path under the working directory'),
       old_string: z.string().describe('Text to replace'),
@@ -257,6 +188,16 @@ const editFileTool = () =>
         .describe('Replace all occurrences instead of requiring exactly one'),
     }),
     async execute(args, ctx) {
+      // '' matches between every character, so with replace_all it would
+      // splice new_string through the whole file.
+      if (args.old_string === '') {
+        throw new Error('old_string must not be empty')
+      }
+      if (args.old_string === args.new_string) {
+        throw new Error(
+          'old_string and new_string are identical; nothing to change',
+        )
+      }
       return withResolvedPath(ctx, args.path, async (file) => {
         const beforeBuf = await readFile(file)
         // NUL byte ⇒ binary; editing it as text would corrupt the file, so
@@ -267,7 +208,13 @@ const editFileTool = () =>
           )
         }
         const before = beforeBuf.toString('utf8')
-        const count = before.split(args.old_string).length - 1
+        // read_file shows CRLF files with plain newlines, so the model's
+        // multi-line strings are LF; translate them to the file's convention
+        // or they'd never match, and the edit would break its line endings.
+        const crlf = before.includes('\r\n')
+        const eol = (s: string) => (crlf ? s.replace(/\r?\n/g, '\r\n') : s)
+        const oldStr = eol(args.old_string)
+        const count = before.split(oldStr).length - 1
         if (count === 0) {
           throw new Error(`old_string not found in ${args.path}`)
         }
@@ -281,115 +228,13 @@ const editFileTool = () =>
         // interpret `$&`/`` $` ``-style patterns in new_string and silently
         // corrupt files whose content legitimately contains them (shell
         // scripts, Makefiles).
-        const after = before.split(args.old_string).join(args.new_string)
+        const after = before.split(oldStr).join(eol(args.new_string))
         await writeFile(file, after, 'utf8')
-        return `edited ${args.path}`
+        return count > 1
+          ? `edited ${args.path} (${count} replacements)`
+          : `edited ${args.path}`
       })
     },
   })
 
-const moveFileTool = () =>
-  defineTool({
-    name: 'move_file',
-    category: 'edit',
-    parallel: false,
-    description:
-      'Move or rename a file or directory under the working directory. The destination parent directory is created if needed. Both paths must stay within the working directory.',
-    parameters: z.object({
-      source: z.string().describe('Existing path to move (relative to root)'),
-      destination: z
-        .string()
-        .describe('New path for the moved item (relative to root)'),
-    }),
-    async execute(args, ctx) {
-      const src = await resolvePath(ctx.root, args.source)
-      return withResolvedPath(ctx, args.destination, async (dst) => {
-        // rename(2) won't create the destination's parent, so mirror what
-        // the shell `mv` does and mkdir -p it first.
-        await ensureParentDir(dst, args.destination)
-        await rename(src, dst)
-        return `moved ${args.source} -> ${args.destination}`
-      })
-    },
-  })
-
-const copyFileTool = () =>
-  defineTool({
-    name: 'copy_file',
-    category: 'edit',
-    parallel: false,
-    description:
-      'Copy a file under the working directory to a new location. The destination parent directory is created if needed. Both paths must stay within the working directory.',
-    parameters: z.object({
-      source: z.string().describe('Existing file to copy (relative to root)'),
-      destination: z.string().describe('Destination path (relative to root)'),
-    }),
-    async execute(args, ctx) {
-      const src = await resolvePath(ctx.root, args.source)
-      return withResolvedPath(ctx, args.destination, async (dst) => {
-        await ensureParentDir(dst, args.destination)
-        await copyFile(src, dst)
-        return `copied ${args.source} -> ${args.destination}`
-      })
-    },
-  })
-
-const deleteFileTool = () =>
-  defineTool({
-    name: 'delete_file',
-    category: 'edit',
-    parallel: false,
-    description:
-      'Delete a file or directory under the working directory. Directories require recursive: true. Refuses to delete the working directory root itself.',
-    parameters: z.object({
-      path: z.string().describe('Path to delete (relative to root)'),
-      recursive: z
-        .boolean()
-        .optional()
-        .describe(
-          'Delete directories recursively (required for non-empty dirs)',
-        ),
-    }),
-    async execute(args, ctx) {
-      return withResolvedPath(ctx, args.path, async (target) => {
-        // Deleting the whole working directory would wipe the user's
-        // project; resolvePath allows it (it's inside root) so we must
-        // guard explicitly.
-        if (target === ctx.root) {
-          throw new Error('refusing to delete the working directory root')
-        }
-        await rm(target, { recursive: args.recursive ?? false, force: false })
-        return `deleted ${args.path}`
-      })
-    },
-  })
-
-const makeDirTool = () =>
-  defineTool({
-    name: 'make_dir',
-    category: 'edit',
-    parallel: false,
-    description:
-      'Create a directory under the working directory, including any missing parents.',
-    parameters: z.object({
-      path: z.string().describe('Directory to create (relative to root)'),
-    }),
-    async execute(args, ctx) {
-      return withResolvedPath(ctx, args.path, async (dir) => {
-        await mkdir(dir, { recursive: true })
-        return `created directory ${args.path}`
-      })
-    },
-  })
-
-export {
-  readFileTool,
-  listDirTool,
-  statTool,
-  writeFileTool,
-  editFileTool,
-  moveFileTool,
-  copyFileTool,
-  deleteFileTool,
-  makeDirTool,
-}
+export { readFileTool, writeFileTool, editFileTool }

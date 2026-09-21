@@ -45,6 +45,10 @@ export interface ToolDefinition<P = unknown> {
   // tools set this so side effects don't race; read-only tools default to
   // parallel. This is scheduling only — there is no approval gate.
   parallel?: boolean
+  // What survives when a result exceeds the byte cap: the `head` (default), or
+  // both `ends` with the middle dropped. Command output uses `ends`, because
+  // the verdict of a build or test run (the failing assertion) is printed last.
+  keep?: 'head' | 'ends'
   // Summary bucket for the terminal (see TOOL_CATEGORIES). Built-in tools all
   // set it (tests/tools/index.test.ts enforces that); a tool without one, such
   // as an MCP tool, is shown under `run`.

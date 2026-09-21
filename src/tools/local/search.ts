@@ -11,8 +11,12 @@ import { baseExecOptions, childMaxBuffer } from './exec.ts'
 // Cap grep output so a broad pattern over a large tree can't flood the model's
 // context (runTool's byte-truncation is a blunt backstop, not a real limit).
 const GREP_MAX_MATCHES = 200
-// Cap glob results the same way.
-const GLOB_MAX = 1000
+// Cap glob results the same way. Claude code and opencode both stop at 100;
+// this is looser, but small enough to fit the output cap (~40 bytes a path).
+const GLOB_MAX = 200
+// A matching line longer than this is minified or generated content; showing
+// it whole would spend the output budget on one match.
+const GREP_MAX_LINE_CHARS = 500
 // Skip files above this size (ripgrep's own --max-filesize, not a JS read
 // cap): a large log/dump anywhere under root shouldn't dominate the search.
 // This is a silent skip — ripgrep doesn't report it anywhere (stdout or
@@ -218,7 +222,12 @@ function formatRgLine(root: string, evt: RgEvent): string | null {
   if (path === undefined || lines === undefined) return null
   const rel = toRootRelative(root, path)
   const sep = evt.type === 'context' ? '-' : ':'
-  return `${rel}${sep}${evt.data?.line_number}${sep} ${lines.replace(/\n$/, '')}`
+  const text = lines.replace(/\r?\n$/, '')
+  const shown =
+    text.length > GREP_MAX_LINE_CHARS
+      ? `${text.slice(0, GREP_MAX_LINE_CHARS)}… (line truncated)`
+      : text
+  return `${rel}${sep}${evt.data?.line_number}${sep} ${shown}`
 }
 
 const globTool = () =>

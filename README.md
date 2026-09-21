@@ -10,7 +10,7 @@ build step (Node 26 runs TypeScript directly).
 
 > **⚠️ Security warning — tools are ungated.** dcode has **no permission
 > architecture**. Every tool, including mutating ones (`write_file`, `edit_file`,
-> `delete_file`, `run_shell`), runs **automatically** the moment the
+> `run_shell`), runs **automatically** the moment the
 > model calls it — there is no confirmation prompt, allow-list, sandbox, or
 > dry-run mode. Sub-agents launched with `task` run the same ungated tools.
 > The model can edit files and execute arbitrary shell commands in
@@ -124,23 +124,17 @@ built yet.)
 
 | Tool | Purpose |
 |------|---------|
-| `read_file` | Read a UTF-8 text file under the working directory. |
-| `list_dir` | List a directory under the working directory. |
+| `read_file` | Read a UTF-8 text file, or list a directory, under the working directory (`offset`/`limit` paging; a cut-off result names the offset to continue from). |
 | `grep` | Search file contents for a regular expression (ripgrep-backed). |
-| `stat` | Report type/size/mtime of a file or directory. |
 | `glob` | List files matching a glob pattern (ripgrep-backed; `**` recursive). |
-| `write_file` | Create or overwrite a UTF-8 text file. |
+| `write_file` | Create or replace a UTF-8 text file. |
 | `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). |
-| `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`; optional per-command `timeout`). |
+| `run_shell` | Run a shell command in the working directory (`cwd=root`, no stdin, `toolTimeout`; optional per-command `timeout`). Also the way to move, copy, delete, and create files, and to run git. |
 | `web_search` | Search the web via Brave (`BRAVE_API_KEY` required). |
 | `web_fetch` | Fetch a URL and return its content (`format`: `markdown` default → HTML to Markdown + pretty JSON, or `text`/`html` unconverted); no API key required. |
 | `todowrite` | Replace the in-session todo list (the model sends the whole list each call) to plan and track multi-step work. |
 | `ask_user` | Ask the user a multiple-choice or free-text question mid-run (interactive terminals only). |
 | `task` | Delegate self-contained work to a sub-agent (`general` or `explore`) with its own context. |
-| `move_file` | Move/rename a file or directory under the working directory. |
-| `copy_file` | Copy a file under the working directory. |
-| `delete_file` | Delete a file or (with `recursive`) a directory under the working directory. |
-| `make_dir` | Create a directory (and parents) under the working directory. |
 | `run_process` | Spawn a background process and return a handle. |
 | `read_process` | Tail a background process's output and exit status. |
 | `kill_process` | Stop a background process by handle. |
@@ -156,10 +150,13 @@ other tool. The recursive tools (`grep`, `glob`) are both backed by
 lookaround/backreferences), matches are capped at 200, and files above 5 MiB
 are skipped. `glob` patterns are gitignore-style globs — unlike a plain glob
 library, a bare pattern with no `/` (e.g. `*.ts`) matches at any depth, not
-just the top level; anchor with a leading `/` for root-only. `read_file`'s
-`offset`/`limit` paging is 1-based (matching the line numbers it displays);
-it reads up to 8 MiB of a file to find the requested lines, and an offset
-past that window errors instead of silently reading as end-of-file.
+just the top level; anchor with a leading `/` for root-only; results are capped
+at 200 paths. `read_file`'s `offset`/`limit` paging is 1-based (matching the
+line numbers it displays); a directory is listed the same way (`/` marks a
+subdirectory, `@` a symlink). It reads up to 8 MiB of a file to find the
+requested lines, and an offset past that window errors instead of silently
+reading as end-of-file. Lines past 2,000 characters are cut, and `edit_file`
+matches text in CRLF files as if they were LF.
 `grep` can be restricted to files matching a glob via its `include` argument.
 Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
 (default 32 KiB), and tool errors are returned to the model so it can

@@ -95,7 +95,7 @@ src/
     paths.ts          #   resolvePath, withFsError, ensureParentDir — path confinement (realpath-checked against symlink escapes) + shared fs error/mkdir idioms
     exec.ts           #   run_shell + baseExecOptions/safeEnv/childMaxBuffer — shared execa options (cwd/timeout/cancelSignal/maxBuffer scaled from maxToolOutputBytes, env redaction); safeEnv is also reused by tools/mcp/manager.ts
     http.ts           #   fetchSafely (timeout, native redirects), readBounded — shared network boundary for web.ts (no host filtering; opencode-style)
-    fs.ts             #   read_file, list_dir, stat, write_file, edit_file, move_file, copy_file, delete_file, make_dir
+    fs.ts             #   read_file (also lists a directory), write_file, edit_file
     search.ts         #   grep, glob — both ripgrep-backed (@vscode/ripgrep's bundled binary, spawned directly, not via exec.ts); find_symbol/find_references planned, P12
     process.ts        #   run_process, read_process, kill_process — background, via execa (killDescendants: true)
     todo.ts           #   todowrite (single tool over TaskStore: the model sends the full list each call)
@@ -602,7 +602,8 @@ and `runOneShot`. Foundation for everything after it.
 
 **P3 — Tool core + read-only tools + async loop.** Introduced `ToolDefinition`,
 `ToolRegistry`, and `agent/loop.ts`'s `runAgent` tool-calling loop, plus the
-first read-only tools (`read_file`, `list_dir`, `grep`, `stat`, `glob`).
+first read-only tools (`read_file`, `list_dir`, `grep`, `stat`, `glob`;
+`list_dir` and `stat` were later folded into `read_file` / `run_shell`, see P11).
 zod→JSON-Schema conversion ended up using zod v4's built-in `z.toJSONSchema`
 rather than a hand-rolled converter. Tool errors are fed back as
 `function_call_output` (decision D) so the model can self-correct rather than
@@ -669,10 +670,14 @@ when a request still exceeds the window. `/compact` (manual) and `/context`
 since it lives outside `history`.
 
 **P11 — File lifecycle + background processes.** Added `move_file`,
-`copy_file`, `delete_file` (refuses to delete the working-directory root;
-directories require `recursive: true`), `make_dir`, and background-process
-control (`run_process`/`read_process`/`kill_process` via a module-level
-`ProcessManager`, killed on session exit).
+`copy_file`, `delete_file`, `make_dir`, and background-process control
+(`run_process`/`read_process`/`kill_process` via a module-level
+`ProcessManager`, killed on session exit). The four file-lifecycle tools were
+later removed, along with `stat` and `list_dir`: neither claude code nor
+opencode has them (both use the shell, and opencode's `read` lists
+directories), and they added no safety over the ungated `run_shell` — the same
+reasoning that removed P9's `git` tool. `read_file` lists directories;
+everything else goes through `run_shell`. The background-process tools stay.
 
 **A3 — Max output tokens recovery.** When a turn's response is truncated
 (`incomplete_details.reason === 'max_output_tokens'`), `agent/loop.ts`

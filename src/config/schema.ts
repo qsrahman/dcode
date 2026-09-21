@@ -141,7 +141,7 @@ export const configSchema = z.object({
     .optional(),
   verbosity: z.enum(['low', 'medium', 'high']).optional(),
   maxRetries: z.number().int().nonnegative().default(3),
-  toolTimeout: z.number().int().positive().default(30000),
+  toolTimeout: z.number().int().positive().default(120000),
   // When true, responses are stored server-side so a later turn could chain via
   // `previous_response_id`. Off by default: server storage isn't available on
   // local/compatible endpoints and OpenAI's 30-day retention is undesirable here.

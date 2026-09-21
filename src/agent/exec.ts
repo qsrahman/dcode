@@ -22,7 +22,7 @@ export async function runTool(
   const outcome = (output: string, ok: boolean): ToolResult => ({
     id: call.id,
     name: tool.name,
-    output: truncate(output, ctx.config.maxToolOutputBytes),
+    output: truncate(output, ctx.config.maxToolOutputBytes, tool.keep),
     ok,
     ms: Date.now() - start,
     category: tool.category,
@@ -99,15 +99,30 @@ async function withDeadline<T>(
   }
 }
 
-function truncate(s: string, maxBytes: number): string {
+function truncate(
+  s: string,
+  maxBytes: number,
+  keep: 'head' | 'ends' = 'head',
+): string {
   const bytes = new TextEncoder().encode(s)
   if (bytes.length <= maxBytes) return s
-  let end = maxBytes
-  // end is < bytes.length because we returned early if bytes.length <= maxBytes
-  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) {
-    end--
+  // Cut on UTF-8 character boundaries: step past continuation bytes
+  // (10xxxxxx) so a multi-byte character is dropped whole rather than split.
+  const headEnd = (n: number) => {
+    let end = n
+    while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--
+    return end
   }
-  const cut = new TextDecoder().decode(bytes.subarray(0, end))
+  if (keep === 'ends') {
+    // Mostly tail: what a failing command prints last is what matters, but
+    // the head still carries the `error: exit N:` label and the first lines.
+    const end = headEnd(Math.floor(maxBytes / 4))
+    let start = bytes.length - (maxBytes - end)
+    while (start < bytes.length && (bytes[start]! & 0xc0) === 0x80) start++
+    const dec = new TextDecoder()
+    return `${dec.decode(bytes.subarray(0, end))}\n… [${start - end} bytes omitted] …\n${dec.decode(bytes.subarray(start))}`
+  }
+  const cut = new TextDecoder().decode(bytes.subarray(0, headEnd(maxBytes)))
   return `${cut}\n… [output truncated to ${maxBytes} bytes]`
 }
 

@@ -27,16 +27,10 @@ describe('createLocalTools', () => {
     expect(names.sort()).toEqual(
       [
         'read_file',
-        'list_dir',
         'grep',
-        'stat',
         'glob',
         'write_file',
         'edit_file',
-        'move_file',
-        'copy_file',
-        'delete_file',
-        'make_dir',
         'run_shell',
         'run_process',
         'read_process',

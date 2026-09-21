@@ -32,13 +32,12 @@ export function resolveAgentTools(
   return registered.filter((name) => !denied.has(name))
 }
 
-// Read-only tools for the explore agent — grep, glob, read, list, web search.
-// Matches the names used in src/tools/index.ts and src/tools/local/*.ts.
+// Read-only tools for the explore agent — grep, glob, read (which also lists a
+// directory), web search. Matches the names used in src/tools/index.ts and
+// src/tools/local/*.ts.
 const EXPLORE_TOOLS = [
   'read_file',
-  'list_dir',
   'grep',
-  'stat',
   'glob',
   'web_search',
   'web_fetch',
@@ -47,7 +46,7 @@ const EXPLORE_TOOLS = [
 // The general agent gets everything the parent has except `task` itself:
 // sub-agents don't spawn sub-agents (the depth limit in task.ts enforces that
 // independently). Expressed as a deny-list so it stays literally true as
-// tools come and go, rather than as a 19-name copy of the registry that
+// tools come and go, rather than as a copy of the registry that
 // silently rots the first time someone adds a tool and doesn't update it.
 const GENERAL_TOOLS = { deny: ['task'] } as const
 

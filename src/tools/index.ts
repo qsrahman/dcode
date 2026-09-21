@@ -1,17 +1,7 @@
 import { ToolRegistry } from './registry.ts'
 import type { TaskStore } from '../agent/types.ts'
 import type { Client } from '../agent/client.ts'
-import {
-  readFileTool,
-  listDirTool,
-  statTool,
-  writeFileTool,
-  editFileTool,
-  moveFileTool,
-  copyFileTool,
-  deleteFileTool,
-  makeDirTool,
-} from './local/fs.ts'
+import { readFileTool, writeFileTool, editFileTool } from './local/fs.ts'
 import { grepTool, globTool } from './local/search.ts'
 import { runShellTool } from './local/exec.ts'
 import {
@@ -42,16 +32,10 @@ export function createLocalTools(
 ): ToolRegistry {
   const registry = new ToolRegistry([
     readFileTool(),
-    listDirTool(),
     grepTool(),
-    statTool(),
     globTool(),
     writeFileTool(),
     editFileTool(),
-    moveFileTool(),
-    copyFileTool(),
-    deleteFileTool(),
-    makeDirTool(),
     runShellTool(),
     runProcessTool(),
     readProcessTool(),

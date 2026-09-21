@@ -47,6 +47,40 @@
   per the load-bearing `-g` ordering in `search.ts`).
 
 ### Changed
+- Tool set aligned with claude code and opencode, whose tool behavior was
+  compared against dcode's (neither has dedicated move/copy/delete/mkdir/stat
+  tools; opencode's `read` lists directories):
+  - Removed `list_dir`, `stat`, `move_file`, `copy_file`, `delete_file`,
+    `make_dir` (20 tools → 14). They added no safety over the ungated
+    `run_shell` — the reasoning that already removed the `git` tool — and each
+    cost schema tokens on every request. `read_file` on a directory now lists
+    it (`/` marks a subdirectory, `@` a symlink) with the same `offset`/`limit`
+    paging; everything else goes through `run_shell`. The `explore` sub-agent
+    keeps directory listing through `read_file`. The system prompt now points
+    at `run_shell` for file operations.
+  - `read_file`: a cut-off result ends with `… (lines 1–412 of 5310; offset=413
+    to continue)` instead of a bare truncation note, so the model knows where to
+    resume. Lines over 2,000 characters are cut, CRLF files display without
+    `\r`, a trailing newline is no longer counted as a line, and an offset past
+    the end errors with the line count. The `line_numbers` argument is gone
+    (nothing else has it; numbered output is what `edit_file` guidance assumes).
+  - `write_file`: dropped `append` and `overwrite` (neither reference has them);
+    it creates or replaces, and reports when it replaced.
+  - `edit_file`: an empty `old_string` is rejected (with `replace_all` it spliced
+    `new_string` between every character), as is an edit that changes nothing.
+    Multi-line strings now match in CRLF files and keep the file's line endings,
+    and `replace_all` reports how many occurrences it changed.
+  - `run_shell`: commands get an empty stdin (`stdin: 'ignore'`) — `cat`, a bare
+    `git commit`, or an installer prompt used to sit until the timeout. An
+    oversized result keeps its start and its end (`keep: 'ends'` on the tool,
+    honored by `runTool`) instead of only the start, since a failing build or
+    test prints its verdict last. The description says to use `run_process` for
+    anything long-running.
+  - `toolTimeout` defaults to 120 s (was 30 s), matching claude code's and
+    opencode's 2-minute default: a test suite or build no longer dies at 30 s
+    with no way to raise `run_shell`'s own `timeout` above it.
+  - `grep` cuts matching lines over 500 characters; `glob` caps at 200 paths
+    (was 1000, which could exceed the output cap before its own footer).
 - Tools declare their own terminal-summary `category` (`ToolDefinition.category`,
   carried on `ToolResult`) instead of `ui/tools.ts` keeping a name-keyed
   `TOOL_CATEGORY` map, so a tool is defined in one place. A tool with no

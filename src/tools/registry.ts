@@ -21,6 +21,8 @@ export function defineTool<P>(def: {
   // Omit (or `true`) for read-only tools, which the loop batches in parallel;
   // `false` forces sequential execution. See ToolDefinition.parallel.
   parallel?: boolean
+  // See ToolDefinition.keep.
+  keep?: 'head' | 'ends'
   // See ToolDefinition.category.
   category?: ToolCategory
   parameters: z.ZodType<P>

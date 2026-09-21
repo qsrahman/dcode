@@ -486,11 +486,12 @@ flowchart TD
 
 **Purpose:** define, register, schema-ify, and run tools.
 **Location:** `src/tools/registry.ts` (`ToolRegistry`, `defineTool`, `toResponsesTool`), `src/tools/index.ts` (`createLocalTools`), `src/tools/local/*`.
-**Built-in tools (20):** `read_file`, `list_dir`, `grep`, `stat`, `glob`, `write_file`, `edit_file`, `move_file`, `copy_file`, `delete_file`, `make_dir`, `run_shell`, `run_process`, `read_process`, `kill_process`, `web_search`, `web_fetch`, `todowrite`, `ask_user`, `task`. `createLocalTools` registers them all, plus any MCP tools passed in. `task` is registered **last** so its description reflects the full tool set.
+**Built-in tools (14):** `read_file`, `grep`, `glob`, `write_file`, `edit_file`, `run_shell`, `run_process`, `read_process`, `kill_process`, `web_search`, `web_fetch`, `todowrite`, `ask_user`, `task`. `createLocalTools` registers them all, plus any MCP tools passed in. `task` is registered **last** so its description reflects the full tool set.
 **Notes:**
 - A tool is `defineTool({ name, description, parallel?, parameters: zod, execute(args, ctx) => Promise<string> })`. `args` is inferred from the zod schema, so don't hand-write a `ToolDefinition<{…}>` annotation.
 - Tools throw to signal failure. The thrown message becomes the model-visible `error: …`.
-- `parallel: false` marks mutating or stateful tools: `write_file`, `edit_file`, `move_file`, `copy_file`, `delete_file`, `make_dir`, `run_shell`, `run_process`, `kill_process`, `ask_user`, `task`. Everything else defaults to parallel-eligible. `read_process` is read-only, so it's parallel.
+- `parallel: false` marks mutating or stateful tools: `write_file`, `edit_file`, `run_shell`, `run_process`, `kill_process`, `ask_user`, `task`. Everything else defaults to parallel-eligible. `read_process` is read-only, so it's parallel.
+- `keep: 'ends'` on a tool (`run_shell`) makes `runTool` keep the start and the end of an oversized result instead of only the start, because a failing build or test prints its verdict last. `read_file` pages itself instead (`pageItems` in `fs.ts`) so its cut-off note can name the offset to resume from.
 - `createLocalTools` throws if a sub-agent policy names a tool nobody registered (`unknownAgentTools`).
 - Filesystem tools confine paths via `tools/local/paths.ts::resolvePath` (lexical `..` check plus a `realpath` check that also catches symlink escapes). `run_shell` is **not** confined beyond `cwd`.
 - Shared spawn options live in `tools/local/exec.ts` (`baseExecOptions`, `safeEnv`, `childMaxBuffer`). `safeEnv` drops env vars whose names match `KEY|SECRET|TOKEN|PASSWORD|PASS|CREDENTIAL|PRIVATE` so children can't read secrets.
@@ -502,7 +503,7 @@ flowchart TD
 **Purpose:** delegate self-contained work to a nested agent with its own history.
 **Location:** `src/agent/subagent.ts` (agent types), `src/tools/local/task.ts` (the tool).
 **Behaviour:**
-- Two types: `general` (policy `{deny: ['task']}`, so "everything except `task`") and `explore` (policy `{allow: [read_file, list_dir, grep, stat, glob, web_search, web_fetch]}`, read-only by construction).
+- Two types: `general` (policy `{deny: ['task']}`, so "everything except `task`") and `explore` (policy `{allow: [read_file, grep, glob, web_search, web_fetch]}`, read-only by construction).
 - `runSubAgent` builds a filtered `ToolRegistry`, rebinds `todowrite` to a fresh `TaskStore` (so it can't overwrite the parent's plan), uses a `ContextManager` with `auto: false`, a silent sink, `depth + 1`, and its own `instructions`. `MAX_DEPTH = 1`.
 - The result is wrapped as `<task state=… description=… agent=…>…</task>` and returned to the parent as a normal tool result.
 - Sub-agents run one at a time (`task` is `parallel: false`) and are never resumable.
@@ -605,7 +606,7 @@ flowchart LR
 | `maxTokens` | `8192` | Sent as `max_output_tokens`. |
 | `reasoningEffort`, `verbosity` | unset | Sent only if set; agent turns and sub-agents only, not compaction. |
 | `maxRetries` | `3` | SDK-level retries (429/5xx). |
-| `toolTimeout` | `30000` ms | Per tool call, enforced by `withDeadline`. |
+| `toolTimeout` | `120000` ms | Per tool call, enforced by `withDeadline`; also the ceiling for `run_shell`'s own `timeout` argument. |
 | `stateful` | `false` | Sets `store: true` on requests. **dcode does not chain `previous_response_id`**, so this only stores server-side. |
 | `ignore` | `['.git','node_modules']` | Skipped by `grep`/`glob`. |
 | `context` | (object) | `auto: true`, `window: 200000`, `reserved: 20000`, `keepTokens: 15000`, `prune: true`, `compactAt: 0.85`. Validated so `keepTokens < window − reserved`. |

@@ -46,7 +46,7 @@ function fsError(err: unknown, path: string): string {
   if (err instanceof Error && 'code' in err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'ENOENT') return `no such file or directory: ${path}`
-    if (code === 'EISDIR') return `is a directory, use list_dir: ${path}`
+    if (code === 'EISDIR') return `is a directory: ${path}`
     if (code === 'ENOTDIR') return `not a directory: ${path}`
     if (code === 'EACCES') return `permission denied: ${path}`
   }
@@ -71,9 +71,8 @@ async function withFsError<T>(
   }
 }
 
-// mkdir -p the parent of `path`, mirroring what `mv`/`cp` do for a
-// destination whose directory doesn't exist yet. Shared by write_file,
-// move_file, and copy_file, which all need exactly this.
+// mkdir -p the parent of `path`, so writing a file into a directory that
+// doesn't exist yet just works, as it would from a shell with `mkdir -p`.
 async function ensureParentDir(path: string, errPath: string): Promise<void> {
   await withFsError(errPath, () => mkdir(dirname(path), { recursive: true }))
 }

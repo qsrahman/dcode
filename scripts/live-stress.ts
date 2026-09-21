@@ -84,7 +84,7 @@ const scenarios: Scenario[] = [
   {
     name: 'broad-explore',
     prompt:
-      'Explore the dcode source under src/. Use list_dir on src, glob for every "**/*.ts" file, then grep for the word "Tool" across them, and summarize where the tools are defined and registered.',
+      'Explore the dcode source under src/. Use read_file on the src directory to list it, glob for every "**/*.ts" file, then grep for the word "Tool" across them, and summarize where the tools are defined and registered.',
   },
   {
     name: 'large-grep',

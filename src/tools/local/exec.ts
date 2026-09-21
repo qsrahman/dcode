@@ -75,6 +75,11 @@ async function runShell(
       ...baseExecOptions(ctx.root, ctx.signal),
       shell: true,
       killDescendants: true,
+      // No terminal is attached to a tool call. With the default open pipe, a
+      // command that reads stdin (`cat`, a bare `git commit`, an installer's
+      // prompt) would sit there until the timeout; /dev/null makes it see EOF
+      // and fail fast instead.
+      stdin: 'ignore',
       // Capped by ctx.config.toolTimeout: the runTool deadline races
       // every tool against that value, so letting this exceed it would kill
       // the loop's timeout first and orphan the child until its own (longer)
@@ -119,8 +124,11 @@ export const runShellTool = () =>
     name: 'run_shell',
     category: 'run',
     parallel: false,
+    // A failing build or test prints its verdict last, so an oversized result
+    // keeps its end as well as its start.
+    keep: 'ends',
     description:
-      'Run a shell command in the working directory with a timeout. Combined stdout/stderr is returned as the tool output.',
+      'Run a shell command in the working directory and return its combined stdout/stderr; a non-zero exit is reported as an error. The command has no stdin (it sees EOF) and is killed at the timeout, so start servers, watchers, and anything long-running with run_process instead. Also use this for file operations such as mv, cp, rm, mkdir, and for git.',
     parameters: z.object({
       command: z.string().describe('Shell command to execute'),
       timeout: z
