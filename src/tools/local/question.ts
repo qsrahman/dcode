@@ -93,6 +93,7 @@ function cancelled(): string[] {
 export const askUserTool = () =>
   defineTool({
     name: 'ask_user',
+    category: 'plan',
     parallel: false,
     description: `Use this tool when you need to ask the user questions during execution. This allows you to:
 1. Gather user preferences or requirements

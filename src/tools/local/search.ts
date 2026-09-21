@@ -119,6 +119,7 @@ function ignoreArgs(ignore: readonly string[]): string[] {
 const grepTool = () =>
   defineTool({
     name: 'grep',
+    category: 'search',
     description:
       'Search file contents for a regular expression under the working directory (backed by ripgrep — Rust regex syntax: no lookaround/backreferences, but no catastrophic-backtracking risk either).',
     parameters: z.object({
@@ -216,6 +217,7 @@ function formatRgLine(root: string, evt: RgEvent): string | null {
 const globTool = () =>
   defineTool({
     name: 'glob',
+    category: 'search',
     description:
       'List files matching glob pattern(s) under the working directory (backed by ripgrep --files — gitignore-style globs: `**` matches any depth, and a bare pattern like `*.ts` with no `/` also matches at any depth, not just the top level; anchor with a leading `/` for root-only).',
     parameters: z.object({

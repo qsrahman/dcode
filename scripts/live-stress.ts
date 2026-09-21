@@ -1,10 +1,9 @@
-import { createClient } from '../src/agent/client.ts'
+import { createRuntime } from '../src/agent/runtime.ts'
+import type { Runtime } from '../src/agent/runtime.ts'
 import { runAgent } from '../src/agent/loop.ts'
 import type { ResponseInput } from '../src/agent/client.ts'
 import { buildConfig } from '../src/config/config.ts'
 import { parseCli } from '../src/cli/args.ts'
-import { createLocalTools } from '../src/tools/index.ts'
-import { connectMcpServers } from '../src/tools/mcp/manager.ts'
 import { formatMcpServers } from '../src/cli/commands.ts'
 import { TaskStore } from '../src/agent/types.ts'
 import { ContextManager } from '../src/agent/context/manager.ts'
@@ -224,10 +223,10 @@ function narrationLines(out: string): string[] {
 }
 
 async function runScenario(
-  client: ReturnType<typeof createClient>,
+  client: Runtime['client'],
   config: ReturnType<typeof buildConfig>,
   logger: ReturnType<typeof createLogger>,
-  tools: ReturnType<typeof createLocalTools>,
+  tools: Runtime['tools'],
   tasks: TaskStore,
   scenario: Scenario,
 ): Promise<void> {
@@ -325,17 +324,13 @@ async function main(): Promise<void> {
   // Retry more so the SDK's backoff outlasts it.
   config.maxRetries = Math.max(config.maxRetries, 8)
   const logger = createLogger(config)
-  const client = createClient(config)
-  const tasks = new TaskStore()
-  // Same sequence as index.ts/repl.ts's createSession: connect whatever MCP
-  // servers are configured before assembling the tool registry, and close
-  // them on the way out regardless of how the run finishes. A server that's
+  // The same runtime a real session gets, MCP servers included: they're closed
+  // on the way out regardless of how the run finishes. A server that's
   // unreachable or missing an env-var secret (see manager.ts's
   // expandEnvPlaceholder) degrades to a 'failed' status rather than aborting
   // the whole stress run — the scenarios below don't depend on any specific
   // MCP server being up.
-  const mcp = await connectMcpServers(config.mcpServers, logger)
-  const tools = createLocalTools(tasks, client, mcp.tools)
+  const { client, tasks, mcp, tools } = await createRuntime(config, logger)
 
   console.log(
     `live stress: model=${config.model} baseURL=${config.baseURL ?? '(default)'} ` +

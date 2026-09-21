@@ -106,6 +106,7 @@ async function runShell(command: string, ctx: ToolContext): Promise<string> {
 export const runShellTool = () =>
   defineTool({
     name: 'run_shell',
+    category: 'run',
     parallel: false,
     description:
       'Run a shell command in the working directory with a timeout. Combined stdout/stderr is returned as the tool output.',

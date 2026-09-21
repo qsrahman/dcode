@@ -39,6 +39,7 @@ type TaskArgs = z.infer<typeof taskParameters>
 export const taskTool = (parentClient: Client, parentTools: ToolRegistry) =>
   defineTool({
     name: 'task',
+    category: 'plan',
     parallel: false,
     description: `Launch a new agent to handle complex, multistep tasks autonomously.
 

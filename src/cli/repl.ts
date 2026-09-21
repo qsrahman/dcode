@@ -1,12 +1,9 @@
 import { createInterface } from 'node:readline/promises'
 import type { Config } from '../config/schema.ts'
-import { createClient } from '../agent/client.ts'
-import { TaskStore } from '../agent/types.ts'
+import { createRuntime } from '../agent/runtime.ts'
 import { ContextManager } from '../agent/context/manager.ts'
 import { runAgent } from '../agent/loop.ts'
 import { isUserPrompt } from '../agent/types.ts'
-import { createLocalTools } from '../tools/index.ts'
-import { connectMcpServers } from '../tools/mcp/manager.ts'
 import type { RunSink } from '../ui/sink.ts'
 import { type Logger, errorMessage, isAbortError } from '../util/log.ts'
 import {
@@ -30,15 +27,13 @@ export async function createSession(
   config: Config,
   logger: Logger,
 ): Promise<Session> {
-  const tasks = new TaskStore()
-  const client = createClient(config)
-  const mcp = await connectMcpServers(config.mcpServers, logger)
+  const { client, tasks, mcp, tools } = await createRuntime(config, logger)
   return {
     config,
     logger,
     client,
     history: [],
-    tools: createLocalTools(tasks, client, mcp.tools),
+    tools,
     context: new ContextManager(config.context, logger, tasks),
     tasks,
     root: process.cwd(),

@@ -33,6 +33,7 @@ const WEB_FETCH_MAX_BYTES = 5 * 1024 * 1024
 export const webSearchTool = () =>
   defineTool({
     name: 'web_search',
+    category: 'web',
     description:
       'Search the web for a query and return the top results (title, URL, snippet). Use for current information, library or API docs, or anything not found in the working directory.',
     parameters: z.object({
@@ -108,6 +109,7 @@ const ACCEPT: Record<'markdown' | 'text' | 'html', string> = {
 export const webFetchTool = () =>
   defineTool({
     name: 'web_fetch',
+    category: 'web',
     description:
       "Fetch a URL and return its content. With format=markdown (default) HTML pages are converted to Markdown and JSON is pretty-printed; format=text or format=html return the body unconverted. Binary payloads are described, not dumped. Use to read a specific page, doc, or API response when you already know the URL; use web_search to discover URLs you don't know yet.",
     parameters: z.object({

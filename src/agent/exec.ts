@@ -25,6 +25,7 @@ export async function runTool(
     output: truncate(output, ctx.config.maxToolOutputBytes),
     ok,
     ms: Date.now() - start,
+    category: tool.category,
   })
   try {
     const raw = call.arguments ? JSON.parse(call.arguments) : {}
@@ -132,7 +133,14 @@ export async function runCalls(
     tool?: ToolDefinition,
   ): Promise<ToolResult> => {
     const result: ToolResult = ctx.signal?.aborted
-      ? { id: c.call_id, name: c.name, output: 'aborted', ok: false, ms: 0 }
+      ? {
+          id: c.call_id,
+          name: c.name,
+          output: 'aborted',
+          ok: false,
+          ms: 0,
+          category: tool?.category,
+        }
       : !tool
         ? {
             id: c.call_id,

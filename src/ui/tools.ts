@@ -2,7 +2,8 @@ import { isCI } from '@clack/prompts'
 import { paintFor } from '../util/color.ts'
 import type { Paint } from '../util/color.ts'
 import type { StreamActivity } from '../agent/client.ts'
-import type { ToolResult } from '../agent/types.ts'
+import { TOOL_CATEGORIES } from '../agent/types.ts'
+import type { ToolCategory, ToolResult } from '../agent/types.ts'
 
 // Terminal rendering for tool calls. Kept out of agent/loop.ts so that module
 // is orchestration only — the loop decides what happened, this decides how it
@@ -17,35 +18,10 @@ import type { ToolResult } from '../agent/types.ts'
 // sessions show a live counter while a batch runs (updated on each completion —
 // no timer) that freezes into this summary; piped/verbose output keeps the
 // per-tool lines below instead.
-const TOOL_CATEGORY: Record<string, string> = {
-  grep: 'search',
-  glob: 'search',
-  read_file: 'read',
-  list_dir: 'read',
-  stat: 'read',
-  write_file: 'edit',
-  edit_file: 'edit',
-  move_file: 'edit',
-  copy_file: 'edit',
-  delete_file: 'edit',
-  make_dir: 'edit',
-  run_shell: 'run',
-  run_process: 'run',
-  read_process: 'run',
-  kill_process: 'run',
-  web_search: 'web',
-  web_fetch: 'web',
-  todowrite: 'plan',
-  ask_user: 'plan',
-  task: 'plan',
-}
-// Print order for the summary segments. An unmapped tool falls into 'run' as a
-// catch-all so a newly added tool still appears rather than vanishing.
-const CATEGORY_ORDER = ['search', 'read', 'edit', 'run', 'web', 'plan'] as const
-
-function categoryOf(name: string): string {
-  return TOOL_CATEGORY[name] ?? 'run'
-}
+// Print order for the summary segments. A tool without a category (an MCP tool)
+// falls into 'run' as a catch-all so it still appears rather than vanishing.
+const CATEGORY_ORDER = TOOL_CATEGORIES
+const CATCH_ALL: ToolCategory = 'run'
 
 export interface TurnTally {
   counts: Record<string, number>
@@ -63,8 +39,12 @@ export function newTally(): TurnTally {
   return { counts: {}, done: 0, failed: 0, startedMs: Date.now() }
 }
 
-export function tallyResult(t: TurnTally, name: string, ok: boolean): void {
-  const cat = categoryOf(name)
+export function tallyResult(
+  t: TurnTally,
+  category: ToolCategory | undefined,
+  ok: boolean,
+): void {
+  const cat = category ?? CATCH_ALL
   t.counts[cat] = (t.counts[cat] ?? 0) + 1
   t.done += 1
   if (!ok) t.failed += 1
@@ -209,7 +189,7 @@ export function createToolProgress(
   return {
     onResult(r) {
       if (!live) return
-      tallyResult(pending, r.name, r.ok)
+      tallyResult(pending, r.category, r.ok)
       redraw(r.name)
     },
     onActivity(activity) {

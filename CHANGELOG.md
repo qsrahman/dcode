@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Added
+- `agent/runtime.ts::createRuntime(config, logger)` builds the session-lived
+  pieces every entry point needs (client, `TaskStore`, connected MCP servers,
+  tool registry). One-shot mode, `createSession`, and `scripts/live-stress.ts`
+  each hand-wired the same sequence before.
 - Live activity line (interactive TTY only): while the model is reasoning or
   streaming a tool call, the transient progress line shows `thinking…` or
   `<tool>…` instead of nothing, so a silent phase no longer looks like a hang.
@@ -36,6 +40,18 @@
   aborted turn.
 
 ### Changed
+- Tools declare their own terminal-summary `category` (`ToolDefinition.category`,
+  carried on `ToolResult`) instead of `ui/tools.ts` keeping a name-keyed
+  `TOOL_CATEGORY` map, so a tool is defined in one place. A tool with no
+  category (an MCP tool) still counts as `run`. `tests/tools/index.test.ts` now
+  fails, naming the tool, if a built-in has no category, and no longer carries a
+  hand-edited tool-count constant.
+- `CLAUDE.md` is cut from ~18 KB to ~5 KB: the architecture prose it repeated
+  now lives only in the code comments, `AGENTS.md`, and `ONBOARDING.md`, leaving
+  `CLAUDE.md` as a pointer, the commands, the hard constraints, and a short
+  easy-to-break list. `PLAN.md`'s references to its old paragraphs now point at
+  `ONBOARDING.md`. Also drops its stale mention of an `info` log level, which
+  the logger never had.
 - A model or endpoint whose streaming events don't match the Responses API
   shape now fails with a message that says so and names the endpoint and model
   (`… don't match the Responses API shape the SDK expects. Try a different model

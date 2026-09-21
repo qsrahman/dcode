@@ -4,6 +4,7 @@ import { createLocalTools } from '../../src/tools/index.ts'
 import { TaskStore } from '../../src/agent/types.ts'
 import type { Client } from '../../src/agent/client.ts'
 import { unknownAgentTools } from '../../src/agent/subagent.ts'
+import { TOOL_CATEGORIES } from '../../src/agent/types.ts'
 import type { ToolDefinition } from '../../src/agent/types.ts'
 
 const mockClient: Client = {
@@ -50,6 +51,15 @@ describe('createLocalTools', () => {
     // No accidental name collision silently overwriting an earlier
     // registration (ToolRegistry.register keys by name in a Map).
     expect(new Set(names).size).toBe(names.length)
+  })
+
+  // The terminal groups tools by this field; a built-in without one would land
+  // in the `run` catch-all and be miscounted in the per-query summary.
+  it('every built-in tool declares a known category', () => {
+    const registry = createLocalTools(new TaskStore(), mockClient)
+    for (const t of registry.list()) {
+      expect(TOOL_CATEGORIES, t.name).toContain(t.category)
+    }
   })
 
   it('converts to Responses tool schemas without throwing', () => {
@@ -99,7 +109,8 @@ describe('createLocalTools with MCP tools', () => {
       fakeMcpTool('mcp__srv__search'),
     ])
     expect(registry.get('mcp__srv__search')).toBeDefined()
-    expect(registry.list()).toHaveLength(21) // 20 built-ins + 1 MCP tool
+    const builtIns = createLocalTools(new TaskStore(), mockClient).list().length
+    expect(registry.list()).toHaveLength(builtIns + 1)
   })
 
   it("includes MCP tools in the task tool's own description", () => {

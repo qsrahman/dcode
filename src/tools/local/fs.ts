@@ -32,6 +32,7 @@ const LINE_COUNT_MAX = 1_000_000
 const readFileTool = () =>
   defineTool({
     name: 'read_file',
+    category: 'read',
     description:
       'Read a UTF-8 text file under the working directory. Supports paging (offset/limit in lines) and optional 1-based line numbers.',
     parameters: z.object({
@@ -111,6 +112,7 @@ const readFileTool = () =>
 const listDirTool = () =>
   defineTool({
     name: 'list_dir',
+    category: 'read',
     description: 'List a directory under the working directory.',
     parameters: z.object({
       path: z
@@ -146,6 +148,7 @@ const listDirTool = () =>
 const statTool = () =>
   defineTool({
     name: 'stat',
+    category: 'read',
     description:
       'Report type, size, modification time, and (for small text files) line count of a path under the working directory. Symlinks report their target.',
     parameters: z.object({
@@ -189,6 +192,7 @@ const statTool = () =>
 const writeFileTool = () =>
   defineTool({
     name: 'write_file',
+    category: 'edit',
     parallel: false,
     description:
       'Create or modify a UTF-8 text file under the working directory. Parent directories are created. Set append to add to the end; overwrite (default true) to replace an existing file, or false to refuse to clobber.',
@@ -236,6 +240,7 @@ const writeFileTool = () =>
 const editFileTool = () =>
   defineTool({
     name: 'edit_file',
+    category: 'edit',
     parallel: false,
     description:
       'Replace occurrences of a string in a file under the working directory. Requires an exact, unique match unless replace_all is set.',
@@ -283,6 +288,7 @@ const editFileTool = () =>
 const moveFileTool = () =>
   defineTool({
     name: 'move_file',
+    category: 'edit',
     parallel: false,
     description:
       'Move or rename a file or directory under the working directory. The destination parent directory is created if needed. Both paths must stay within the working directory.',
@@ -307,6 +313,7 @@ const moveFileTool = () =>
 const copyFileTool = () =>
   defineTool({
     name: 'copy_file',
+    category: 'edit',
     parallel: false,
     description:
       'Copy a file under the working directory to a new location. The destination parent directory is created if needed. Both paths must stay within the working directory.',
@@ -327,6 +334,7 @@ const copyFileTool = () =>
 const deleteFileTool = () =>
   defineTool({
     name: 'delete_file',
+    category: 'edit',
     parallel: false,
     description:
       'Delete a file or directory under the working directory. Directories require recursive: true. Refuses to delete the working directory root itself.',
@@ -356,6 +364,7 @@ const deleteFileTool = () =>
 const makeDirTool = () =>
   defineTool({
     name: 'make_dir',
+    category: 'edit',
     parallel: false,
     description:
       'Create a directory under the working directory, including any missing parents.',

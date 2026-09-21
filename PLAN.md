@@ -13,9 +13,9 @@ locked decisions, the CLI surface, and the phase table — keep these current.
 §10 is the forward-looking roadmap for work not yet built. §11 is a compact
 log of what each past phase did and why, for context on the shape of the
 system — it intentionally does **not** duplicate the implementation detail
-that [CLAUDE.md](./CLAUDE.md) and [AGENTS.md](./AGENTS.md) already carry (and
-keep current against the actual code); when this file and those disagree on
-present-tense architecture, CLAUDE.md/AGENTS.md win.
+that [AGENTS.md](./AGENTS.md) and [ONBOARDING.md](./ONBOARDING.md) already
+carry (and keep current against the actual code); when this file and those
+disagree on present-tense architecture, they and the code win.
 
 ## 1. Vision
 
@@ -81,6 +81,7 @@ src/
   agent/turn.ts       # runTurn (one model turn; streams + renders, returns the Response)
   agent/exec.ts       # runTool (one tool call, timeout+truncate) + runCalls (parallel/sequential scheduling)
   agent/loop.ts       # runAgent: tool-calling loop; runOneShot wraps it for one-shot
+  agent/runtime.ts    # createRuntime: client + TaskStore + connected MCP servers + tool registry — the startup wiring one-shot, the REPL, and `pnpm stress` share
   agent/context/      # context-window management (P10):
                       #   tokens.ts  (cheap ~4c/tok estimate, calibrated by real usage)
                       #   prune.ts   (collapse old tool outputs to a marker)
@@ -587,7 +588,7 @@ need for filler text.
 
 One entry per completed or cancelled phase: what it did, the decision worth
 remembering, and where to look for the real detail (code comments,
-CLAUDE.md/AGENTS.md, git history) rather than re-explaining it here.
+ONBOARDING.md, AGENTS.md, git history) rather than re-explaining it here.
 
 **P1 — Config + client + one-shot.** JSON config (decision A) via zod
 (`config/schema.ts`), the OpenAI Responses client wrapper (`agent/client.ts`),
@@ -612,8 +613,8 @@ crashing the loop.
 (`y`/`n`/`a` prompt) and a read-only/mutating call split. The gate was later
 removed entirely (see P5); the mutating *tools* and the parallel/sequential
 split survived as pure scheduling (`ToolDefinition.parallel`, default `true`,
-`false` on every side-effectful tool) — see AGENTS.md's Architecture section
-for the current shape (`runCalls` in `agent/exec.ts`).
+`false` on every side-effectful tool) — see ONBOARDING.md's tool framework
+section for the current shape (`runCalls` in `agent/exec.ts`).
 
 **P5 — Declarative permissions + modes — cancelled.** A full policy design
 was built: four modes (`interactive`/`auto`/`plan`/`dontAsk`), per-tool
@@ -637,8 +638,8 @@ A `headers`/`env` value that is exactly `${VAR_NAME}` expands from
 `process.env` at connect time, so a server's secret never has to sit in
 `dcode.json`. A server that fails to connect, or is disabled, is recorded in
 `McpManager.servers` with a distinct status rather than blocking startup.
-Closed on exit/SIGINT (decision I). See CLAUDE.md's MCP integration
-paragraph for the current implementation shape.
+Closed on exit/SIGINT (decision I). See ONBOARDING.md's MCP
+integration section for the current implementation shape.
 
 **P7 — Polish.** `--verbose`/stderr diagnostics, `--no-color`, SIGINT
 handling, and a documentation pass. No new locked decisions.
@@ -701,7 +702,7 @@ new locked decisions):
   read-only via an allow-list, `general` everything-but-`task` via a
   deny-list so it can't silently go stale as tools are added), its own
   `TaskStore`, a silent sink, and a nesting depth limit of 1. See
-  CLAUDE.md's Sub-agents paragraph.
+  ONBOARDING.md's Sub-agents section.
 - **Global API-key storage** (`cli/keys.ts`, the `/key` command) — persists
   `apiKey`/`braveApiKey` into `~/.config/dcode/dcode.json` (`0600`, directory
   `0700`) so a globally installed dcode doesn't need per-shell env vars.

@@ -4,11 +4,8 @@ import { parseCli, formatFlags } from './cli/args.ts'
 import { startRepl } from './cli/repl.ts'
 import { buildConfig, configWarnings } from './config/config.ts'
 import { configSchema } from './config/schema.ts'
-import { createClient } from './agent/client.ts'
-import { TaskStore } from './agent/types.ts'
+import { createRuntime } from './agent/runtime.ts'
 import { runOneShot } from './agent/loop.ts'
-import { createLocalTools } from './tools/index.ts'
-import { connectMcpServers } from './tools/mcp/manager.ts'
 import { createLogger, errorMessage, isAbortError } from './util/log.ts'
 import { getVersion } from './util/version.ts'
 import { ensureApiKey } from './cli/auth.ts'
@@ -54,14 +51,9 @@ export async function main(): Promise<void> {
       await startRepl(config, logger)
       return
     }
-    const client = createClient(config)
-    const tasks = new TaskStore()
-    // Decision I: MCP servers are spawned/connected at startup and closed on
-    // exit here too — a one-shot run is still a full session, just a short
-    // one, so it gets the same tools a REPL session would (see cli/repl.ts's
-    // createSession for the REPL-side equivalent of this same sequence).
-    const mcp = await connectMcpServers(config.mcpServers, logger)
-    const tools = createLocalTools(tasks, client, mcp.tools)
+    // A one-shot run is still a full session, just a short one: same client,
+    // MCP servers, and tools as the REPL, closed on the way out (decision I).
+    const { client, mcp, tools } = await createRuntime(config, logger)
     const ac = new AbortController()
     const onSigint = () => ac.abort()
     process.on('SIGINT', onSigint)

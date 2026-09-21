@@ -1,5 +1,9 @@
 import { z } from 'zod/v4'
-import type { ToolContext, ToolDefinition } from '../agent/types.ts'
+import type {
+  ToolCategory,
+  ToolContext,
+  ToolDefinition,
+} from '../agent/types.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
 
 // Build a ToolDefinition whose argument type is *derived* from its zod schema
@@ -17,6 +21,8 @@ export function defineTool<P>(def: {
   // Omit (or `true`) for read-only tools, which the loop batches in parallel;
   // `false` forces sequential execution. See ToolDefinition.parallel.
   parallel?: boolean
+  // See ToolDefinition.category.
+  category?: ToolCategory
   parameters: z.ZodType<P>
   // See ToolDefinition.jsonSchema — only MCP-sourced tools pass this.
   jsonSchema?: Record<string, unknown>

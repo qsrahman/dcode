@@ -15,6 +15,7 @@ const todoSchema = z.object({
 export const todoTool = (store: TaskStore) =>
   defineTool({
     name: 'todowrite',
+    category: 'plan',
     description: `Create and maintain a structured task list for the current coding session. Tracks progress, organizes multi-step work, and surfaces status to the user.
 
 ## When to use

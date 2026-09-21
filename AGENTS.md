@@ -128,7 +128,9 @@ load-bearing: `config.ignore` patterns go *after* the caller's own patterns,
 because ripgrep resolves competing globs last-match-wins.
 
 Define a tool with `tools/registry.ts`'s `defineTool`, which infers the
-argument type from its zod schema. Don't write a `ToolDefinition<{...}>`
+argument type from its zod schema. Give every built-in a `category` (how the
+terminal groups it in the per-query summary; `tests/tools/index.test.ts`
+enforces it) and set `parallel: false` if it mutates state. Don't write a `ToolDefinition<{...}>`
 annotation alongside the schema: the two have nothing keeping them in sync,
 and a tool that omits the annotation falls back to `P = unknown` and needs an
 unchecked `args as {...}` cast, which cannot fail to compile when the schema

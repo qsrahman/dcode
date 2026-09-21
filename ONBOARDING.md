@@ -21,7 +21,7 @@ This guide gets an experienced TypeScript/Node developer productive in `dcode`. 
 
 | If you're adding or changing… | Start in | Also touch |
 | ----------------------------- | -------- | ---------- |
-| a **tool** | `src/tools/local/*.ts` | register in `src/tools/index.ts`; **`tests/tools/index.test.ts` pins the exact tool list**; `TOOL_CATEGORY` in `src/ui/tools.ts` |
+| a **tool** | `src/tools/local/*.ts` | set `category`; register in `src/tools/index.ts`; **add the name to the pinned list in `tests/tools/index.test.ts`** |
 | a **slash command** | `COMMANDS` in `src/cli/commands.ts` | nothing else; `/help` and tab-completion derive from it |
 | a **CLI flag** | `FLAGS` in `src/cli/args.ts` | `CliOptions`, `parseCli`, then `buildConfig` |
 | a **config key** | `src/config/schema.ts` | `buildConfig` (env), `formatConfig` in `commands.ts`, `client.ts` if it changes the API request |
@@ -98,7 +98,7 @@ Two ideas to hold onto:
 | `src/index.ts` | Process entry point (`bin`). Wires CLI → config → auth → one-shot or REPL. | `main()` |
 | `src/cli/` | Terminal front end: flag parsing, REPL, slash commands, startup auth, `/key` storage, tab-completion, `$EDITOR` integration. | `args.ts`, `repl.ts`, `commands.ts`, `auth.ts`, `keys.ts`, `completer.ts`, `editor.ts` |
 | `src/config/` | Config schema (zod) and layered loading. | `schema.ts`, `config.ts` |
-| `src/agent/` | The agent runtime: loop, single turn, tool execution, model client, prompt, sub-agent types. | `loop.ts`, `turn.ts`, `exec.ts`, `client.ts`, `system.ts`, `subagent.ts`, `types.ts` |
+| `src/agent/` | The agent runtime: loop, single turn, tool execution, model client, prompt, sub-agent types, and the shared startup wiring. | `loop.ts`, `turn.ts`, `exec.ts`, `client.ts`, `system.ts`, `subagent.ts`, `runtime.ts`, `types.ts` |
 | `src/agent/context/` | Context-window management: token estimate, prune, compact, the manager. | `manager.ts`, `compact.ts`, `prune.ts`, `tokens.ts` |
 | `src/tools/` | Tool framework: registry, `defineTool`, the hub that registers built-ins. | `registry.ts`, `index.ts` |
 | `src/tools/local/` | Built-in tools, split by concern, plus shared helpers. | `fs.ts`, `search.ts`, `exec.ts`, `process.ts`, `web.ts`, `todo.ts`, `question.ts`, `task.ts`; helpers `paths.ts`, `http.ts` |
@@ -109,7 +109,7 @@ Two ideas to hold onto:
 | `tests/` | Vitest suites mirroring `src/`, plus shared fakes. | `helpers.ts`, `agent/loop.test.ts`, `cli/repl.test.ts`, `tools/local.test.ts` |
 | `scripts/live-stress.ts` | Live end-to-end test against a real model (`pnpm stress`). Not part of `pnpm test`. | |
 | `scripts/gaia/` | Python harness that runs dcode one-shot against the GAIA benchmark. Standalone. | `run_gaia.py` |
-| `README.md`, `AGENTS.md`, `CLAUDE.md`, `PLAN.md`, `CHANGELOG.md` | Docs. `AGENTS.md` is the developer guide; `PLAN.md` has the module tree, the 12 locked decisions (§6), the phase history. | |
+| `README.md`, `AGENTS.md`, `CLAUDE.md`, `PLAN.md`, `CHANGELOG.md`, `ONBOARDING.md` | Docs. `README.md` is user-facing. `AGENTS.md` is the developer guide (rules, conventions, security model). `CLAUDE.md` is a short pointer plus the hard constraints and the easy-to-break list, for Claude Code. `PLAN.md` has the module tree, the 12 locked decisions (§6), and the phase history. This file explains how the system works. | |
 | `package.json`, `tsconfig.json`, `vitest.config.ts`, `.prettierrc` | Tooling config. | |
 
 Note: `dcode.json` is git-ignored because it can hold secrets (`.gitignore`). CI is `.github/workflows/ci.yml` (typecheck, format check, tests on Node 26).
@@ -242,8 +242,9 @@ src/index.ts (#!/usr/bin/env node)
        │     no key → prompt on a TTY (REPL only) or return NO_KEY_HELP → exit 1
        │     401/403 from GET {base}/models → exit 1;  other failures → continue
        ├─ no prompt → startRepl(config, logger)        cli/repl.ts
-       └─ prompt    → createClient, new TaskStore, connectMcpServers,
-                      createLocalTools, then runOneShot(...) under a SIGINT→AbortController
+       └─ prompt    → createRuntime(config, logger)      agent/runtime.ts
+                      (client + TaskStore + connected MCP servers + tool registry),
+                      then runOneShot(...) under a SIGINT→AbortController
                       finally: mcp.close()
      any thrown error → logger.error(message); process.exit(1)
 ```
@@ -252,7 +253,7 @@ Execution begins at `src/index.ts::main()`. Nothing else runs at import time, ap
 
 ### 6.2 REPL: `src/cli/repl.ts::startRepl()`
 
-`createSession()` (async because MCP servers connect) builds the `Session`. `runRepl()` creates a `node:readline/promises` interface and runs `for await (const line of rl)`. `startRepl` wraps it in `try { … } finally { await session.mcp.close() }`.
+`createSession()` (async because MCP servers connect) builds the `Session` on top of `createRuntime()`, the same startup wiring one-shot mode and `pnpm stress` use. `runRepl()` creates a `node:readline/promises` interface and runs `for await (const line of rl)`. `startRepl` wraps it in `try { … } finally { await session.mcp.close() }`.
 
 ### 6.3 One-shot: `src/agent/loop.ts::runOneShot()`
 
@@ -431,6 +432,7 @@ The next prompt sends this entire array again, plus the new user item. That is w
 | ------ | ---- | ---- |
 | `runAgent`, `runOneShot`, `AgentResult` | `loop.ts` | Orchestration. |
 | `runTurn`, `TurnOpts` | `turn.ts` | One streamed model call plus rendering. |
+| `createRuntime`, `Runtime` | `runtime.ts` | The session-lived pieces every entry point needs: `Client`, `TaskStore`, connected MCP servers, and the tool registry. Used by `index.ts`, `createSession`, and the stress script. |
 | `runTool`, `runCalls` | `exec.ts` | Execute tool calls with deadline, truncation, parallel/sequential scheduling. |
 | `createClient`, `Client`, `ModelStream`, `StreamActivity`, `isContextOverflowError` | `client.ts` | Thin wrapper over the OpenAI SDK. |
 | `ToolDefinition`, `ToolContext`, `ToolCall`, `ToolResult`, `TaskStore`, `Todo`, `ResponseItemFields`, `isUserPrompt`, `CONTINUE_PROMPT` | `types.ts` | Shared types, the todo store class, and the prompt-vs-`Continue.` helper. |
@@ -522,7 +524,7 @@ flowchart TD
 **Location:** `src/ui/`.
 **Notes:**
 - `markdown.ts`: `MarkdownStreamRenderer` buffers deltas and emits only text up to a blank-line boundary outside an unclosed code fence, so partial markdown never shows. It re-renders the safe prefix each time and emits only new lines. It patches two `marked-terminal` bugs (`text` renderer, spurious ANSI-only lines).
-- `tools.ts::createToolProgress`: **live mode** (a real TTY, not CI, not `--verbose`) shows one in-place counter that freezes into a category summary (`2 search · 13 read · 8.5s`). Otherwise it prints one `› name: ✓ done (0.3s)` line per call. `--verbose` also echoes raw tool output.
+- `tools.ts::createToolProgress`: **live mode** (a real TTY, not CI, not `--verbose`) shows one in-place counter that freezes into a category summary (`2 search · 13 read · 8.5s`). Otherwise it prints one `› name: ✓ done (0.3s)` line per call. The family a tool counts under comes from its own `category` (a tool without one, such as an MCP tool, counts as `run`). `--verbose` also echoes raw tool output.
 - `sink.ts`: `RunSink { write(text) }` is the seam between the agent and stdout; `CapturingSink` collects output for tests and the stress script.
 
 ### 8.10 Utilities
@@ -691,14 +693,13 @@ flowchart TD
 
 ### Add a tool
 
-1. Define it with `defineTool` in the matching `src/tools/local/*.ts` file (or a new one). Use a zod `parameters` schema, set `parallel: false` if it mutates state, and throw on failure. Use `withResolvedPath`/`resolvePath` for any user-supplied path, and `baseExecOptions`/`fetchSafely` for spawns and network, so confinement, signals, and env filtering apply.
+1. Define it with `defineTool` in the matching `src/tools/local/*.ts` file (or a new one). Use a zod `parameters` schema, set `category` (`search`, `read`, `edit`, `run`, `web`, or `plan`, which is how the terminal groups it), set `parallel: false` if it mutates state, and throw on failure. Use `withResolvedPath`/`resolvePath` for any user-supplied path, and `baseExecOptions`/`fetchSafely` for spawns and network, so confinement, signals, and env filtering apply.
 2. Register it in `src/tools/index.ts::createLocalTools`.
-3. **Update `tests/tools/index.test.ts`.** It asserts the exact list of built-in tool names and a total count (`toHaveLength(21) // 20 built-ins + 1 MCP tool`). Both fail until you add your tool. This is the step people miss: typecheck passes and only that test fails.
-4. Add it to `TOOL_CATEGORY` in `src/ui/tools.ts` (an unmapped tool silently lands in the `run` bucket).
-5. If `explore` should be able to use it, add it to `EXPLORE_TOOLS` in `agent/subagent.ts`. `general` picks it up automatically.
-6. Add tests, then update the README tools table, `PLAN.md`'s tree, and `CHANGELOG.md`.
+3. **Add the name to the expected list in `tests/tools/index.test.ts`.** That test pins the exact set of built-in tools, so it fails until you do. This is the step people miss: typecheck passes and only that test fails. (A second test in the same file fails, naming your tool, if you forgot `category`.)
+4. If `explore` should be able to use it, add it to `EXPLORE_TOOLS` in `agent/subagent.ts`. `general` picks it up automatically.
+5. Add tests, then update the README tools table, `PLAN.md`'s tree, and `CHANGELOG.md`.
 
-A complete example (a hypothetical `word_count` tool). These exact steps were run in a scratch copy of the repo, and typecheck, Prettier, and all tests passed at the end:
+A complete example (a hypothetical `word_count` tool). These exact steps were run in a scratch copy of the repo: with no `category` and no list entry two tests failed, with `category` only the pinned-list test failed, and with both, typecheck and all tests passed:
 
 ```ts
 // src/tools/local/wordcount.ts
@@ -710,6 +711,7 @@ import { withResolvedPath } from './paths.ts'
 export const wordCountTool = () =>
   defineTool({
     name: 'word_count',
+    category: 'read',
     description: 'Count the words in a text file under the working directory.',
     parameters: z.object({ path: z.string().describe('File to count') }),
     async execute(args, ctx) {
@@ -723,8 +725,7 @@ export const wordCountTool = () =>
 
 ```ts
 // src/tools/index.ts — import it, then add wordCountTool() to the list passed to new ToolRegistry([...])
-// src/ui/tools.ts   — TOOL_CATEGORY: word_count: 'read',
-// tests/tools/index.test.ts — add 'word_count' to the expected names, and change 21 → 22
+// tests/tools/index.test.ts — add 'word_count' to the expected names
 ```
 
 ```ts

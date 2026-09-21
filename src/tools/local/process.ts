@@ -148,6 +148,7 @@ process.on('exit', () => processManager.killAll())
 const runProcessTool = () =>
   defineTool({
     name: 'run_process',
+    category: 'run',
     parallel: false,
     description:
       'Start a long-running shell command in the background and return a handle. Use read_process to get its output and kill_process to stop it. The process keeps running after this turn ends (across turns, until stopped); it is killed automatically only when dcode itself exits.',
@@ -168,6 +169,7 @@ const runProcessTool = () =>
 const readProcessTool = () =>
   defineTool({
     name: 'read_process',
+    category: 'run',
     description:
       'Return recent output from a background process started with run_process. Shows the last lines and whether it is still running or has exited (with its exit code).',
     parameters: z.object({
@@ -197,6 +199,7 @@ const readProcessTool = () =>
 const killProcessTool = () =>
   defineTool({
     name: 'kill_process',
+    category: 'run',
     parallel: false,
     description:
       'Stop a background process started with run_process. Sends SIGTERM by default; use signal to choose another (e.g. SIGKILL).',

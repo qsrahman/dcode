@@ -14,6 +14,18 @@ export interface ToolContext {
   depth?: number
 }
 
+// How the terminal groups a tool in the per-query summary (`2 search · 13 read`).
+// Purely presentational; scheduling is `parallel`, not this.
+export const TOOL_CATEGORIES = [
+  'search',
+  'read',
+  'edit',
+  'run',
+  'web',
+  'plan',
+] as const
+export type ToolCategory = (typeof TOOL_CATEGORIES)[number]
+
 export interface ToolDefinition<P = unknown> {
   name: string
   description: string
@@ -33,6 +45,10 @@ export interface ToolDefinition<P = unknown> {
   // tools set this so side effects don't race; read-only tools default to
   // parallel. This is scheduling only — there is no approval gate.
   parallel?: boolean
+  // Summary bucket for the terminal (see TOOL_CATEGORIES). Built-in tools all
+  // set it (tests/tools/index.test.ts enforces that); a tool without one, such
+  // as an MCP tool, is shown under `run`.
+  category?: ToolCategory
 }
 
 export interface ToolCall {
@@ -47,6 +63,7 @@ export interface ToolResult {
   output: string
   ok: boolean
   ms: number
+  category?: ToolCategory
 }
 
 // Structural view of the fields accessed on ResponseInputItem / ResponseOutputItem

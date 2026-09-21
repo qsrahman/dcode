@@ -39,6 +39,7 @@ function fakeClientWithCalls(calls: unknown[][]): Client {
 
 const readTool: ToolDefinition = {
   name: 'read_file',
+  category: 'read',
   description: 'reads',
   parameters: z.object({}),
   async execute() {
@@ -48,6 +49,7 @@ const readTool: ToolDefinition = {
 
 const writeTool: ToolDefinition = {
   name: 'write_file',
+  category: 'edit',
   description: 'writes',
   parameters: z.object({ path: z.string() }),
   async execute(args: { path: string }) {
