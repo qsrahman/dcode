@@ -1,6 +1,16 @@
 ## [Unreleased]
 
 ### Added
+- Live activity line (interactive TTY only): while the model is reasoning or
+  streaming a tool call, the transient progress line shows `thinking…` or
+  `<tool>…` instead of nothing, so a silent phase no longer looks like a hang.
+  `Client.stream` takes an `onActivity` callback fed from the stream's
+  `response.output_item.added` events; `runTurn` forwards it and the tool-progress
+  reporter gains `onActivity`. `freeze()` now also erases the line when no tool
+  ran, and `runAgent` freezes it if a turn throws, so an error message never
+  lands on a half-drawn line. Nothing changes off a TTY or in `--verbose`.
+- CI workflow (`.github/workflows/ci.yml`): typecheck, format check, and tests on
+  push to `main` and on pull requests.
 - Optional `reasoningEffort` and `verbosity` config keys, forwarded to the
   Responses API as `reasoning.effort` and `text.verbosity` on agent turns
   (`runTurn` passes them to `Client.stream`; compaction keeps the provider
@@ -26,6 +36,15 @@
   aborted turn.
 
 ### Changed
+- A model or endpoint whose streaming events don't match the Responses API
+  shape now fails with a message that says so and names the endpoint and model
+  (`… don't match the Responses API shape the SDK expects. Try a different model
+  or endpoint.`), instead of the SDK's bare `missing content at index 0`.
+- Compaction's tail cut (`compact.ts::takeTail`) now snaps back to a real user
+  prompt via `isUserPrompt`, so it can no longer start the kept tail at an
+  injected `Continue.` and strand it from the partial answer it continues.
+  `isUserPrompt` and `CONTINUE_PROMPT` moved from `agent/loop.ts` to
+  `agent/types.ts` (the shared module both `loop.ts` and `context/` can import).
 - System prompt revised against OpenAI's GPT-5/5.1 and Anthropic's prompting
   guidance:
   - New "Completing the task" section: keep going until the request is

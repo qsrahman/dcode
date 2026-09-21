@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { stripVTControlCharacters } from 'node:util'
 import {
   newTally,
   tallyResult,
   renderProgressLine,
   renderCategorySummary,
+  createToolProgress,
 } from '../../src/ui/tools.ts'
 
 const clean = (s: string) => stripVTControlCharacters(s)
@@ -29,6 +30,12 @@ describe('tallyResult', () => {
 })
 
 describe('renderProgressLine', () => {
+  it('omits the count before any tool has finished', () => {
+    expect(clean(renderProgressLine(newTally(), 'thinking…', 400, false))).toBe(
+      '⋯ thinking… · 0.4s',
+    )
+  })
+
   it('shows a running count and the current tool — width independent of call count', () => {
     const t = newTally()
     for (let i = 0; i < 11; i++) tallyResult(t, 'edit_file', true)
@@ -78,5 +85,73 @@ describe('renderCategorySummary', () => {
     expect(clean(renderCategorySummary(t, 1100, false))).toBe(
       '1 search · 1 read · 1.1s',
     )
+  })
+})
+
+// Live mode is gated on process.stdout.isTTY and not CI, so force both.
+describe('createToolProgress — activity line', () => {
+  const realIsTTY = process.stdout.isTTY
+  const realCI = process.env.CI
+  const CLEAR_LINE = '\r\x1b[2K'
+
+  beforeEach(() => {
+    delete process.env.CI
+  })
+  afterEach(() => {
+    process.stdout.isTTY = realIsTTY
+    if (realCI === undefined) delete process.env.CI
+    else process.env.CI = realCI
+  })
+
+  function reporter(live: boolean) {
+    process.stdout.isTTY = live
+    const chunks: string[] = []
+    const progress = createToolProgress(
+      { write: (t) => void chunks.push(t) },
+      { color: false, verbose: false },
+    )
+    return {
+      progress,
+      text: () => clean(chunks.join('')),
+      raw: () => chunks.join(''),
+    }
+  }
+
+  it('shows thinking, then erases the line when the answer starts', () => {
+    const { progress, text, raw } = reporter(true)
+    progress.onActivity({ kind: 'reasoning' })
+    expect(text()).toContain('⋯ thinking…')
+    progress.freeze() // what runTurn's onBeforeText does at the first text
+    expect(raw().endsWith(CLEAR_LINE)).toBe(true)
+    // Nothing ran, so no summary line is written.
+    expect(text()).not.toMatch(/search|read|edit|run/)
+  })
+
+  it('names the tool the model is calling, then folds into the normal summary', () => {
+    const { progress, text } = reporter(true)
+    progress.onActivity({ kind: 'tool_call', name: 'read_file' })
+    expect(text()).toContain('⋯ read_file…')
+    progress.onResult({
+      id: '1',
+      name: 'read_file',
+      output: '',
+      ok: true,
+      ms: 5,
+    })
+    progress.freeze()
+    expect(text()).toContain('1 read')
+  })
+
+  it('writes nothing off a TTY', () => {
+    const { progress, raw } = reporter(false)
+    progress.onActivity({ kind: 'reasoning' })
+    progress.freeze()
+    expect(raw()).toBe('')
+  })
+
+  it('freeze with nothing on screen writes nothing', () => {
+    const { progress, raw } = reporter(true)
+    progress.freeze()
+    expect(raw()).toBe('')
   })
 })

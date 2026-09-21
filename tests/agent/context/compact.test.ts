@@ -7,6 +7,7 @@ import type {
 import type { Config } from '../../../src/config/schema.ts'
 import { createLogger } from '../../../src/util/log.ts'
 import { compactHistory } from '../../../src/agent/context/compact.ts'
+import { CONTINUE_PROMPT } from '../../../src/agent/types.ts'
 import { cfg } from '../../helpers.ts'
 
 function summaryClient(summary: string): Client {
@@ -74,6 +75,44 @@ describe('compactHistory', () => {
     expect((out![0] as { content: string }).content).toBe('SUMMARY')
     // most recent user message retained verbatim
     expect((out![1] as { content: string }).content).toBe('second request')
+  })
+
+  // The cut snaps back to a user message so a turn is never split. An injected
+  // "Continue." is a user-role item but not a prompt: cutting there would keep
+  // the continuation while summarizing away the partial answer it continues.
+  it('does not start the tail at an injected Continue.', async () => {
+    const config = cfg({
+      context: {
+        auto: true,
+        window: 200000,
+        reserved: 20000,
+        keepTokens: 4, // just enough to reach back to the Continue. item
+        prune: true,
+        compactAt: 0.85,
+      },
+    }) as Config
+    const history: ResponseInput = [
+      { role: 'user', content: 'first request' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'second request' },
+      { role: 'assistant', content: 'partial answer' },
+      { role: 'user', content: CONTINUE_PROMPT },
+      { role: 'assistant', content: 'rest' },
+    ]
+    const out = await compactHistory(
+      summaryClient('SUMMARY'),
+      config,
+      history,
+      createLogger(config),
+    )
+    const contents = out!.map((h) => (h as { content: string }).content)
+    expect(contents).toEqual([
+      'SUMMARY',
+      'second request',
+      'partial answer',
+      CONTINUE_PROMPT,
+      'rest',
+    ])
   })
 
   it('returns null when there is nothing to summarize', async () => {

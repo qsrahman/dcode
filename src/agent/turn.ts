@@ -1,4 +1,9 @@
-import type { Client, OpenAIResponse, ResponseInput } from './client.ts'
+import type {
+  Client,
+  OpenAIResponse,
+  ResponseInput,
+  StreamActivity,
+} from './client.ts'
 import type { Config } from '../config/schema.ts'
 import type { Logger } from '../util/log.ts'
 import type { Tool as ResponsesTool } from 'openai/resources/responses/responses'
@@ -17,6 +22,9 @@ export interface TurnOpts {
   // visible text, so the first delta reliably marks the tool→answer
   // transition. Not called for a turn that streams nothing (a pure tool call).
   onBeforeText?: () => void
+  // Forwarded to the client: called when the model starts a reasoning item or a
+  // tool call, before any visible text. Purely a UI hint.
+  onActivity?: (activity: StreamActivity) => void
 }
 
 // Universal turn runner shared by one-shot and the REPL. Streams output to
@@ -40,6 +48,7 @@ export async function runTurn(
     tools,
     instructions: opts.instructions,
     signal: opts.signal,
+    onActivity: opts.onActivity,
     reasoningEffort: config.reasoningEffort,
     verbosity: config.verbosity,
   })

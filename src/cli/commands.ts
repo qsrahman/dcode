@@ -14,7 +14,7 @@ import { getVersion } from '../util/version.ts'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { createClient } from '../agent/client.ts'
-import { isUserPrompt } from '../agent/loop.ts'
+import { isUserPrompt } from '../agent/types.ts'
 import {
   isKnownProvider,
   keyField,

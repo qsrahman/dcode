@@ -9,8 +9,10 @@ interface CapturedCall {
 const streamCalls: CapturedCall[] = []
 // Events the fake SDK stream will emit for the *next* stream() call; reset
 // per test so each test controls exactly what the async iterator yields.
-let nextEvents: { type: string; delta?: string }[] = []
+let nextEvents: { type: string; delta?: string; item?: unknown }[] = []
 let finalResponseValue: unknown = {}
+let nextStreamError: Error | undefined
+let nextFinalError: Error | undefined
 
 // createClient constructs a real `new OpenAI(...)` internally and calls
 // `client.responses.stream(params, opts)`; mock the SDK so we can inspect
@@ -28,8 +30,12 @@ vi.mock('openai', () => {
         return {
           async *[Symbol.asyncIterator]() {
             for (const e of events) yield e
+            if (nextStreamError) throw nextStreamError
           },
-          finalResponse: async () => finalResponseValue,
+          finalResponse: async () => {
+            if (nextFinalError) throw nextFinalError
+            return finalResponseValue
+          },
         }
       },
     }
@@ -44,6 +50,8 @@ describe('createClient', () => {
     streamCalls.length = 0
     nextEvents = []
     finalResponseValue = {}
+    nextStreamError = undefined
+    nextFinalError = undefined
   })
 
   function streamOnce(
@@ -147,6 +155,36 @@ describe('createClient', () => {
       expect(chunks).toEqual(['Hel', 'lo'])
     })
 
+    it('reports reasoning and tool-call starts through onActivity without yielding them', async () => {
+      nextEvents = [
+        { type: 'response.output_item.added', item: { type: 'reasoning' } },
+        {
+          type: 'response.output_item.added',
+          item: { type: 'function_call', name: 'read_file' },
+        },
+        { type: 'response.output_item.added', item: { type: 'message' } },
+        { type: 'response.output_text.delta', delta: 'hi' },
+      ]
+      const seen: unknown[] = []
+      const stream = streamOnce(cfg(), { onActivity: (a) => seen.push(a) })
+      const chunks: string[] = []
+      for await (const delta of stream) chunks.push(delta)
+      expect(chunks).toEqual(['hi'])
+      expect(seen).toEqual([
+        { kind: 'reasoning' },
+        { kind: 'tool_call', name: 'read_file' },
+      ])
+    })
+
+    it('works without an onActivity callback', async () => {
+      nextEvents = [
+        { type: 'response.output_item.added', item: { type: 'reasoning' } },
+      ]
+      for await (const _ of streamOnce(cfg())) {
+        // no-op
+      }
+    })
+
     it('delegates finalResponse to the SDK stream', async () => {
       finalResponseValue = { output_text: 'done', output: [] }
       const stream = streamOnce(cfg())
@@ -158,6 +196,53 @@ describe('createClient', () => {
         output_text: 'done',
         output: [],
       })
+    })
+  })
+  describe('non-conformant endpoint errors', () => {
+    it('explains SDK stream-shape errors and keeps the original as the cause', async () => {
+      const original = new Error('missing content at index 0')
+      nextStreamError = original
+      const stream = streamOnce(
+        cfg({ baseURL: 'http://localhost:11434/v1', model: 'some-model' }),
+      )
+      const err = await (async () => {
+        try {
+          for await (const _ of stream) {
+            // drain
+          }
+        } catch (e) {
+          return e as Error
+        }
+      })()
+      expect(err?.message).toContain('missing content at index 0')
+      expect(err?.message).toContain('http://localhost:11434/v1')
+      expect(err?.message).toContain('some-model')
+      expect(err?.message).toContain('Try a different model or endpoint')
+      expect(err?.cause).toBe(original)
+    })
+
+    it('explains the same errors when they surface from finalResponse', async () => {
+      nextFinalError = new Error('stream ended without producing a Response')
+      const stream = streamOnce(cfg())
+      for await (const _ of stream) {
+        // drain
+      }
+      await expect(stream.finalResponse()).rejects.toThrow(
+        /stream ended without producing a Response.*Try a different model/s,
+      )
+    })
+
+    it('passes unrelated errors through untouched', async () => {
+      const original = new Error('Connection error.')
+      nextStreamError = original
+      const stream = streamOnce(cfg())
+      await expect(
+        (async () => {
+          for await (const _ of stream) {
+            // drain
+          }
+        })(),
+      ).rejects.toBe(original)
     })
   })
 })

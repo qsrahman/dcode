@@ -9,6 +9,13 @@ import type { Config } from '../config/schema.ts'
 
 export type { ResponseInput, OpenAIResponse }
 
+// Coarse "what the model just started doing" signals, taken from the stream's
+// `response.output_item.added` events. Nothing is printed for them by the
+// client; they exist so the UI can show life during a silent reasoning or
+// tool-argument phase (see ui/tools.ts's onActivity).
+export type StreamActivity =
+  { kind: 'reasoning' } | { kind: 'tool_call'; name: string }
+
 export interface ModelStream extends AsyncIterable<string> {
   finalResponse(): Promise<OpenAIResponse>
 }
@@ -21,6 +28,7 @@ export interface Client {
       maxOutputTokens?: number
       instructions?: string
       signal?: AbortSignal
+      onActivity?: (activity: StreamActivity) => void
       reasoningEffort?: Config['reasoningEffort']
       verbosity?: Config['verbosity']
     },
@@ -51,6 +59,24 @@ export function isContextOverflowError(err: unknown): boolean {
   }
   return OVERFLOW_MESSAGE_RE.test(
     err instanceof Error ? err.message : String(err),
+  )
+}
+
+// The SDK's ResponseStream throws these bare OpenAIErrors when the endpoint's
+// events don't have the Responses API shape it accumulates against (or the
+// stream carries no response at all). Matched by message like OVERFLOW_MESSAGE_RE
+// above: the SDK gives them no code or subclass to match on.
+const STREAM_SHAPE_RE =
+  /^(missing (?:output|content) at index \d+|expected content to be |request ended without sending any events|stream ended without producing a Response)/
+
+// A raw "missing content at index 0" reads like a dcode bug; it's nearly always
+// the endpoint or model not speaking the Responses streaming protocol.
+function explainStreamError(err: unknown, config: Config): unknown {
+  if (!(err instanceof Error) || !STREAM_SHAPE_RE.test(err.message)) return err
+  const where = config.baseURL ?? 'the default OpenAI endpoint'
+  return new Error(
+    `${err.message} — the streaming events from ${where} (model "${config.model}") don't match the Responses API shape the SDK expects. Try a different model or endpoint.`,
+    { cause: err },
   )
 }
 
@@ -97,13 +123,27 @@ export function createClient(config: Config): Client {
       const s = client.responses.stream(params, { signal: opts?.signal })
       return {
         async *[Symbol.asyncIterator]() {
-          for await (const event of s) {
-            if (event.type === 'response.output_text.delta') {
-              yield event.delta
+          try {
+            for await (const event of s) {
+              if (event.type === 'response.output_text.delta') {
+                yield event.delta
+              } else if (event.type === 'response.output_item.added') {
+                const { item } = event
+                if (item.type === 'reasoning') {
+                  opts?.onActivity?.({ kind: 'reasoning' })
+                } else if (item.type === 'function_call') {
+                  opts?.onActivity?.({ kind: 'tool_call', name: item.name })
+                }
+              }
             }
+          } catch (err) {
+            throw explainStreamError(err, config)
           }
         },
-        finalResponse: () => s.finalResponse(),
+        finalResponse: () =>
+          s.finalResponse().catch((err: unknown) => {
+            throw explainStreamError(err, config)
+          }),
       }
     },
   }

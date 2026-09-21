@@ -597,6 +597,66 @@ describe('runAgent — interactive tool summary', () => {
     }
   })
 
+  // A client that reports model activity through the callback runTurn passes
+  // down, then either streams text or fails, like a real reasoning model would.
+  function activityClient(mode: 'answer' | 'fail'): Client {
+    return {
+      stream(_input, opts) {
+        opts?.onActivity?.({ kind: 'reasoning' })
+        return {
+          async *[Symbol.asyncIterator]() {
+            if (mode === 'fail') throw new Error('boom')
+            yield 'answer'
+          },
+          finalResponse: async () =>
+            ({
+              output: [messageItem('answer')],
+              output_text: 'answer',
+            }) as unknown as OpenAIResponse,
+        }
+      },
+    }
+  }
+
+  it('shows a thinking line during a silent phase and erases it when text starts', async () => {
+    process.stdout.isTTY = true
+    try {
+      const sink = new CapturingSink()
+      await runAgent(
+        activityClient('answer'),
+        cfg(),
+        [{ role: 'user', content: 'go' }],
+        { sink, logger: createLogger(cfg()) },
+      )
+      const raw = sink.text
+      expect(stripVTControlCharacters(raw)).toContain('⋯ thinking…')
+      // The transient line is cleared before the answer is written over it.
+      expect(raw.indexOf('\r\x1b[2K', raw.indexOf('thinking'))).toBeLessThan(
+        raw.indexOf('answer'),
+      )
+    } finally {
+      process.stdout.isTTY = realIsTTY
+    }
+  })
+
+  it('erases the activity line when the turn fails, so the error lands on a clean line', async () => {
+    process.stdout.isTTY = true
+    try {
+      const sink = new CapturingSink()
+      await expect(
+        runAgent(
+          activityClient('fail'),
+          cfg(),
+          [{ role: 'user', content: 'go' }],
+          { sink, logger: createLogger(cfg()) },
+        ),
+      ).rejects.toThrow('boom')
+      expect(sink.text.endsWith('\r\x1b[2K')).toBe(true)
+    } finally {
+      process.stdout.isTTY = realIsTTY
+    }
+  })
+
   it('keeps the per-tool lines (no summary) when not a TTY', async () => {
     process.stdout.isTTY = false
     try {

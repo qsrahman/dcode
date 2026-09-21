@@ -99,7 +99,7 @@ dcode -- "--this reads as a prompt, not a flag"
 
  The REPL supports tab-completion: slash commands complete from the list above,
  and the last whitespace-delimited token is completed as a file path under the
- working directory. While a turn calls tools, the terminal shows a single live
+ working directory. While a turn runs, the terminal shows a single live
  counter that updates in place and then settles into a one-line summary grouped
  by tool family (e.g. `2 search · 13 read · 8.5s`) above the answer, so a turn
  that makes many tool calls stays one line rather than scrolling. In `--verbose`

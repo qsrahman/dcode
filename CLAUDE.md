@@ -109,7 +109,11 @@ across every tool turn, and is frozen by the reporter's `freeze()` — fired via
 `runTurn`'s `onBeforeText` hook just before the first visible answer chunk
 (reliable because intermediate reasoning turns emit no visible text), with an
 end-of-loop and abort-path freeze for a query that ends on tools with no
-closing text. Piped/non-TTY/CI output and `--verbose` instead keep the stable
+closing text. The same transient line also shows `thinking…` / `<tool>…`
+(`onActivity`, fed from the stream's `response.output_item.added` events via
+`Client.stream`'s `onActivity` option) during a silent reasoning or
+tool-argument phase; `freeze()` erases it when no tool ran, and `runAgent`
+freezes it if a turn throws. Piped/non-TTY/CI output and `--verbose` instead keep the stable
 one-line-per-call form (`renderToolResult`/`renderToolOutput`) — a log wants
 one record per call, and only a TTY can rewrite a line in place. The turn
 itself is run through `completeTurn`, which quarantines the two provider-side

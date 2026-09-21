@@ -112,7 +112,7 @@ Two ideas to hold onto:
 | `README.md`, `AGENTS.md`, `CLAUDE.md`, `PLAN.md`, `CHANGELOG.md` | Docs. `AGENTS.md` is the developer guide; `PLAN.md` has the module tree, the 12 locked decisions (§6), the phase history. | |
 | `package.json`, `tsconfig.json`, `vitest.config.ts`, `.prettierrc` | Tooling config. | |
 
-Note: `dcode.json` is git-ignored because it can hold secrets (`.gitignore`). There is no `.github/` directory (see [§21](#21-known-unknowns)).
+Note: `dcode.json` is git-ignored because it can hold secrets (`.gitignore`). CI is `.github/workflows/ci.yml` (typecheck, format check, tests on Node 26).
 
 ---
 
@@ -154,7 +154,7 @@ Prerequisites: Node.js ≥ 26 and pnpm (verified with Node v26.8.2 and pnpm 12.4
 pnpm install
 pnpm typecheck       # tsc --noEmit
 pnpm format:check    # prettier --check .
-pnpm test            # vitest run — all green, ~5 s (446 tests in 33 files at time of writing)
+pnpm test            # vitest run — all green, ~5 s (459 tests in 33 files at time of writing)
 ```
 
 These three checks are also the pre-commit gate (`AGENTS.md`).
@@ -297,7 +297,8 @@ runTurn(client, config, input, opts)                       agent/turn.ts
   │     └─ client.responses.stream({ model, input, max_output_tokens: config.maxTokens,
   │            stream: true, store: config.stateful, [tools] [instructions]
   │            [reasoning.effort] [text.verbosity] }, { signal })
-  │        yields ONLY `response.output_text.delta` strings (every other SDK event is dropped)
+  │        yields `response.output_text.delta` strings; `output_item.added` for a reasoning item or
+  │        function_call is reported via opts.onActivity (→ progress.onActivity); every other SDK event is dropped
   ├─ for each delta: MarkdownStreamRenderer.push(delta) → sink   (only block-complete text is emitted)
   │      first visible write calls opts.onBeforeText  →  progress.freeze()
   ├─ response = await stream.finalResponse()     ← the SDK's aggregated Response (tool calls, usage, reasoning)
@@ -428,17 +429,17 @@ The next prompt sends this entire array again, plus the new user item. That is w
 
 | Symbol | File | Role |
 | ------ | ---- | ---- |
-| `runAgent`, `runOneShot`, `AgentResult`, `isUserPrompt`, `CONTINUE_PROMPT` | `loop.ts` | Orchestration. |
+| `runAgent`, `runOneShot`, `AgentResult` | `loop.ts` | Orchestration. |
 | `runTurn`, `TurnOpts` | `turn.ts` | One streamed model call plus rendering. |
 | `runTool`, `runCalls` | `exec.ts` | Execute tool calls with deadline, truncation, parallel/sequential scheduling. |
-| `createClient`, `Client`, `ModelStream`, `isContextOverflowError` | `client.ts` | Thin wrapper over the OpenAI SDK. |
-| `ToolDefinition`, `ToolContext`, `ToolCall`, `ToolResult`, `TaskStore`, `Todo`, `ResponseItemFields` | `types.ts` | Shared types (and the todo store class). |
+| `createClient`, `Client`, `ModelStream`, `StreamActivity`, `isContextOverflowError` | `client.ts` | Thin wrapper over the OpenAI SDK. |
+| `ToolDefinition`, `ToolContext`, `ToolCall`, `ToolResult`, `TaskStore`, `Todo`, `ResponseItemFields`, `isUserPrompt`, `CONTINUE_PROMPT` | `types.ts` | Shared types, the todo store class, and the prompt-vs-`Continue.` helper. |
 
 **Dependencies:** `openai` SDK, context manager, tool registry, `ui/tools.ts` (progress), `ui/markdown.ts`.
 **Consumers:** `index.ts`, `repl.ts`, `tools/local/task.ts`, the stress script.
 **Notes:**
 - `Client` is an interface with one method, `stream()`. Tests substitute fakes (`tests/helpers.ts::fakeClient`) without touching the network.
-- `ModelStream` is `AsyncIterable<string>` plus `finalResponse()`. Only text deltas cross that boundary.
+- `ModelStream` is `AsyncIterable<string>` plus `finalResponse()`. Only text deltas are yielded; the model starting a reasoning item or tool call is reported through the separate `onActivity` callback so the UI can show life during a silent phase.
 - `pushResponseOutput` uses the SDK's `toResponseInputItems()` so `reasoning` items are replayed (reasoning models require them on stateless turns), then `stripParsedArguments` removes a `parsed_arguments` field the API rejects on replay.
 
 ### 8.4 System prompt
@@ -645,7 +646,7 @@ flowchart TD
 
 ## 12. Testing
 
-**Where:** `tests/`, mirroring `src/` (`tests/cli/args.test.ts` ↔ `src/cli/args.ts`). 33 files, 446 tests at time of writing. **Run:** `vitest run` (config in `vitest.config.ts`: `tests/**/*.test.ts`, `FORCE_COLOR=1` so colourizers emit real ANSI).
+**Where:** `tests/`, mirroring `src/` (`tests/cli/args.test.ts` ↔ `src/cli/args.ts`). 33 files, 459 tests at time of writing. **Run:** `vitest run` (config in `vitest.config.ts`: `tests/**/*.test.ts`, `FORCE_COLOR=1` so colourizers emit real ANSI).
 
 **Kinds of tests**
 - **Unit (nearly everything):** deterministic, offline.
@@ -787,7 +788,7 @@ Implement → add deterministic tests → update `PLAN.md`/`README.md`/`AGENTS.m
 | --------- | ------------ | ------------------- |
 | No API key | The `OPENAI_API_KEY is not set …` guidance on stderr, exit 1 | `cli/auth.ts::NO_KEY_HELP`, returned to `main` |
 | Endpoint unreachable | `[error] Connection error.`, exit 1 after about 3 s | The SDK retries (`maxRetries`, default 3), then the error reaches `main`'s catch. With `--verbose` you also get `[debug] run turn model=…` first. |
-| Endpoint returns non-conformant stream events | `[error] missing content at index 0` (or `missing output at index N`) | Thrown inside the OpenAI SDK's `ResponseStream` when events don't match the Responses schema. This points at the endpoint or model, not at dcode. |
+| Endpoint returns non-conformant stream events | `[error] missing content at index 0 — the streaming events from <url> (model "<m>") don't match the Responses API shape the SDK expects. Try a different model or endpoint.` | The OpenAI SDK's `ResponseStream` throws the bare `missing content/output at index N` (or `request ended without sending any events`) when events don't match the Responses schema; `client.ts::explainStreamError` adds the guidance. This points at the endpoint or model, not at dcode. |
 | A tool call fails | `› read_file: ✗ failed (0.0s)` on the terminal; the model sees `error: …` text and usually retries | `runTool`'s catch. Add `--verbose` to see the error text. |
 | Typo'd config key | `Failed to load config <path>: …`, exit 1 | `config/config.ts::readConfigFile` (strict parse) |
 
@@ -868,9 +869,9 @@ All confirmed in the code or in `AGENTS.md`/`CLAUDE.md`:
 2. **`maxToolIterations` counts model turns, not tool calls** (`for (let i = 0; i < config.maxToolIterations; i++)` in `runAgent`). One turn can issue many calls. Sub-agents get their own count with the same limit.
 3. **Your repo's own `AGENTS.md` is in the prompt.** `buildSystemPrompt()` reads `AGENTS.md` (else `CLAUDE.md`) from `process.cwd()` on every prompt. Running dcode in this repo adds several thousand tokens, and tests must pass `root`.
 4. **`history` is one shared mutable array** touched by the loop, the context manager, `/undo`, and `/reset` (see [§9](#9-important-data-flow)). A function that receives `history` may rewrite it.
-5. **Not every `role: 'user'` item is a user prompt.** The truncation recovery injects `Continue.` as a user message. Count or undo prompts with `loop.ts::isUserPrompt`, not a raw `role` check. **Inference:** `compact.ts::takeTail` snaps its cut point using a raw `role === 'user'` check, so a kept tail could begin at an injected `Continue.`. Not tested.
+5. **Not every `role: 'user'` item is a user prompt.** The truncation recovery injects `Continue.` as a user message. Count, undo, or cut history at prompts with `agent/types.ts::isUserPrompt`, not a raw `role` check (`/undo`, the status-line turn count, and `compact.ts::takeTail` all use it).
 6. **The tool-progress freeze assumes tool turns emit no text.** `runTurn` fires `onBeforeText` at the first visible chunk, and `progress.freeze()` then closes the live counter. If a tool-calling turn also streams text, the summary freezes early. The system prompt tells the model not to narrate between tool calls for this reason.
-7. **Rendered text ≠ recorded text.** The terminal shows deltas through the markdown renderer, but `history` gets the SDK's `finalResponse()` output. `client.ts` yields only `response.output_text.delta`; every other stream event (reasoning, refusal, tool-call args) is discarded at that boundary.
+7. **Rendered text ≠ recorded text.** The terminal shows deltas through the markdown renderer, but `history` gets the SDK's `finalResponse()` output. `client.ts` yields only `response.output_text.delta` as text; apart from the `onActivity` hints for reasoning and tool-call starts, every other stream event (reasoning text, refusals, tool-call arguments) is discarded at that boundary.
 8. **Sub-agent tool policies match by name.** A typo silently removes or fails to deny a tool, so `createLocalTools` throws on unknown names. `explore` uses an allow-list on purpose. Don't "simplify" it into a deny-list.
 9. **Background processes are a module-level singleton** (`processManager` in `tools/local/process.ts`), so they outlive a turn and are shared with sub-agents. `/undo` doesn't stop them. They're killed on `kill_process` or when dcode exits.
 10. **`stateful: true` doesn't enable server-side chaining.** It sets `store: true` only. Nothing sends `previous_response_id`.
@@ -950,11 +951,11 @@ All confirmed in the code or in `AGENTS.md`/`CLAUDE.md`:
 
 ## 21. Known Unknowns
 
-> **Unknown:** Whether there is any CI.
+> **Unknown:** Whether CI passes on GitHub.
 >
-> **Why:** `AGENTS.md` says `pnpm format:check` "gates CI", but there is no `.github/` directory or other CI config in the repository.
+> **Why:** `.github/workflows/ci.yml` runs the gate, and the same steps pass on a fresh local install (`pnpm install --frozen-lockfile`, typecheck, format check, tests). The workflow itself hasn't run: the repo has no git remote configured, and the pinned action versions, `pnpm` version, and Node 26 availability on `setup-node` weren't checked against GitHub.
 >
-> **Where to investigate:** the git remote's hosting settings, or ask the maintainer.
+> **Where to investigate:** push to a GitHub remote and read the first run.
 
 > **Unknown:** Windows (and other non-POSIX) support.
 >
@@ -967,12 +968,6 @@ All confirmed in the code or in `AGENTS.md`/`CLAUDE.md`:
 > **Why:** The code supports any base URL, and the stress test has passed against a local Ollama model and against `gpt-5.4-mini`, but a different local model failed with `missing content at index 0` in a one-shot run. Each provider's Responses-API quirks (accepted `reasoning.effort` values, `usage` presence, `output` shape) aren't documented. `compact.ts` has workarounds for non-conformant responses.
 >
 > **Where to investigate:** `agent/context/compact.ts` (the `finalResponse()` fallback), `agent/client.ts`, and the stress test with your endpoint.
-
-> **Unknown:** Whether the `Continue.` message can become the start of a compaction tail.
->
-> **Why:** `compact.ts::takeTail` snaps back to a raw `role === 'user'` item; `loop.ts` injects `Continue.` as a user item. The scenario wasn't constructed.
->
-> **Where to investigate:** `tests/agent/context/compact.test.ts` plus a case with an injected `Continue.`.
 
 > **Unknown:** The full historical rationale for past phases.
 >

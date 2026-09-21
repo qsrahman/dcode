@@ -72,6 +72,16 @@ export interface Todo {
   priority: TodoPriority
 }
 
+// Injected into history to resume a max_output_tokens-truncated turn. It is a
+// user-role item but not a real prompt, so anything counting, undoing, or
+// cutting history at prompt boundaries must go through isUserPrompt.
+export const CONTINUE_PROMPT = 'Continue.'
+
+export function isUserPrompt(item: object): boolean {
+  const it = item as ResponseItemFields
+  return it.role === 'user' && it.content !== CONTINUE_PROMPT
+}
+
 // In-session task list: the model replaces the entire list via `todowrite`,
 // keeping statuses current as work progresses. No persistence — the list
 // lives for the run and is reset on `/reset`.

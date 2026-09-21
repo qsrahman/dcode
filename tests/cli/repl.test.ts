@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Config } from '../../src/config/schema.ts'
 import type { Client } from '../../src/agent/client.ts'
-import { CONTINUE_PROMPT } from '../../src/agent/loop.ts'
+import { CONTINUE_PROMPT } from '../../src/agent/types.ts'
 import {
   createSession,
   formatStatusLine,

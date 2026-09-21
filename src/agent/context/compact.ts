@@ -3,6 +3,7 @@ import type { Config } from '../../config/schema.ts'
 import type { Logger } from '../../util/log.ts'
 import { errorMessage } from '../../util/log.ts'
 import type { Todo } from '../types.ts'
+import { isUserPrompt } from '../types.ts'
 import type { ResponseItemFields } from '../types.ts'
 import { estimateItem, contentToText } from './tokens.ts'
 
@@ -45,9 +46,11 @@ function takeTail(
     kept += tokens
     start = i
   }
+  // isUserPrompt, not a bare role check: an injected "Continue." is a user-role
+  // item too, and cutting there would strand it from the partial answer it
+  // continues.
   while (start > 0) {
-    const it = body[start] as ResponseItemFields
-    if (it.role === 'user') break
+    if (isUserPrompt(body[start]!)) break
     start--
   }
   return { tail: body.slice(start), summarized: start }

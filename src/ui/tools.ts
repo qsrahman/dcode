@@ -1,6 +1,7 @@
 import { isCI } from '@clack/prompts'
 import { paintFor } from '../util/color.ts'
 import type { Paint } from '../util/color.ts'
+import type { StreamActivity } from '../agent/client.ts'
 import type { ToolResult } from '../agent/types.ts'
 
 // Terminal rendering for tool calls. Kept out of agent/loop.ts so that module
@@ -76,6 +77,8 @@ function secs(ms: number): string {
 // The transient line shown while tools run — rewritten in place on each
 // completion, and persisting across turns of one query. A running count plus
 // the current tool name, so its width never depends on how many tools ran.
+// Before any tool has finished (a model still thinking, or streaming its first
+// tool call) there is no count to show yet.
 export function renderProgressLine(
   t: TurnTally,
   current: string,
@@ -83,8 +86,11 @@ export function renderProgressLine(
   color: boolean,
 ): string {
   const p = paintFor(color)
-  const n = `${t.done} ${t.done === 1 ? 'tool' : 'tools'}`
-  return `${p.dim('⋯')} ${p.dim(n)} ${p.dim('·')} ${p.cyan(current)} ${p.dim('·')} ${p.dim(secs(elapsedMs))}`
+  const count =
+    t.done > 0
+      ? `${p.dim(`${t.done} ${t.done === 1 ? 'tool' : 'tools'}`)} ${p.dim('·')} `
+      : ''
+  return `${p.dim('⋯')} ${count}${p.cyan(current)} ${p.dim('·')} ${p.dim(secs(elapsedMs))}`
 }
 
 // The frozen summary the live line settles into: counts by family, a red
@@ -158,6 +164,10 @@ export interface ToolProgress {
   // Record a settled call. Live: update the counter in place. Non-live: no-op
   // (the per-call line is printed by renderBatch once the batch is in history).
   onResult(r: ToolResult): void
+  // The model started reasoning or a tool call. Live: show it on the transient
+  // line so a silent phase doesn't look like a hang. Non-live: no-op — a log
+  // wants one record per call, not progress chatter.
+  onActivity(activity: StreamActivity): void
   // Non-live: print one line per finished call (and, in verbose, its raw
   // output). No-op while the live counter is active.
   renderBatch(results: ToolResult[]): void
@@ -166,8 +176,9 @@ export interface ToolProgress {
   // newline here would strand it above the redraw.
   separate(prevHadTools: boolean): void
   // Freeze the accumulated live counter into the bounded category summary above
-  // the answer, then start a fresh tally. No-op when not live, or when nothing
-  // ran. A trailing blank line separates the summary from the answer beneath it.
+  // the answer, then start a fresh tally. When nothing ran, this only erases a
+  // transient activity line, if one is showing. No-op when not live. A trailing
+  // blank line separates the summary from the answer beneath it.
   freeze(): void
 }
 
@@ -181,7 +192,10 @@ export function createToolProgress(
 ): ToolProgress {
   const live = Boolean(process.stdout.isTTY) && !isCI() && !config.verbose
   let pending = newTally()
+  // True while a transient line is on screen (not yet frozen or erased).
+  let drawn = false
   const redraw = (current: string) => {
+    drawn = true
     sink.write(
       CLEAR_LINE +
         renderProgressLine(
@@ -198,6 +212,10 @@ export function createToolProgress(
       tallyResult(pending, r.name, r.ok)
       redraw(r.name)
     },
+    onActivity(activity) {
+      if (!live) return
+      redraw(activity.kind === 'reasoning' ? 'thinking…' : `${activity.name}…`)
+    },
     renderBatch(results) {
       if (live) return
       for (const r of results) {
@@ -211,7 +229,13 @@ export function createToolProgress(
       if (prevHadTools && !live) sink.write('\n')
     },
     freeze() {
-      if (!live || pending.done === 0) return
+      if (!live) return
+      if (pending.done === 0) {
+        if (drawn) sink.write(CLEAR_LINE)
+        drawn = false
+        return
+      }
+      drawn = false
       sink.write(
         `${CLEAR_LINE}  ${renderCategorySummary(pending, Date.now() - pending.startedMs, config.color)}\n\n`,
       )

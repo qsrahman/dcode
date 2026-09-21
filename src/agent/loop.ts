@@ -7,7 +7,8 @@ import type { RunSink } from '../ui/sink.ts'
 import { runTurn } from './turn.ts'
 import { runCalls } from './exec.ts'
 import { createToolProgress } from '../ui/tools.ts'
-import type { ResponseItemFields, ToolContext, ToolResult } from './types.ts'
+import { CONTINUE_PROMPT } from './types.ts'
+import type { ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
 import type {
   ResponseFunctionToolCall,
@@ -38,16 +39,6 @@ export interface AgentResult {
   // ever needs the last turn's numbers, not a running sum of every retry.
   inputTokens?: number
   outputTokens?: number
-}
-
-// Injected into history to resume a max_output_tokens-truncated turn. It is a
-// user-role item but not a real prompt, so anything counting or undoing
-// prompts must go through isUserPrompt.
-export const CONTINUE_PROMPT = 'Continue.'
-
-export function isUserPrompt(item: ResponseInputItem): boolean {
-  const it = item as ResponseItemFields
-  return it.role === 'user' && it.content !== CONTINUE_PROMPT
 }
 
 // A context overflow is recovered by compacting and retrying; a truncated
@@ -98,15 +89,24 @@ export async function runAgent(
   // freezes just before the first answer chunk (onBeforeText), reliably because
   // intermediate reasoning turns emit no visible text.
   const progress = createToolProgress(sink, config)
-  const runOnce = (): Promise<OpenAIResponse> =>
-    runTurn(client, config, history, {
-      sink,
-      logger: opts.logger,
-      tools: responses,
-      instructions,
-      signal: opts.signal,
-      onBeforeText: progress.freeze,
-    })
+  const runOnce = async (): Promise<OpenAIResponse> => {
+    try {
+      return await runTurn(client, config, history, {
+        sink,
+        logger: opts.logger,
+        tools: responses,
+        instructions,
+        signal: opts.signal,
+        onBeforeText: progress.freeze,
+        onActivity: progress.onActivity,
+      })
+    } catch (err) {
+      // A turn that dies mid-flight would otherwise leave the transient live
+      // line on screen for the error message to be written onto.
+      progress.freeze()
+      throw err
+    }
+  }
 
   let last: OpenAIResponse | undefined
   let truncated = false
