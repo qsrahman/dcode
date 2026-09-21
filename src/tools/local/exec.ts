@@ -56,7 +56,11 @@ export function baseExecOptions(cwd: string, signal?: AbortSignal) {
 // failure. Takes no argv/shell-mode parameters: it grew them for the scoped
 // `git` tool, which spawned a binary directly with an argument list, and that
 // tool is gone — `run_shell` is the only caller and always shells out.
-async function runShell(command: string, ctx: ToolContext): Promise<string> {
+async function runShell(
+  command: string,
+  ctx: ToolContext,
+  timeout?: number,
+): Promise<string> {
   const maxBuffer = childMaxBuffer(ctx.config.maxToolOutputBytes)
   try {
     // `timeout` kills the child on expiry and `cancelSignal` (via
@@ -71,7 +75,14 @@ async function runShell(command: string, ctx: ToolContext): Promise<string> {
       ...baseExecOptions(ctx.root, ctx.signal),
       shell: true,
       killDescendants: true,
-      timeout: ctx.config.toolTimeout,
+      // Capped by ctx.config.toolTimeout: the runTool deadline races
+      // every tool against that value, so letting this exceed it would kill
+      // the loop's timeout first and orphan the child until its own (longer)
+      // timeout fires.
+      timeout: Math.min(
+        timeout ?? ctx.config.toolTimeout,
+        ctx.config.toolTimeout,
+      ),
       maxBuffer,
       stripFinalNewline: false,
     })
@@ -112,8 +123,16 @@ export const runShellTool = () =>
       'Run a shell command in the working directory with a timeout. Combined stdout/stderr is returned as the tool output.',
     parameters: z.object({
       command: z.string().describe('Shell command to execute'),
+      timeout: z
+        .number()
+        .int()
+        .min(1)
+        .optional()
+        .describe(
+          'Timeout for this command in ms, capped by the session tool timeout; defaults to it',
+        ),
     }),
     async execute(args, ctx) {
-      return runShell(args.command, ctx)
+      return runShell(args.command, ctx, args.timeout)
     },
   })

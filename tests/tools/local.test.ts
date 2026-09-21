@@ -101,16 +101,16 @@ describe('read-only tools', () => {
       { path: 'n.txt', offset: 1, limit: 2 },
       ctx,
     )
-    expect(out).toBe('2\tb\n3\tc')
+    expect(out).toBe('1\ta\n2\tb')
   })
 
   it('read_file paging past the read window errors instead of implying EOF', async () => {
     // No newlines, so the whole file is one "line" within the 8 MiB paging
-    // window; offset 1 asks for a line past what was read, not past the
+    // window; offset 2 asks for a line past what was read, not past the
     // file's actual end.
     await writeFile(join(root, 'big.txt'), 'x'.repeat(9 * 1024 * 1024))
     await expect(
-      tool('read_file').execute({ path: 'big.txt', offset: 1 }, ctx),
+      tool('read_file').execute({ path: 'big.txt', offset: 2 }, ctx),
     ).rejects.toThrow(/beyond the \d+-byte read window/)
   })
 
@@ -147,6 +147,17 @@ describe('read-only tools', () => {
     await writeFile(join(root, 'a.txt'), 'foo bar\nbaz\n')
     const out = await tool('grep').execute({ pattern: 'bar' }, ctx)
     expect(out).toContain('a.txt:1: foo bar')
+  })
+
+  it('grep filters by file glob', async () => {
+    await writeFile(join(root, 'a.ts'), 'needle')
+    await writeFile(join(root, 'b.js'), 'needle')
+    const out = await tool('grep').execute(
+      { pattern: 'needle', include: '*.ts' },
+      ctx,
+    )
+    expect(out).toContain('a.ts')
+    expect(out).not.toContain('b.js')
   })
 
   // Binary files decoded as UTF-8 yield garbage lines; a NUL byte in the
@@ -526,6 +537,25 @@ describe('mutating tools', () => {
     await expect(
       tool('run_shell').execute({ command: 'sleep 0.7' }, fast),
     ).rejects.toThrow(/timed out|aborted|ABORT_ERR|ETIMEDOUT/)
+  })
+
+  it('run_shell honors a per-command timeout', async () => {
+    const t0 = Date.now()
+    await expect(
+      tool('run_shell').execute({ command: 'sleep 1', timeout: 100 }, ctx),
+    ).rejects.toThrow(/timed out|ABORT_ERR|ETIMEDOUT/)
+    expect(Date.now() - t0).toBeLessThan(800)
+  })
+
+  it('run_shell caps a timeout above the session tool timeout', async () => {
+    const fast = { ...ctx, config: cfg({ toolTimeout: 150 }) }
+    const t0 = Date.now()
+    // timeout 5000 exceeds fast's 150ms session cap; the loop deadline must
+    // still be what fires, or the child would outlive the runTool race.
+    await expect(
+      tool('run_shell').execute({ command: 'sleep 0.7', timeout: 5000 }, fast),
+    ).rejects.toThrow(/timed out|aborted|ABORT_ERR|ETIMEDOUT/)
+    expect(Date.now() - t0).toBeLessThan(800)
   })
 
   it('run_shell preserves stdout and stderr when the command fails', async () => {

@@ -131,7 +131,7 @@ built yet.)
 | `glob` | List files matching a glob pattern (ripgrep-backed; `**` recursive). |
 | `write_file` | Create or overwrite a UTF-8 text file. |
 | `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). |
-| `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`). |
+| `run_shell` | Run a shell command in the working directory (`cwd=root`, `toolTimeout`; optional per-command `timeout`). |
 | `web_search` | Search the web via Brave (`BRAVE_API_KEY` required). |
 | `web_fetch` | Fetch a URL and return its content (`format`: `markdown` default → HTML to Markdown + pretty JSON, or `text`/`html` unconverted); no API key required. |
 | `todowrite` | Replace the in-session todo list (the model sends the whole list each call) to plan and track multi-step work. |
@@ -157,9 +157,10 @@ lookaround/backreferences), matches are capped at 200, and files above 5 MiB
 are skipped. `glob` patterns are gitignore-style globs — unlike a plain glob
 library, a bare pattern with no `/` (e.g. `*.ts`) matches at any depth, not
 just the top level; anchor with a leading `/` for root-only. `read_file`'s
-`offset`/`limit` paging reads up to 8 MiB of a file to find the requested
-lines; an offset past that window errors instead of silently reading as
-end-of-file.
+`offset`/`limit` paging is 1-based (matching the line numbers it displays);
+it reads up to 8 MiB of a file to find the requested lines, and an offset
+past that window errors instead of silently reading as end-of-file.
+`grep` can be restricted to files matching a glob via its `include` argument.
 Tool output is untrusted data; results are truncated to `maxToolOutputBytes`
 (default 32 KiB), and tool errors are returned to the model so it can
 self-correct. In-flight tools (including `run_shell`) are cancelled on Ctrl-C.

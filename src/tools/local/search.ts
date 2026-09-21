@@ -129,6 +129,12 @@ const grepTool = () =>
         .optional()
         .describe('File or directory to search; defaults to root'),
       ignore_case: z.boolean().optional().describe('Case-insensitive match'),
+      include: z
+        .string()
+        .optional()
+        .describe(
+          'Only search files matching this gitignore-style glob, e.g. "*.ts" or "src/**/*.ts"',
+        ),
       context: z
         .number()
         .int()
@@ -146,8 +152,9 @@ const grepTool = () =>
         '--max-filesize',
         GREP_MAX_FILE_SIZE,
         ...BASE_RG_ARGS,
-        ...ignoreArgs(ctx.config.ignore),
       ]
+      if (args.include) rgArgs.push('-g', args.include)
+      rgArgs.push(...ignoreArgs(ctx.config.ignore))
       if (args.ignore_case) rgArgs.push('--ignore-case')
       if (args.context) rgArgs.push('--context', String(args.context))
       // An anchored -g pattern (e.g. a config.ignore entry like "/dist") is

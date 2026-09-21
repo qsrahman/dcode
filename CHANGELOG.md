@@ -38,6 +38,13 @@
   count is derived from history, skipping the injected `Continue.` retries via
   `isUserPrompt`). `lastUsage` is cleared by `/undo`, `/reset`, and a failed or
   aborted turn.
+- `run_shell` takes an optional per-command `timeout` (ms), capped by the
+  session `toolTimeout` so the loop's own deadline always fires first — the
+  model can bound one slow command without reconfiguring the session default.
+- `grep` takes an optional `include` glob (`"*.ts"`, `"src/**/*.ts"`) to
+  restrict the search to matching files, mirroring opencode's `include` and
+  claude code's `glob` scoping. It composes with `ignore` (which still wins,
+  per the load-bearing `-g` ordering in `search.ts`).
 
 ### Changed
 - Tools declare their own terminal-summary `category` (`ToolDefinition.category`,
@@ -153,6 +160,11 @@
   hand; deriving it keeps that invariant enforced by code instead. No
   behavior change at the default (32 KiB `maxToolOutputBytes` still yields
   the 10 MiB floor).
+- `read_file`'s `offset` is now **1-based** (was 0-based), matching the 1-based
+  line numbers it prints and the identical paging convention opencode and
+  claude code use. `offset: 1, limit: 2` returns lines 1–2 (previously 2–3),
+  and a paged window's displayed lines start at `offset`. An `offset` that
+  falls beyond the 8 MiB read window still errors rather than implying EOF.
 
 
 ### Fixed

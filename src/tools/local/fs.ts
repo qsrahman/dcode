@@ -40,9 +40,9 @@ const readFileTool = () =>
       offset: z
         .number()
         .int()
-        .min(0)
+        .min(1)
         .optional()
-        .describe('0-based line to start from'),
+        .describe('1-based line to start from'),
       limit: z
         .number()
         .int()
@@ -80,10 +80,13 @@ const readFileTool = () =>
           const text = buf.toString('utf8', 0, bytesRead)
           const truncated = size > limitBytes
           const lines = text.split('\n')
-          const offset = args.offset ?? 0
+          // 1-based to match the displayed line numbers (and both claude code /
+          // opencode, which the paging API mirrors).
+          const offset = args.offset ?? 1
+          const start = offset - 1
           const window = args.limit
-            ? lines.slice(offset, offset + args.limit)
-            : lines.slice(offset)
+            ? lines.slice(start, start + args.limit)
+            : lines.slice(start)
           if (window.length === 0) {
             // Truncated + empty window means the requested offset falls
             // beyond what was read, not beyond the file's actual end — say
@@ -97,7 +100,7 @@ const readFileTool = () =>
           }
           const numbered = args.line_numbers ?? true
           const body = window
-            .map((ln, i) => (numbered ? `${offset + i + 1}\t${ln}` : ln))
+            .map((ln, i) => (numbered ? `${offset + i}\t${ln}` : ln))
             .join('\n')
           return truncated
             ? `${body}\n…(${size} bytes total; truncated at ${limitBytes})`
