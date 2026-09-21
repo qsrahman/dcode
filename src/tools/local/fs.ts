@@ -24,7 +24,7 @@ const MAX_LINE_CHARS = 2000
 function pageItems(
   items: string[],
   offset: number,
-  limit: number | undefined,
+  limit: number | null | undefined,
   maxBytes: number,
   label: string,
   format: (item: string, n: number) => string,
@@ -64,13 +64,13 @@ const readFileTool = () =>
         .number()
         .int()
         .min(1)
-        .optional()
+        .nullish()
         .describe('1-based line (or directory entry) to start from; default 1'),
       limit: z
         .number()
         .int()
         .min(1)
-        .optional()
+        .nullish()
         .describe(
           'Maximum number of lines (or entries) to return; default as many as fit in the output cap',
         ),
@@ -187,7 +187,7 @@ const editFileTool = () =>
       new_string: z.string().describe('Replacement text'),
       replace_all: z
         .boolean()
-        .optional()
+        .nullish()
         .describe('Replace all occurrences instead of requiring exactly one'),
     }),
     async execute(args, ctx) {

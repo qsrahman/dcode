@@ -60,6 +60,27 @@
   pages can shift between calls). The 5 MiB download-cap note now appears on the
   last page.
 
+### Added
+- `strictTools` config key (default `false`): sends the built-in tools with
+  `strict: true` and the OpenAI SDK's strict schema (`zodResponsesFunction`), so
+  an OpenAI endpoint guarantees their arguments match. Every property is
+  required and every unused optional argument is an explicit `null`. MCP tools
+  are never made strict — their schemas are the servers' own, and a server may
+  reject the `null`. It is opt-in because that `null` costs the model tokens on
+  every call, a new schema costs latency on its first request, and endpoints
+  other than OpenAI's may not accept it. Shown by `/config`.
+  - The built-ins declare optional arguments with `.nullish()` instead of
+    `.optional()` (the SDK's conversion rejects a bare `.optional()`, and under
+    strict the model sends `null` for a field it doesn't use). This also makes
+    dcode accept `"timeout": null` from any model, strict or not; the non-strict
+    schemas gain a `null` variant per optional field (about 4% larger).
+  - `toResponsesTool(tool, strict)` returns the SDK's `FunctionTool` type
+    (dropping the old cast), and `toResponsesTools(strict)` caches per mode.
+  - Tests check, over every built-in, that a strict schema has all properties
+    required and no extras at every level, that each optional argument is a
+    null union, and that `null` is accepted; a tool declaring a plain
+    `.optional()` fails them by name.
+
 ### Changed
 - `Client.stream` uses raw `responses.create({ stream: true })` instead of the
   SDK's `responses.stream()` helper. The helper accumulates every event into a

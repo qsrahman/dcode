@@ -73,7 +73,8 @@ ONBOARDING.md §17 says why.
   out.
 - **Tools.** Define with `defineTool` (args inferred from the zod schema; never
   a hand-written `ToolDefinition<{…}>`), set `category`, and `parallel: false`
-  if it mutates state. Register in `tools/index.ts::createLocalTools`;
+  if it mutates state. Declare optional arguments with `.nullish()`, never
+  `.optional()`: `strictTools` needs the `null` union (the tests fail otherwise). Register in `tools/index.ts::createLocalTools`;
   `tests/tools/index.test.ts` pins the exact built-in list. MCP tools use the
   server's JSON Schema verbatim (`jsonSchema`).
 - **Cancellation.** `runTool`'s deadline *abandons* a tool rather than stopping

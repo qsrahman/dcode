@@ -133,12 +133,12 @@ const grepTool = () =>
       pattern: z.string().describe('Regular expression to search for'),
       path: z
         .string()
-        .optional()
+        .nullish()
         .describe('File or directory to search; defaults to root'),
-      ignore_case: z.boolean().optional().describe('Case-insensitive match'),
+      ignore_case: z.boolean().nullish().describe('Case-insensitive match'),
       include: z
         .string()
-        .optional()
+        .nullish()
         .describe(
           'Only search files matching this gitignore-style glob, e.g. "*.ts" or "src/**/*.ts"',
         ),
@@ -147,7 +147,7 @@ const grepTool = () =>
         .int()
         .min(0)
         .max(10)
-        .optional()
+        .nullish()
         .describe('Lines of context to show around each match'),
     }),
     async execute(args, ctx) {
@@ -277,7 +277,7 @@ const globTool = () =>
         .number()
         .int()
         .min(1)
-        .optional()
+        .nullish()
         .describe('Maximum paths to return; default 200'),
     }),
     async execute(args, ctx) {

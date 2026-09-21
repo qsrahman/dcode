@@ -9,7 +9,7 @@ const todoSchema = z.object({
     .describe('Current status'),
   priority: z
     .enum(['high', 'medium', 'low'])
-    .optional()
+    .nullish()
     .describe('Priority (default medium)'),
 })
 

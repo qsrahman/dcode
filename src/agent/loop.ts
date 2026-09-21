@@ -77,7 +77,7 @@ export async function runAgent(
     depth: opts.depth,
   }
   const responses = registry.list().length
-    ? registry.toResponsesTools()
+    ? registry.toResponsesTools(config.strictTools)
     : undefined
   // Durable system guidance lives in the Responses API `instructions` field,
   // not in the conversation `history`, so it isn't trimmed or replayed as a turn.

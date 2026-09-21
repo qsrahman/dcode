@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod/v4'
 import { createLocalTools } from '../../src/tools/index.ts'
+import { toResponsesTool } from '../../src/tools/registry.ts'
 import { TaskStore } from '../../src/agent/types.ts'
 import type { Client } from '../../src/agent/client.ts'
 import { unknownAgentTools } from '../../src/agent/subagent.ts'
@@ -151,5 +152,148 @@ describe('agent-type tool allow-lists', () => {
 
   it('reports the offenders when a name matches nothing', () => {
     expect(unknownAgentTools(['read_file'])).toContain('explore:grep')
+  })
+})
+
+// config.strictTools: built-in tools are sent with the SDK's strict schema.
+// These check the schema invariants over every built-in, so a new tool that
+// declares an optional argument with plain `.optional()` (which the SDK's
+// conversion rejects) fails here, naming the tool.
+describe('strict tool schemas', () => {
+  type Schema = {
+    type?: string | string[]
+    anyOf?: Schema[]
+    properties?: Record<string, Schema>
+    required?: string[]
+    additionalProperties?: boolean
+    items?: Schema
+  }
+  const registry = createLocalTools(new TaskStore(), mockClient)
+
+  const nullable = (s: Schema) =>
+    Array.isArray(s.type)
+      ? s.type.includes('null')
+      : Boolean(s.anyOf?.some((x) => x.type === 'null'))
+
+  // Every object in the schema — nested ones included — must list all its
+  // properties as required and forbid extras: that is what strict means.
+  function assertStrictObjects(s: Schema, where: string): void {
+    for (const branch of s.anyOf ?? []) assertStrictObjects(branch, where)
+    if (s.items) assertStrictObjects(s.items, `${where}[]`)
+    if (!s.properties) return
+    expect(s.additionalProperties, where).toBe(false)
+    expect([...(s.required ?? [])].sort(), where).toEqual(
+      Object.keys(s.properties).sort(),
+    )
+    for (const [k, v] of Object.entries(s.properties)) {
+      assertStrictObjects(v, `${where}.${k}`)
+    }
+  }
+
+  it('is off by default: every tool is non-strict', () => {
+    for (const t of registry.toResponsesTools()) {
+      expect(t.strict, t.name).toBe(false)
+    }
+  })
+
+  it('makes every built-in strict, with all properties required, when asked', () => {
+    const tools = registry.toResponsesTools(true)
+    expect(tools).toHaveLength(registry.list().length)
+    for (const t of tools) {
+      expect(t.strict, t.name).toBe(true)
+      assertStrictObjects(t.parameters as Schema, t.name)
+    }
+  })
+
+  it('turns every optional argument into a null union', () => {
+    for (const t of registry.list()) {
+      const loose = toResponsesTool(t).parameters as Schema
+      const strict = toResponsesTool(t, true).parameters as Schema
+      const optional = Object.keys(loose.properties ?? {}).filter(
+        (k) => !loose.required?.includes(k),
+      )
+      for (const k of optional) {
+        expect(nullable(strict.properties![k]!), `${t.name}.${k}`).toBe(true)
+      }
+    }
+  })
+
+  // Under strict the model writes `null` for every argument it doesn't use, so
+  // each tool has to accept it where it would have accepted an omission.
+  it.each([
+    ['read_file', { path: 'a.ts', offset: null, limit: null }],
+    [
+      'grep',
+      {
+        pattern: 'x',
+        path: null,
+        ignore_case: null,
+        include: null,
+        context: null,
+      },
+    ],
+    ['glob', { pattern: '*.ts', limit: null }],
+    [
+      'edit_file',
+      { path: 'a', old_string: 'x', new_string: 'y', replace_all: null },
+    ],
+    ['run_shell', { command: 'ls', timeout: null }],
+    ['run_process', { command: 'ls', cwd: null }],
+    ['kill_process', { handle: 'proc-1', signal: null }],
+    ['web_fetch', { url: 'https://example.com', format: null, offset: null }],
+    ['web_search', { query: 'x', count: null }],
+    [
+      'todowrite',
+      { todos: [{ content: 'x', status: 'pending', priority: null }] },
+    ],
+    [
+      'ask_user',
+      {
+        questions: [
+          {
+            question: 'q',
+            header: 'h',
+            options: [],
+            multiple: null,
+            custom: null,
+          },
+        ],
+      },
+    ],
+  ])('%s accepts null for the arguments it does not use', (name, args) => {
+    expect(registry.get(name)!.parameters.safeParse(args).success).toBe(true)
+  })
+
+  it("never makes an MCP tool strict: its schema is the server's own", () => {
+    const raw = { type: 'object', properties: { q: { type: 'string' } } }
+    const mcp: ToolDefinition = {
+      name: 'mcp__srv__search',
+      description: 'an mcp tool',
+      parameters: z.record(z.string(), z.unknown()),
+      jsonSchema: raw,
+      execute: async () => 'ok',
+    }
+    const tools = createLocalTools(new TaskStore(), mockClient, [mcp])
+    const sent = tools
+      .toResponsesTools(true)
+      .find((t) => t.name === 'mcp__srv__search')!
+    expect(sent.strict).toBe(false)
+    expect(sent.parameters).toBe(raw)
+  })
+
+  it('caches each mode separately and rebuilds after a registration', () => {
+    const r = createLocalTools(new TaskStore(), mockClient)
+    expect(r.toResponsesTools(true)).toBe(r.toResponsesTools(true))
+    expect(r.toResponsesTools()).toBe(r.toResponsesTools())
+    expect(r.toResponsesTools(true)).not.toBe(r.toResponsesTools())
+    const before = r.toResponsesTools(true)
+    r.register({
+      name: 'extra',
+      description: 'd',
+      parameters: z.object({}),
+      execute: async () => '',
+    })
+    expect(r.toResponsesTools(true)).not.toBe(before)
+    expect(r.toResponsesTools(true)).toHaveLength(before.length + 1)
   })
 })

@@ -146,7 +146,7 @@ const runProcessTool = () =>
       command: z.string().describe('Shell command to execute'),
       cwd: z
         .string()
-        .optional()
+        .nullish()
         .describe('Working directory under the root; defaults to root'),
     }),
     async execute(args, ctx) {
@@ -170,7 +170,7 @@ const readProcessTool = () =>
         .number()
         .int()
         .min(1)
-        .optional()
+        .nullish()
         .describe('Number of trailing lines to return (default 50)'),
     }),
     async execute(args) {
@@ -197,7 +197,7 @@ const killProcessTool = () =>
       handle: z.string().describe('Handle returned by run_process'),
       signal: z
         .enum(['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGKILL'])
-        .optional()
+        .nullish()
         .describe('Signal to send (default SIGTERM)'),
     }),
     async execute(args) {

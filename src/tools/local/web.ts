@@ -57,7 +57,7 @@ export const webSearchTool = () =>
         .int()
         .min(1)
         .max(20)
-        .optional()
+        .nullish()
         .describe('Number of results to return (default 5)'),
     }),
     async execute(args, ctx) {
@@ -137,13 +137,13 @@ export const webFetchTool = () =>
       ),
       format: z
         .enum(['markdown', 'text', 'html'])
-        .optional()
+        .nullish()
         .describe('How to return the content (default markdown)'),
       offset: z
         .number()
         .int()
         .min(0)
-        .optional()
+        .nullish()
         .describe(
           'Characters of the content to skip, to read on from a "… offset=N to continue" note (default 0)',
         ),

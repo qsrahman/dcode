@@ -11,10 +11,10 @@ const questionSchema = z.object({
   question: z.string().describe('Complete question'),
   header: z.string().describe('Very short label (max 30 chars)'),
   options: z.array(optionSchema).describe('Available choices'),
-  multiple: z.boolean().optional().describe('Allow selecting multiple choices'),
+  multiple: z.boolean().nullish().describe('Allow selecting multiple choices'),
   custom: z
     .boolean()
-    .optional()
+    .nullish()
     .describe('Allow typing a custom answer (default: true)'),
 })
 

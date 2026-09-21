@@ -124,6 +124,7 @@ function formatConfig(c: Config): string {
     `model:        ${c.model}`,
     `baseURL:      ${c.baseURL ?? '(default)'}`,
     `stateful:     ${c.stateful}`,
+    `strictTools:  ${c.strictTools}`,
     `keys:         ${keysLine} (values hidden)`,
     `maxTools:     ${c.maxToolIterations}`,
     `maxToolOut:   ${c.maxToolOutputBytes} bytes`,

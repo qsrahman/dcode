@@ -97,6 +97,39 @@ describe('runAgent', () => {
     expect((outputs[0] as { output: string }).output).toBe('file contents')
   })
 
+  it('sends every tool as strict only when config.strictTools is on', async () => {
+    const sent: { strict?: boolean | null; name: string }[][] = []
+    const client: Client = {
+      stream(_input, opts) {
+        sent.push((opts?.tools ?? []) as never)
+        return {
+          async *[Symbol.asyncIterator]() {},
+          finalResponse: async () =>
+            ({ output: [messageItem('ok')], output_text: 'ok' }) as never,
+        }
+      },
+    }
+    const strictTool: ToolDefinition = {
+      ...readTool,
+      parameters: z.object({ path: z.string(), offset: z.number().nullish() }),
+    }
+    for (const strictTools of [false, true]) {
+      await runAgent(
+        client,
+        cfg({ strictTools }),
+        [{ role: 'user', content: 'go' }],
+        {
+          logger: createLogger(cfg()),
+          tools: new ToolRegistry([strictTool]),
+        },
+      )
+    }
+    expect(sent.map((tools) => tools.map((t) => t.strict))).toEqual([
+      [false],
+      [true],
+    ])
+  })
+
   // End-to-end regression for the --no-color bug: markdown rendering
   // (marked-terminal, via its own internal chalk import) and tool-status
   // rendering (ui/tools.ts's renderToolResult/renderToolOutput) each used to

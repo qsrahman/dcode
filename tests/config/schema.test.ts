@@ -16,6 +16,12 @@ describe('configSchema', () => {
     expect(() => configSchema.parse({ verbosity: 'loud' })).toThrow()
   })
 
+  it('leaves strictTools off by default and accepts only a boolean', () => {
+    expect(configSchema.parse({}).strictTools).toBe(false)
+    expect(configSchema.parse({ strictTools: true }).strictTools).toBe(true)
+    expect(() => configSchema.parse({ strictTools: 'yes' })).toThrow()
+  })
+
   it('applies documented defaults', () => {
     const c = configSchema.parse({})
     expect(c.model).toBe('gpt-5.4-mini')

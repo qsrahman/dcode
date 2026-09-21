@@ -608,6 +608,7 @@ flowchart LR
 | `maxRetries` | `3` | SDK-level retries (429/5xx). |
 | `toolTimeout` | `120000` ms | Per tool call, enforced by `withDeadline`; also the ceiling for `run_shell`'s own `timeout` argument. |
 | `stateful` | `false` | Sets `store: true` on requests. **dcode does not chain `previous_response_id`**, so this only stores server-side. |
+| `strictTools` | `false` | Sends built-in tools with `strict: true` and the SDK's strict schema (`toResponsesTool(tool, strict)`). MCP tools are never strict. Needs every optional tool argument declared `.nullish()`. |
 | `ignore` | `['.git','node_modules']` | Skipped by `grep`/`glob`. |
 | `context` | (object) | `auto: true`, `window: 200000`, `reserved: 20000`, `keepTokens: 15000`, `prune: true`, `compactAt: 0.85`. Validated so `keepTokens < window − reserved`. |
 | `mcpServers` | `{}` | See [§8.8](#88-mcp-integration). Remote `url` is deliberately *not* validated at load, so one bad entry only fails that server. |

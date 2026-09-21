@@ -146,6 +146,13 @@ export const configSchema = z.object({
   // `previous_response_id`. Off by default: server storage isn't available on
   // local/compatible endpoints and OpenAI's 30-day retention is undesirable here.
   stateful: z.boolean().default(false),
+  // When true, built-in tools are sent with `strict: true` and the SDK's strict
+  // schema, so an OpenAI endpoint guarantees their arguments match. Off by
+  // default: every unused optional argument becomes an explicit `null` the
+  // model must write, a new schema costs extra latency on its first request,
+  // and endpoints other than OpenAI's may not accept the schema. MCP tools are
+  // never made strict.
+  strictTools: z.boolean().default(false),
   // Directory names skipped by the recursive tools (grep/glob). These flood
   // results and are almost never what the model wants to search.
   ignore: z.array(z.string()).default(['.git', 'node_modules']),

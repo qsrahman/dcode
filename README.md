@@ -273,6 +273,13 @@ JSON, loaded from `--config <path>` or a default location. Example:
 }
 ```
 
+`strictTools` (default `false`) sends the built-in tools with `strict: true` and
+the OpenAI SDK's strict schema, so an OpenAI endpoint guarantees their arguments
+match. It is opt-in because every argument the model doesn't use becomes an
+explicit `null` it must write, a new schema costs extra latency on its first
+request, and endpoints other than OpenAI's may not accept the schema. MCP tools
+are never made strict: their schemas are the servers' own.
+
 Config resolution precedence is: CLI flags > env (`OPENAI_*`) > global
 `$XDG_CONFIG_HOME/dcode/dcode.json` (default `~/.config/dcode/dcode.json`) >
 schema defaults. An explicit

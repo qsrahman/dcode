@@ -59,7 +59,7 @@ export function baseExecOptions(cwd: string, signal?: AbortSignal) {
 async function runShell(
   command: string,
   ctx: ToolContext,
-  timeout?: number,
+  timeout?: number | null,
 ): Promise<string> {
   const maxBuffer = childMaxBuffer(ctx.config.maxToolOutputBytes)
   try {
@@ -135,7 +135,7 @@ export const runShellTool = () =>
         .number()
         .int()
         .min(1)
-        .optional()
+        .nullish()
         .describe(
           'Timeout for this command in ms; the default and the maximum are the session tool timeout (120000 unless configured)',
         ),
