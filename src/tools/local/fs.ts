@@ -3,10 +3,11 @@ import { z } from 'zod/v4'
 import { defineTool } from '../registry.ts'
 import { ensureParentDir, withResolvedPath } from './paths.ts'
 
-// How much of a file read_file loads. Every read uses the same window (not
-// just maxToolOutputBytes) so paging with `offset` can reach past the first
-// ~32 KiB of a large file; the output is then cut to maxToolOutputBytes at a
-// line boundary (see pageItems). This only bounds the disk read.
+// How much of a file read_file loads, and the largest file edit_file will
+// touch. Reads use one window (not just maxToolOutputBytes) so paging with
+// `offset` can reach past the first ~32 KiB of a large file; the output is
+// then cut to maxToolOutputBytes at a line boundary (see pageItems). This only
+// bounds the disk read.
 const READ_MAX_BYTES = 8 * 1024 * 1024
 // Room kept under the output cap for the footer pageItems appends: runTool
 // cuts anything past the cap from the end, which would be the footer.
@@ -199,6 +200,15 @@ const editFileTool = () =>
         )
       }
       return withResolvedPath(ctx, args.path, async (file) => {
+        // Check before reading: readFile loads the whole file, so a huge one
+        // would cost that much memory just to be refused as binary (and past
+        // 2 GiB, Node fails with an opaque error).
+        const { size } = await stat(file)
+        if (size > READ_MAX_BYTES) {
+          throw new Error(
+            `${args.path} is too large to edit (${size} bytes; limit ${READ_MAX_BYTES}); use run_shell (sed, perl) for a file this size`,
+          )
+        }
         const beforeBuf = await readFile(file)
         // NUL byte ⇒ binary; editing it as text would corrupt the file, so
         // refuse rather than round-tripping mojibake through string ops.

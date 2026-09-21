@@ -19,9 +19,10 @@ const GLOB_MAX = 200
 const GREP_MAX_LINE_CHARS = 500
 // Skip files above this size (ripgrep's own --max-filesize, not a JS read
 // cap): a large log/dump anywhere under root shouldn't dominate the search.
-// This is a silent skip — ripgrep doesn't report it anywhere (stdout or
-// stderr), so there's no clean way to surface a note to the model about it.
+// ripgrep skips such files without saying so, so grep counts them itself (see
+// countSkipped) — otherwise "no matches" would also mean "not searched".
 const GREP_MAX_FILE_SIZE = '5M'
+const GREP_MAX_FILE_SIZE_LABEL = '5 MiB'
 
 // ripgrep's --json encodes every string as either `{text}` (valid UTF-8) or
 // `{bytes}` (base64 of the raw bytes, used whenever the data isn't valid
@@ -36,6 +37,8 @@ interface RgEvent {
     path?: RgText
     lines?: RgText
     line_number?: number
+    // Only on the `summary` event (requested with --stats).
+    stats?: { searches?: number }
   }
 }
 
@@ -149,23 +152,38 @@ const grepTool = () =>
     }),
     async execute(args, ctx) {
       const dir = await resolvePath(ctx.root, args.path ?? '.')
-      const rgArgs = [
-        '--json',
-        '--line-number',
-        '--color=never',
-        '--max-filesize',
-        GREP_MAX_FILE_SIZE,
+      // What both the search and the skipped-file count below walk, so they
+      // agree on which files are in scope.
+      const scope = [
         ...BASE_RG_ARGS,
+        ...(args.include ? ['-g', args.include] : []),
+        ...ignoreArgs(ctx.config.ignore),
       ]
-      if (args.include) rgArgs.push('-g', args.include)
-      rgArgs.push(...ignoreArgs(ctx.config.ignore))
-      if (args.ignore_case) rgArgs.push('--ignore-case')
-      if (args.context) rgArgs.push('--context', String(args.context))
       // An anchored -g pattern (e.g. a config.ignore entry like "/dist") is
       // matched relative to cwd, not to the search-target argument — so the
       // target must be relative (cwd is already ctx.root) or such patterns
       // silently match nothing.
-      rgArgs.push('--regexp', args.pattern, relative(ctx.root, dir) || '.')
+      const target = relative(ctx.root, dir) || '.'
+      const rgArgs = [
+        '--json',
+        '--stats',
+        '--line-number',
+        '--color=never',
+        '--max-filesize',
+        GREP_MAX_FILE_SIZE,
+        ...scope,
+      ]
+      if (args.ignore_case) rgArgs.push('--ignore-case')
+      if (args.context) rgArgs.push('--context', String(args.context))
+      rgArgs.push('--regexp', args.pattern, target)
+
+      // Runs alongside the search: every file in scope, size limit included,
+      // to compare with how many the search actually opened. Best effort — a
+      // failure here must not fail the search.
+      const inScope = runRg(['--files', ...scope, target], ctx).then(
+        (r) => r.stdout.split('\n').filter(Boolean).length,
+        () => undefined,
+      )
 
       let result: Awaited<ReturnType<typeof runRg>>
       try {
@@ -180,6 +198,9 @@ const grepTool = () =>
       const lines: string[] = []
       let matchCount = 0
       let capped = false
+      // Files the search opened, from the summary event (absent when the
+      // match cap cut the loop short, in which case no skip note is given).
+      let searched: number | undefined
       for (const raw of result.stdout.split('\n')) {
         if (!raw) continue
         let evt: RgEvent
@@ -190,6 +211,10 @@ const grepTool = () =>
         }
         if (evt.type === 'end') {
           lines.push('')
+          continue
+        }
+        if (evt.type === 'summary') {
+          searched = evt.data?.stats?.searches
           continue
         }
         if (evt.type !== 'match' && evt.type !== 'context') continue
@@ -203,7 +228,17 @@ const grepTool = () =>
         const line = formatRgLine(ctx.root, evt)
         if (line !== null) lines.push(line)
       }
-      let out = lines.join('\n').trimEnd() || '(no matches)'
+      let out = lines.join('\n').trimEnd()
+      const total = await inScope
+      const skipped =
+        total !== undefined && searched !== undefined
+          ? Math.max(0, total - searched)
+          : 0
+      const note = skipped
+        ? `skipped ${skipped} file${skipped === 1 ? '' : 's'} over ${GREP_MAX_FILE_SIZE_LABEL}`
+        : ''
+      if (!out) out = note ? `(no matches; ${note})` : '(no matches)'
+      else if (note) out += `\n… (${note})`
       if (capped) {
         out += `\n… (stopped at ${GREP_MAX_MATCHES} matches; narrow the pattern or path)`
       }

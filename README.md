@@ -148,7 +148,9 @@ other tool. The recursive tools (`grep`, `glob`) are both backed by
 `ignore` (default `.git`, `node_modules`; gitignore syntax, so globs like
 `*.log` and negation also work). `grep` patterns are Rust regex syntax (no
 lookaround/backreferences), matches are capped at 200, and files above 5 MiB
-are skipped. `glob` patterns are gitignore-style globs — unlike a plain glob
+are skipped — with a `skipped N files over 5 MiB` note in the result, so an
+empty result isn't mistaken for a clean search. `edit_file` refuses files above
+8 MiB and points at `run_shell` (`sed`, `perl`). `glob` patterns are gitignore-style globs — unlike a plain glob
 library, a bare pattern with no `/` (e.g. `*.ts`) matches at any depth, not
 just the top level; anchor with a leading `/` for root-only; results are capped
 at 200 paths. `read_file`'s `offset`/`limit` paging is 1-based (matching the

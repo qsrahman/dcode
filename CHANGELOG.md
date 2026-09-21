@@ -79,6 +79,13 @@
   - `toolTimeout` defaults to 120 s (was 30 s), matching claude code's and
     opencode's 2-minute default: a test suite or build no longer dies at 30 s
     with no way to raise `run_shell`'s own `timeout` above it.
+  - `edit_file` checks the file's size before reading it and refuses anything
+    over 8 MiB (pointing at `run_shell`), instead of loading a huge file into
+    memory just to reject it as binary — or failing opaquely past 2 GiB.
+  - `grep` reports the files it skipped for size (`(no matches; skipped 1 file
+    over 5 MiB)`): ripgrep drops them silently, so "no matches" also meant "not
+    searched". The count is a concurrent `rg --files` walk of the same scope
+    minus the `searches` figure from the search's own `--stats` summary.
   - `grep` cuts matching lines over 500 characters; `glob` caps at 200 paths
     (was 1000, which could exceed the output cap before its own footer).
 - Tools declare their own terminal-summary `category` (`ToolDefinition.category`,

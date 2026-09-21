@@ -163,6 +163,35 @@ describe('read-only tools', () => {
     const out = await tool('grep').execute({ pattern: 'needle' }, ctx)
     expect(out).toContain('small.txt')
     expect(out).not.toContain('big.txt')
+    // Silent skips read as "nothing there"; the model has to be told.
+    expect(out).toMatch(/skipped 1 file over 5 MiB/)
+  })
+
+  it('grep says so when the only candidate was skipped for size', async () => {
+    await writeFile(join(root, 'big.txt'), 'needle\n'.repeat(800_000))
+    const out = await tool('grep').execute({ pattern: 'needle' }, ctx)
+    expect(out).toBe('(no matches; skipped 1 file over 5 MiB)')
+  })
+
+  it('grep says nothing about skipping when no file was skipped', async () => {
+    await writeFile(join(root, 'a.txt'), 'needle')
+    expect(await tool('grep').execute({ pattern: 'needle' }, ctx)).toBe(
+      'a.txt:1: needle',
+    )
+    expect(await tool('grep').execute({ pattern: 'nope' }, ctx)).toBe(
+      '(no matches)',
+    )
+  })
+
+  it('grep counts skipped files within the requested scope only', async () => {
+    await mkdir(join(root, 'sub'))
+    await writeFile(join(root, 'sub', 'big.txt'), 'needle\n'.repeat(800_000))
+    await writeFile(join(root, 'a.txt'), 'needle')
+    const out = await tool('grep').execute(
+      { pattern: 'needle', include: 'a.txt' },
+      ctx,
+    )
+    expect(out).toBe('a.txt:1: needle')
   })
 
   // The JS implementation used to cap line length against catastrophic
@@ -830,6 +859,25 @@ describe('run_shell against a non-interactive environment', () => {
     expect(res.output).toContain('FINAL-FAILURE')
     expect(res.output).toContain('exit 2')
     expect(res.output).toMatch(/bytes omitted/)
+  })
+})
+
+describe('edit_file size limit', () => {
+  it('refuses a file too large to edit without reading it into memory', async () => {
+    const path = join(root, 'big.txt')
+    await writeFile(path, 'x'.repeat(9 * 1024 * 1024))
+    await expect(
+      tool('edit_file').execute(
+        {
+          path: 'big.txt',
+          old_string: 'x',
+          new_string: 'y',
+          replace_all: true,
+        },
+        ctx,
+      ),
+    ).rejects.toThrow(/too large.*run_shell/)
+    expect((await readFile(path, 'utf8'))[0]).toBe('x')
   })
 })
 
