@@ -131,7 +131,7 @@ built yet.)
 | `edit_file` | Replace an exact, unique string in a file (`replace_all` to change all). |
 | `run_shell` | Run a shell command in the working directory (`cwd=root`, no stdin, `toolTimeout`; optional per-command `timeout`). Also the way to move, copy, delete, and create files, and to run git. |
 | `web_search` | Search the web via Brave (`BRAVE_API_KEY` required). |
-| `web_fetch` | Fetch a URL and return its content (`format`: `markdown` default → HTML to Markdown + pretty JSON, or `text`/`html` unconverted); no API key required. |
+| `web_fetch` | Fetch a URL and return its content (`format`: `markdown` default → HTML to Markdown + pretty JSON, or `text`/`html` unconverted); no API key required. A long page comes back in ~32 KiB chunks, each ending with a note naming the `offset` (characters of the converted content) to continue from; each call re-fetches the page. |
 | `todowrite` | Replace the in-session todo list (the model sends the whole list each call) to plan and track multi-step work. |
 | `ask_user` | Ask the user a multiple-choice or free-text question mid-run (interactive terminals only). |
 | `sub_agent` | Delegate self-contained work to a sub-agent (`general` or `explore`) with its own context. |

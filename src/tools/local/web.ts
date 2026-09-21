@@ -25,6 +25,20 @@ interface BraveResult {
 // readBounded. Large enough for real pages/docs, small enough that a
 // multi-gigabyte response can't be pulled fully into the process.
 const WEB_FETCH_MAX_BYTES = 5 * 1024 * 1024
+// Room kept under the output cap for the paging footer: runTool cuts anything
+// past the cap from the end, which would be the footer.
+const NOTE_RESERVE = 128
+
+// Where a page starting at `start` ends: as many whole characters as fit in
+// `maxBytes` of UTF-8. encodeInto stops before a character that doesn't fit, so
+// a page never splits one. Offsets are UTF-16 code units, i.e. string indices.
+function pageEnd(text: string, start: number, maxBytes: number): number {
+  const { read } = new TextEncoder().encodeInto(
+    text.slice(start, start + maxBytes),
+    new Uint8Array(maxBytes),
+  )
+  return start + read
+}
 
 // Web search via the Brave Search API. The key is read from BRAVE_API_KEY at
 // call time so tool construction stays config-free; a missing key (or any API
@@ -111,7 +125,7 @@ export const webFetchTool = () =>
     name: 'web_fetch',
     category: 'web',
     description:
-      "Fetch a URL and return its content. With format=markdown (default) HTML pages are converted to Markdown and JSON is pretty-printed; format=text or format=html return the body unconverted. Binary payloads are described, not dumped. Use to read a specific page, doc, or API response when you already know the URL; use web_search to discover URLs you don't know yet. Pages are not rendered (no JavaScript), a non-2xx response is an error, and the result is cut at the output cap (about 32 KiB) with no way to page further, so prefer a specific page over a large index.",
+      "Fetch a URL and return its content. With format=markdown (default) HTML pages are converted to Markdown and JSON is pretty-printed; format=text or format=html return the body unconverted. Binary payloads are described, not dumped. Use to read a specific page, doc, or API response when you already know the URL; use web_search to discover URLs you don't know yet. Pages are not rendered (no JavaScript) and a non-2xx response is an error. A long page comes back in chunks of about 32 KiB, each ending with a note naming the offset to continue from; every call fetches the page again.",
     parameters: z.object({
       // httpUrl() validates both "is this a parseable URL" and
       // "is the scheme http(s)" in one check, so runTool's own
@@ -125,6 +139,14 @@ export const webFetchTool = () =>
         .enum(['markdown', 'text', 'html'])
         .optional()
         .describe('How to return the content (default markdown)'),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          'Characters of the content to skip, to read on from a "… offset=N to continue" note (default 0)',
+        ),
     }),
     async execute(args, ctx) {
       // Schema validation already guarantees this parses and is http(s).
@@ -152,23 +174,41 @@ export const webFetchTool = () =>
         return `(binary ${contentType}${len ? `, ${len} bytes` : ''}; not shown)`
       }
       const { text, truncated } = await readBounded(res, WEB_FETCH_MAX_BYTES)
-      const suffix = truncated
-        ? `\n… [response truncated at ${WEB_FETCH_MAX_BYTES} bytes]`
-        : ''
-      // text/html formats return the body unconverted; only markdown converts.
-      if (format !== 'markdown') {
-        return text + suffix
-      }
-      if (contentType.startsWith('text/html')) {
-        return htmlToMarkdown(text) + suffix
-      }
-      if (contentType.includes('json')) {
-        try {
-          return JSON.stringify(JSON.parse(text), null, 2) + suffix
-        } catch {
-          return text + suffix
+      // Only markdown converts: HTML to Markdown, JSON pretty-printed. text and
+      // html return the body as fetched.
+      let body = text
+      if (format === 'markdown') {
+        if (contentType.startsWith('text/html')) {
+          body = htmlToMarkdown(text)
+        } else if (contentType.includes('json')) {
+          try {
+            body = JSON.stringify(JSON.parse(text), null, 2)
+          } catch {
+            // Not valid JSON after all; the raw text is still useful.
+          }
         }
       }
-      return text + suffix
+      // Paging is over the converted content, so an offset from one call's
+      // footer means the same thing in the next.
+      const start = args.offset ?? 0
+      if (start > 0 && start >= body.length) {
+        throw new Error(
+          `offset ${start} is past the end (${body.length} characters)`,
+        )
+      }
+      const end = pageEnd(
+        body,
+        start,
+        ctx.config.maxToolOutputBytes - NOTE_RESERVE,
+      )
+      const page = body.slice(start, end)
+      if (end < body.length) {
+        return `${page}\n… (characters ${start}–${end} of ${body.length}; offset=${end} to continue)`
+      }
+      // The download cap cut the source short: say so where the missing
+      // content would have been, on the last page.
+      return truncated
+        ? `${page}\n… [response truncated at ${WEB_FETCH_MAX_BYTES} bytes]`
+        : page
     },
   })

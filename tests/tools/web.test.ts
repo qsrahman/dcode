@@ -353,15 +353,17 @@ describe('web_fetch', () => {
   it('truncates a response body larger than the buffer cap', async () => {
     const bigLength = 6 * 1024 * 1024 // > the 5 MiB web_fetch buffer cap
     const bytes = new TextEncoder().encode('a'.repeat(bigLength))
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        const chunkSize = 1024 * 1024
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-          controller.enqueue(bytes.subarray(i, i + chunkSize))
-        }
-        controller.close()
-      },
-    })
+    // A stream is single-use, and this test fetches twice.
+    const stream = () =>
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          const chunkSize = 1024 * 1024
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            controller.enqueue(bytes.subarray(i, i + chunkSize))
+          }
+          controller.close()
+        },
+      })
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -373,12 +375,101 @@ describe('web_fetch', () => {
               get: (k: string) =>
                 k.toLowerCase() === 'content-type' ? 'text/plain' : null,
             },
-            body: stream,
+            body: stream(),
           }) as unknown as Response,
       ),
     )
-    const out = await fetchTool.execute({ url: 'https://example.com/big' }, ctx)
-    expect(out.length).toBeLessThan(bigLength)
-    expect(out).toContain('truncated')
+    // The first page names where to resume; the source cut is reported on the
+    // last page, since that is where the missing content would have been.
+    const first = await fetchTool.execute(
+      { url: 'https://example.com/big' },
+      ctx,
+    )
+    expect(first).toMatch(/offset=\d+ to continue/)
+    const last = await fetchTool.execute(
+      { url: 'https://example.com/big', offset: 5 * 1024 * 1024 - 100 },
+      ctx,
+    )
+    expect(last).toContain('response truncated at')
+  })
+})
+
+describe('web_fetch paging', () => {
+  // Reads every page by following the offset each footer names, the way the
+  // model would.
+  async function readAll(url: string, c: ToolContext = ctx): Promise<string> {
+    let out = ''
+    let offset = 0
+    for (let i = 0; i < 100; i++) {
+      const page = await fetchTool.execute({ url, offset }, c)
+      expect(Buffer.byteLength(page)).toBeLessThanOrEqual(
+        c.config.maxToolOutputBytes,
+      )
+      const m = page.match(
+        /\n… \(characters \d+–\d+ of \d+; offset=(\d+) to continue\)$/,
+      )
+      out += m ? page.slice(0, m.index) : page
+      if (!m) return out
+      offset = Number(m[1])
+    }
+    throw new Error('did not reach the end')
+  }
+
+  it('cuts a long page at the output cap and names the offset to resume from', async () => {
+    mockFetchResponse({ body: 'x'.repeat(100_000) })
+    const page = await fetchTool.execute({ url: 'https://example.com/p' }, ctx)
+    expect(Buffer.byteLength(page)).toBeLessThanOrEqual(
+      ctx.config.maxToolOutputBytes,
+    )
+    expect(page).toMatch(
+      /characters 0–\d+ of 100000; offset=\d+ to continue\)$/,
+    )
+  })
+
+  it('returns the whole page when following the offsets to the end', async () => {
+    const body = Array.from({ length: 6000 }, (_, i) => `line ${i}`).join('\n')
+    mockFetchResponse({ body })
+    expect(await readAll('https://example.com/p')).toBe(body)
+  })
+
+  it('never splits a multi-byte character across pages', async () => {
+    const body = '🙂é'.repeat(30_000)
+    mockFetchResponse({ body })
+    const all = await readAll('https://example.com/p')
+    expect(all).toBe(body)
+    expect(all).not.toContain('\uFFFD')
+  })
+
+  it('skips characters of the converted content, not the raw response', async () => {
+    mockFetchResponse({
+      body: '<h1>Title</h1><p>hello world</p>',
+      contentType: 'text/html',
+    })
+    const whole = await fetchTool.execute({ url: 'https://example.com/p' }, ctx)
+    const tail = await fetchTool.execute(
+      { url: 'https://example.com/p', offset: 3 },
+      ctx,
+    )
+    expect(tail).toBe(whole.slice(3))
+  })
+
+  it('adds no footer to a page that fits', async () => {
+    mockFetchResponse({ body: 'short' })
+    expect(
+      await fetchTool.execute({ url: 'https://example.com/p', offset: 2 }, ctx),
+    ).toBe('ort')
+  })
+
+  it('errors when the offset is past the end', async () => {
+    mockFetchResponse({ body: 'short' })
+    await expect(
+      fetchTool.execute({ url: 'https://example.com/p', offset: 99 }, ctx),
+    ).rejects.toThrow(/offset 99 is past the end \(5 characters\)/)
+  })
+
+  it('pages within a smaller configured output cap', async () => {
+    mockFetchResponse({ body: 'y'.repeat(2000) })
+    const small = { ...ctx, config: cfg({ maxToolOutputBytes: 400 }) }
+    expect(await readAll('https://example.com/p', small)).toBe('y'.repeat(2000))
   })
 })

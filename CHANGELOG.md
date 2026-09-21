@@ -46,6 +46,20 @@
   claude code's `glob` scoping. It composes with `ignore` (which still wins,
   per the load-bearing `-g` ordering in `search.ts`).
 
+### Added
+- `web_fetch` pages long content. A page past the output cap used to be cut at
+  32 KiB with no way to read the rest (claude code and opencode have the same
+  gap). It now returns chunks of about 32 KiB, each ending
+  `… (characters 0–32636 of 74982; offset=32636 to continue)`, and takes an
+  `offset` to read on. Offsets count characters of the *converted* content
+  (Markdown, pretty-printed JSON), so one call's footer means the same thing in
+  the next; paging by line, as `read_file` does, would cut long prose
+  paragraphs. Chunks are sized with `TextEncoder.encodeInto`, so a page never
+  splits a character, and the footer's room is reserved under the cap so
+  `runTool` can't cut it off. There is no cache: each page re-fetches (dynamic
+  pages can shift between calls). The 5 MiB download-cap note now appears on the
+  last page.
+
 ### Changed
 - The `task` tool is renamed `sub_agent`. `task` sat next to `todowrite`, whose
   description talks about a "task list", so the model could reach for the wrong

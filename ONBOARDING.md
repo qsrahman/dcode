@@ -496,7 +496,7 @@ flowchart TD
 - Filesystem tools confine paths via `tools/local/paths.ts::resolvePath` (lexical `..` check plus a `realpath` check that also catches symlink escapes). `run_shell` is **not** confined beyond `cwd`.
 - Shared spawn options live in `tools/local/exec.ts` (`baseExecOptions`, `safeEnv`, `childMaxBuffer`). `safeEnv` drops env vars whose names match `KEY|SECRET|TOKEN|PASSWORD|PASS|CREDENTIAL|PRIVATE` so children can't read secrets.
 - `grep`/`glob` spawn `rgPath` directly, not via `exec.ts`, because ripgrep's exit code 1 means "no matches", not failure.
-- `web_fetch`/`web_search` go through `tools/local/http.ts::fetchSafely` (timeout plus signal) and `readBounded`. There is deliberately **no host filtering**.
+- `web_fetch`/`web_search` go through `tools/local/http.ts::fetchSafely` (timeout plus signal) and `readBounded`. There is deliberately **no host filtering**. `web_fetch` pages its converted output with an `offset` in characters (`pageEnd` in `web.ts`, sized with `TextEncoder.encodeInto` so a page never splits a character); it keeps no cache, so each page is a fresh fetch.
 
 ### 8.7 Sub-agents
 
