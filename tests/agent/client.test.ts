@@ -9,20 +9,25 @@ interface CapturedCall {
 const streamCalls: CapturedCall[] = []
 // Events the fake SDK stream will emit for the *next* stream() call; reset
 // per test so each test controls exactly what the async iterator yields.
-let nextEvents: { type: string; delta?: string; item?: unknown }[] = []
-let finalResponseValue: unknown = {}
+let nextEvents: {
+  type: string
+  delta?: string
+  item?: unknown
+  response?: unknown
+}[] = []
 const constructed: {
   apiKey?: string
   baseURL?: string
   maxRetries?: number
 }[] = []
 let nextStreamError: Error | undefined
-let nextFinalError: Error | undefined
+let nextCreateError: Error | undefined
 
 // createClient constructs a real `new OpenAI(...)` internally and calls
-// `client.responses.stream(params, opts)`; mock the SDK so we can inspect
-// both the request it builds and the streaming contract (event filtering,
-// finalResponse) without any network call.
+// `client.responses.create({ stream: true, ... }, opts)`; mock the SDK so we
+// can inspect both the request it builds and the streaming contract (event
+// filtering, taking the final response from the terminal event) without any
+// network call.
 vi.mock('openai', () => {
   class FakeOpenAI {
     constructor(opts: {
@@ -33,22 +38,19 @@ vi.mock('openai', () => {
       constructed.push(opts)
     }
     responses = {
-      stream: (
+      create: (
         params: Record<string, unknown>,
         opts: Record<string, unknown>,
       ) => {
         streamCalls.push({ params, opts })
+        if (nextCreateError) return Promise.reject(nextCreateError)
         const events = nextEvents
-        return {
-          async *[Symbol.asyncIterator]() {
+        return Promise.resolve(
+          (async function* () {
             for (const e of events) yield e
             if (nextStreamError) throw nextStreamError
-          },
-          finalResponse: async () => {
-            if (nextFinalError) throw nextFinalError
-            return finalResponseValue
-          },
-        }
+          })(),
+        )
       },
     }
   }
@@ -62,9 +64,8 @@ describe('createClient', () => {
     streamCalls.length = 0
     constructed.length = 0
     nextEvents = []
-    finalResponseValue = {}
     nextStreamError = undefined
-    nextFinalError = undefined
+    nextCreateError = undefined
   })
 
   function streamOnce(
@@ -183,7 +184,7 @@ describe('createClient', () => {
   })
 
   describe('abort signal', () => {
-    it('forwards opts.signal to responses.stream as a request option', () => {
+    it('forwards opts.signal to responses.create as a request option', () => {
       const ac = new AbortController()
       streamOnce(cfg(), { signal: ac.signal })
       expect(streamCalls[0]!.opts.signal).toBe(ac.signal)
@@ -202,7 +203,7 @@ describe('createClient', () => {
         { type: 'response.output_text.delta', delta: 'Hel' },
         { type: 'response.reasoning_summary_text.delta', delta: 'ignored' },
         { type: 'response.output_text.delta', delta: 'lo' },
-        { type: 'response.completed' },
+        { type: 'response.completed', response: { output: [] } },
       ]
       const stream = streamOnce(cfg())
       const chunks: string[] = []
@@ -240,51 +241,77 @@ describe('createClient', () => {
       }
     })
 
-    it('delegates finalResponse to the SDK stream', async () => {
-      finalResponseValue = { output_text: 'done', output: [] }
-      const stream = streamOnce(cfg())
-      // Drain first, matching runTurn's own usage pattern.
-      for await (const _ of stream) {
-        // no-op
-      }
-      await expect(stream.finalResponse()).resolves.toEqual({
-        output_text: 'done',
-        output: [],
-      })
+    it.each(['response.completed', 'response.incomplete', 'response.failed'])(
+      'takes the final response from the %s event',
+      async (type) => {
+        const response = {
+          status: type,
+          output: [],
+          usage: { input_tokens: 1 },
+        }
+        nextEvents = [
+          { type: 'response.output_text.delta', delta: 'hi' },
+          { type, response },
+        ]
+        const stream = streamOnce(cfg())
+        // Drain first, matching runTurn's own usage pattern.
+        for await (const _ of stream) {
+          // no-op
+        }
+        await expect(stream.finalResponse()).resolves.toBe(response)
+      },
+    )
+
+    it('drives the stream itself when finalResponse is called before iterating', async () => {
+      const response = { status: 'completed', output: [] }
+      nextEvents = [{ type: 'response.completed', response }]
+      await expect(streamOnce(cfg()).finalResponse()).resolves.toBe(response)
+    })
+
+    it('starts the request immediately, before anything iterates', () => {
+      streamOnce(cfg())
+      expect(streamCalls).toHaveLength(1)
     })
   })
-  describe('non-conformant endpoint errors', () => {
-    it('explains SDK stream-shape errors and keeps the original as the cause', async () => {
-      const original = new Error('missing content at index 0')
-      nextStreamError = original
+
+  describe('endpoints that end the stream without a final response', () => {
+    it('explains the missing response.completed and names the endpoint and model', async () => {
+      nextEvents = [{ type: 'response.output_text.delta', delta: 'hi' }]
       const stream = streamOnce(
         cfg({ baseURL: 'http://localhost:11434/v1', model: 'some-model' }),
       )
-      const err = await (async () => {
-        try {
-          for await (const _ of stream) {
-            // drain
-          }
-        } catch (e) {
-          return e as Error
-        }
-      })()
-      expect(err?.message).toContain('missing content at index 0')
-      expect(err?.message).toContain('http://localhost:11434/v1')
-      expect(err?.message).toContain('some-model')
-      expect(err?.message).toContain('Try a different model or endpoint')
-      expect(err?.cause).toBe(original)
-    })
-
-    it('explains the same errors when they surface from finalResponse', async () => {
-      nextFinalError = new Error('stream ended without producing a Response')
-      const stream = streamOnce(cfg())
       for await (const _ of stream) {
         // drain
       }
-      await expect(stream.finalResponse()).rejects.toThrow(
-        /stream ended without producing a Response.*Try a different model/s,
+      const err = await stream.finalResponse().catch((e: Error) => e)
+      expect((err as Error).message).toContain('response.completed')
+      expect((err as Error).message).toContain('http://localhost:11434/v1')
+      expect((err as Error).message).toContain('some-model')
+      expect((err as Error).message).toContain(
+        'Try a different model or endpoint',
       )
+    })
+  })
+
+  describe('request failures', () => {
+    it('rejects the iteration with the SDK error, unchanged', async () => {
+      const original = new Error('401 Unauthorized')
+      nextCreateError = original
+      const stream = streamOnce(cfg())
+      await expect(
+        (async () => {
+          for await (const _ of stream) {
+            // drain
+          }
+        })(),
+      ).rejects.toBe(original)
+    })
+
+    it('does not leave an unhandled rejection when nothing iterates a failed request', async () => {
+      nextCreateError = new Error('never awaited')
+      streamOnce(cfg())
+      // vitest fails the run on an unhandled rejection; give one time to fire.
+      await new Promise((r) => setTimeout(r, 20))
     })
 
     it('passes unrelated errors through untouched', async () => {

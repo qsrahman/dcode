@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { addOutputText } from 'openai/lib/ResponsesParser'
 import type {
   Response as OpenAIResponse,
   ResponseCreateParamsStreaming,
@@ -62,24 +63,6 @@ export function isContextOverflowError(err: unknown): boolean {
   )
 }
 
-// The SDK's ResponseStream throws these bare OpenAIErrors when the endpoint's
-// events don't have the Responses API shape it accumulates against (or the
-// stream carries no response at all). Matched by message like OVERFLOW_MESSAGE_RE
-// above: the SDK gives them no code or subclass to match on.
-const STREAM_SHAPE_RE =
-  /^(missing (?:output|content) at index \d+|expected content to be |request ended without sending any events|stream ended without producing a Response)/
-
-// A raw "missing content at index 0" reads like a dcode bug; it's nearly always
-// the endpoint or model not speaking the Responses streaming protocol.
-function explainStreamError(err: unknown, config: Config): unknown {
-  if (!(err instanceof Error) || !STREAM_SHAPE_RE.test(err.message)) return err
-  const where = config.baseURL ?? 'the default OpenAI endpoint'
-  return new Error(
-    `${err.message} — the streaming events from ${where} (model "${config.model}") don't match the Responses API shape the SDK expects. Try a different model or endpoint.`,
-    { cause: err },
-  )
-}
-
 // Thin wrapper over the OpenAI Responses SDK. Dependencies are constructed here
 // so the rest of the app can depend on the Client interface and stay
 // testable without network access.
@@ -136,34 +119,65 @@ export function createClient(config: Config): Client {
       // stricter endpoint ever does reject it, that surfaces as a clear API
       // error the user can act on — not a silent guess either way.
       params.store = config.stateful
-      // Passing signal here (rather than a separate abort() method callers
-      // have to remember to invoke) lets the SDK's own EventStream wire it
-      // into its internal AbortController, so cancelling the turn's
-      // AbortSignal cancels the HTTP request too — no extra plumbing needed.
-      const s = currentSdk().responses.stream(params, { signal: opts?.signal })
-      return {
-        async *[Symbol.asyncIterator]() {
-          try {
-            for await (const event of s) {
-              if (event.type === 'response.output_text.delta') {
-                yield event.delta
-              } else if (event.type === 'response.output_item.added') {
-                const { item } = event
-                if (item.type === 'reasoning') {
-                  opts?.onActivity?.({ kind: 'reasoning' })
-                } else if (item.type === 'function_call') {
-                  opts?.onActivity?.({ kind: 'tool_call', name: item.name })
-                }
+      // Raw `responses.create({ stream: true })`, not the SDK's `responses.stream()`
+      // helper. The helper accumulates every event into a running Response and
+      // throws when an endpoint's events don't fit its model of the protocol
+      // (`missing content at index 0`), and it parses tool arguments into
+      // `parsed_arguments` while the stream finishes. dcode needs neither: the
+      // server's own `response.completed` event already carries the final
+      // Response, so endpoints that stream loosely but finish correctly just
+      // work, and malformed tool arguments stay a tool error for runTool to feed
+      // back rather than a failed stream. `signal` cancels the HTTP request.
+      const request = currentSdk().responses.create(params, {
+        signal: opts?.signal,
+      })
+      // The request starts now, like the helper's did. A failure is reported to
+      // whoever iterates (below); this only keeps it from being unhandled when
+      // nobody does.
+      void request.catch(() => {})
+      let final: OpenAIResponse | undefined
+      let started = false
+      async function* deltas(): AsyncGenerator<string> {
+        started = true
+        for await (const event of await request) {
+          switch (event.type) {
+            case 'response.output_text.delta':
+              yield event.delta
+              break
+            case 'response.output_item.added':
+              if (event.item.type === 'reasoning') {
+                opts?.onActivity?.({ kind: 'reasoning' })
+              } else if (event.item.type === 'function_call') {
+                opts?.onActivity?.({ kind: 'tool_call', name: event.item.name })
               }
-            }
-          } catch (err) {
-            throw explainStreamError(err, config)
+              break
+            // All three end the stream and carry the whole Response; the
+            // status and incomplete_details on it say which one it was.
+            case 'response.completed':
+            case 'response.incomplete':
+            case 'response.failed':
+              final = event.response
+              // `output_text` (the answer, concatenated) is a convenience the
+              // SDK adds to responses it builds itself; the server's own
+              // doesn't have it, and loop.ts reads it.
+              if (Array.isArray(final.output)) addOutputText(final)
+              break
           }
+        }
+      }
+      return {
+        [Symbol.asyncIterator]: deltas,
+        async finalResponse() {
+          // Callers normally drain the deltas first; if not, do it here.
+          if (!started) for await (const _ of deltas()) void _
+          if (!final) {
+            const where = config.baseURL ?? 'the default OpenAI endpoint'
+            throw new Error(
+              `the stream from ${where} (model "${config.model}") ended without a response.completed event, so there is no final response. Try a different model or endpoint.`,
+            )
+          }
+          return final
         },
-        finalResponse: () =>
-          s.finalResponse().catch((err: unknown) => {
-            throw explainStreamError(err, config)
-          }),
       }
     },
   }

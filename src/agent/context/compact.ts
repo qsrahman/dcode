@@ -86,8 +86,9 @@ async function summarize(
   let summary = ''
   for await (const delta of stream) summary += delta
   // Some OpenAI-compatible / local endpoints stream valid summary text but
-  // return a non-conformant `output` shape that finalResponse() can't parse.
-  // The summary is the streamed deltas, so keep them instead of crashing.
+  // end the stream without a terminal event, so finalResponse() has nothing to
+  // return. The summary is the streamed deltas, so keep them instead of
+  // crashing.
   try {
     await stream.finalResponse()
   } catch (err) {

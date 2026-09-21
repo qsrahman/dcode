@@ -61,6 +61,32 @@
   last page.
 
 ### Changed
+- `Client.stream` uses raw `responses.create({ stream: true })` instead of the
+  SDK's `responses.stream()` helper. The helper accumulates every event into a
+  running Response and throws when an endpoint's events don't fit its model of
+  the protocol, and it parses tool arguments into `parsed_arguments` as the
+  stream finishes. dcode needs neither: the server's own `response.completed`
+  (or `.incomplete` / `.failed`) event carries the final Response.
+  - Endpoints that stream loosely but finish correctly now work. Deltas for an
+    item that was never announced used to fail with `missing output at index 0`;
+    that error class, the `STREAM_SHAPE_RE` / `explainStreamError` wrapper, and
+    `stripParsedArguments` in `loop.ts` are gone.
+  - Malformed tool-call arguments can no longer fail the stream inside the SDK
+    (which is what made `strict: true` tools risky on non-OpenAI endpoints);
+    they reach `runTool` and come back to the model as a tool error.
+  - `output_text` is added to the final Response with the SDK's own
+    `addOutputText` — the server's response doesn't carry it and `loop.ts`
+    reads it. (The live stress run caught this; every answer was empty.)
+  - Behavior change: a stream that ends with no terminal event now fails with
+    `the stream from <url> (model "<m>") ended without a response.completed
+    event …` instead of limping through with a partial `in_progress` response.
+    Compaction keeps its streamed summary text in that case.
+  - `finalResponse()` drives the iteration itself when called first, and the
+    request still starts immediately; a failed request nobody iterates no longer
+    risks an unhandled rejection.
+  - New `tests/agent/client-sse.test.ts` runs the real SDK against crafted SSE
+    streams (loose deltas, `error` events, `response.incomplete`, a missing
+    terminal event, malformed arguments).
 - The `task` tool is renamed `sub_agent`. `task` sat next to `todowrite`, whose
   description talks about a "task list", so the model could reach for the wrong
   one. The file and export follow (`tools/local/sub-agent.ts`, `subAgentTool`),

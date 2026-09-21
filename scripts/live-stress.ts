@@ -270,8 +270,9 @@ async function runScenario(
 // History is replayed verbatim as the next turn's input, so anything the API
 // rejects on replay has to be caught here rather than on the next request.
 // Two invariants: every function_call is paired with its output (an orphan is
-// a hard 400), and no function_call carries `parsed_arguments` (the SDK adds
-// it to responses; loop.ts's stripParsedArguments removes it again).
+// a hard 400), and no function_call carries `parsed_arguments` (the SDK's
+// `responses.stream()` helper adds it; Client.stream uses raw `create`, which
+// doesn't, and this keeps it that way).
 function checkReplayShape(name: string, history: ResponseInput): void {
   const items = history as Item[]
   const callIds = new Set(

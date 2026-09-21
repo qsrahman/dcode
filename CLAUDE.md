@@ -60,8 +60,11 @@ ONBOARDING.md §17 says why.
 
 - **History invariants.** Every `function_call` needs its `function_call_output`
   (the loop records outputs before honoring an abort). Model output is replayed
-  via the SDK's `toResponseInputItems()` so `reasoning` items survive, then
-  `loop.ts` strips `parsed_arguments`. Count, undo, or cut at prompts with
+  via the SDK's `toResponseInputItems()` so `reasoning` items survive. The
+  stream is raw `responses.create({ stream: true })`, not the SDK's
+  `responses.stream()` helper: the final `Response` is the server's own
+  `response.completed`, with `output_text` added by `addOutputText` (loop.ts
+  reads it). Count, undo, or cut at prompts with
   `isUserPrompt` (`agent/types.ts`), never a bare `role === 'user'`: the
   injected `Continue.` is a user item too.
 - **The system prompt is not history.** It goes in the Responses `instructions`

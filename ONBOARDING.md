@@ -133,7 +133,7 @@ Runtime dependencies, and why each exists:
 
 | Package | Why it's here |
 | ------- | ------------- |
-| `openai` `^7.15.0` | Responses API client. dcode uses `client.responses.stream()`, and the SDK helper `toResponseInputItems()` (`agent/loop.ts`) to replay model output into history. |
+| `openai` `^7.15.0` | Responses API client. dcode uses `client.responses.create({ stream: true })` (raw events, not the accumulating `responses.stream()` helper), and the SDK helpers `toResponseInputItems()` and `addOutputText()` (`agent/loop.ts`) to replay model output into history. |
 | `zod` `^4.6.4` | Config schema and tool parameter schemas. Always imported from `zod/v4`. `z.toJSONSchema` produces the tool JSON Schema (`tools/registry.ts`). |
 | `execa` `^10.0.1` | Spawning `run_shell`, background processes, and ripgrep, with signal handling (`cancelSignal`) and descendant killing. |
 | `@vscode/ripgrep` | Bundled `rg` binary that backs `grep` and `glob` (no separate install). |
@@ -295,18 +295,18 @@ The `sub_agent` tool re-enters `runAgent` for a sub-agent (see [§8.7](#87-sub-a
 runTurn(client, config, input, opts)                       agent/turn.ts
   ├─ client.stream(input, { tools, instructions, signal,
   │                          reasoningEffort, verbosity })  agent/client.ts
-  │     └─ client.responses.stream({ model, input, max_output_tokens: config.maxTokens,
+  │     └─ client.responses.create({ stream: true, model, input, max_output_tokens: config.maxTokens,
   │            stream: true, store: config.stateful, [tools] [instructions]
   │            [reasoning.effort] [text.verbosity] }, { signal })
   │        yields `response.output_text.delta` strings; `output_item.added` for a reasoning item or
   │        function_call is reported via opts.onActivity (→ progress.onActivity); every other SDK event is dropped
   ├─ for each delta: MarkdownStreamRenderer.push(delta) → sink   (only block-complete text is emitted)
   │      first visible write calls opts.onBeforeText  →  progress.freeze()
-  ├─ response = await stream.finalResponse()     ← the SDK's aggregated Response (tool calls, usage, reasoning)
+  ├─ response = await stream.finalResponse()     ← the server's own `response.completed` Response (tool calls, usage, reasoning) + SDK `output_text`
   └─ md.finalize() → sink;  return response
 ```
 
-Rendering comes from the deltas, but history and tool calls come from `finalResponse()`.
+Rendering comes from the deltas, but history and tool calls come from `finalResponse()`, which is the terminal event's Response.
 
 ### 7.3 One tool call
 
@@ -357,9 +357,9 @@ sequenceDiagram
     loop up to maxToolIterations
         L->>C: beforeTurn(history)
         L->>T: completeTurn → runTurn
-        T->>A: responses.stream(input, instructions, tools)
+        T->>A: responses.create(stream: true, input, instructions, tools)
         A-->>T: output_text deltas (rendered live)
-        A-->>T: finalResponse (function_call items, usage)
+        A-->>T: response.completed (function_call items, usage)
         L->>L: observe(usage); push output into history
         alt has function_calls
             L->>X: runCalls(calls)
@@ -442,8 +442,8 @@ The next prompt sends this entire array again, plus the new user item. That is w
 **Notes:**
 - `createClient` reads `config` on every request and rebuilds its SDK instance if `apiKey`, `baseURL`, or `maxRetries` change, so `/key` reaches every holder of the client (the REPL and sub-agents, which capture it at startup) without a new `Client` being handed out. `/model` works the same way, because the model is read per request.
 - `Client` is an interface with one method, `stream()`. Tests substitute fakes (`tests/helpers.ts::fakeClient`) without touching the network.
-- `ModelStream` is `AsyncIterable<string>` plus `finalResponse()`. Only text deltas are yielded; the model starting a reasoning item or tool call is reported through the separate `onActivity` callback so the UI can show life during a silent phase.
-- `pushResponseOutput` uses the SDK's `toResponseInputItems()` so `reasoning` items are replayed (reasoning models require them on stateless turns), then `stripParsedArguments` removes a `parsed_arguments` field the API rejects on replay.
+- `ModelStream` is `AsyncIterable<string>` plus `finalResponse()`. Only text deltas are yielded; the model starting a reasoning item or tool call is reported through the separate `onActivity` callback so the UI can show life during a silent phase. `finalResponse()` returns the Response carried by the `response.completed` / `.incomplete` / `.failed` event, and drives the stream itself if nothing iterated it. The request is raw `responses.create({ stream: true })` rather than the SDK's `responses.stream()`: that helper accumulates events into a running Response and throws when an endpoint's events don't fit (`missing content at index 0`), and parses tool arguments into `parsed_arguments`; the raw path needs neither.
+- `pushResponseOutput` uses the SDK's `toResponseInputItems()` so `reasoning` items are replayed (reasoning models require them on stateless turns).
 
 ### 8.4 System prompt
 
@@ -546,7 +546,7 @@ flowchart LR
     CFG --> SES["Session (REPL) / one-shot locals"]
     SES --> HIST[("history: ResponseInput<br/>client-side array")]
     SYS["buildSystemPrompt()"] -->|"instructions field"| REQ
-    HIST -->|"input"| REQ["responses.stream(params)"]
+    HIST -->|"input"| REQ["responses.create(params, stream: true)"]
     TOOLS["ToolRegistry.toResponsesTools()"] --> REQ
     REQ --> RESP["Response"]
     RESP -->|"output items"| HIST
@@ -791,7 +791,7 @@ Implement → add deterministic tests → update `PLAN.md`/`README.md`/`AGENTS.m
 | --------- | ------------ | ------------------- |
 | No API key | The `OPENAI_API_KEY is not set …` guidance on stderr, exit 1 | `cli/auth.ts::NO_KEY_HELP`, returned to `main` |
 | Endpoint unreachable | `[error] Connection error.`, exit 1 after about 3 s | The SDK retries (`maxRetries`, default 3), then the error reaches `main`'s catch. With `--verbose` you also get `[debug] run turn model=…` first. |
-| Endpoint returns non-conformant stream events | `[error] missing content at index 0 — the streaming events from <url> (model "<m>") don't match the Responses API shape the SDK expects. Try a different model or endpoint.` | The OpenAI SDK's `ResponseStream` throws the bare `missing content/output at index N` (or `request ended without sending any events`) when events don't match the Responses schema; `client.ts::explainStreamError` adds the guidance. This points at the endpoint or model, not at dcode. |
+| Endpoint ends the stream without a terminal event | `[error] the stream from <url> (model "<m>") ended without a response.completed event, so there is no final response. Try a different model or endpoint.` | `Client.stream` takes the final Response from the `response.completed` / `.incomplete` / `.failed` event; a stream that just stops has none. Loosely streamed events that still finish with a full `response.completed` work fine (the SDK's accumulating helper used to reject those). This points at the endpoint or model, not at dcode. Compaction keeps the streamed summary text in this case. |
 | A tool call fails | `› read_file: ✗ failed (0.0s)` on the terminal; the model sees `error: …` text and usually retries | `runTool`'s catch. Add `--verbose` to see the error text. |
 | Typo'd config key | `Failed to load config <path>: …`, exit 1 | `config/config.ts::readConfigFile` (strict parse) |
 
@@ -874,7 +874,7 @@ All confirmed in the code or in `AGENTS.md`/`CLAUDE.md`:
 4. **`history` is one shared mutable array** touched by the loop, the context manager, `/undo`, and `/reset` (see [§9](#9-important-data-flow)). A function that receives `history` may rewrite it.
 5. **Not every `role: 'user'` item is a user prompt.** The truncation recovery injects `Continue.` as a user message. Count, undo, or cut history at prompts with `agent/types.ts::isUserPrompt`, not a raw `role` check (`/undo`, the status-line turn count, and `compact.ts::takeTail` all use it).
 6. **The tool-progress freeze assumes tool turns emit no text.** `runTurn` fires `onBeforeText` at the first visible chunk, and `progress.freeze()` then closes the live counter. If a tool-calling turn also streams text, the summary freezes early. The system prompt tells the model not to narrate between tool calls for this reason.
-7. **Rendered text ≠ recorded text.** The terminal shows deltas through the markdown renderer, but `history` gets the SDK's `finalResponse()` output. `client.ts` yields only `response.output_text.delta` as text; apart from the `onActivity` hints for reasoning and tool-call starts, every other stream event (reasoning text, refusals, tool-call arguments) is discarded at that boundary.
+7. **Rendered text ≠ recorded text.** The terminal shows deltas through the markdown renderer, but `history` gets the terminal event's Response (`finalResponse()`). `client.ts` yields only `response.output_text.delta` as text; apart from the `onActivity` hints for reasoning and tool-call starts, every other stream event (reasoning text, refusals, tool-call arguments) is discarded at that boundary.
 8. **Sub-agent tool policies match by name.** A typo silently removes or fails to deny a tool, so `createLocalTools` throws on unknown names. `explore` uses an allow-list on purpose. Don't "simplify" it into a deny-list.
 9. **Background processes are a module-level singleton** (`processManager` in `tools/local/process.ts`), so they outlive a turn and are shared with sub-agents. `/undo` doesn't stop them. They're killed on `kill_process` or when dcode exits.
 10. **`stateful: true` doesn't enable server-side chaining.** It sets `store: true` only. Nothing sends `previous_response_id`.
@@ -971,7 +971,7 @@ All confirmed in the code or in `AGENTS.md`/`CLAUDE.md`:
 >
 > **Why:** The code supports any base URL, and the stress test has passed against a local Ollama model and against `gpt-5.4-mini`, but a different local model failed with `missing content at index 0` in a one-shot run. Each provider's Responses-API quirks (accepted `reasoning.effort` values, `usage` presence, `output` shape) aren't documented. `compact.ts` has workarounds for non-conformant responses.
 >
-> **Where to investigate:** `agent/context/compact.ts` (the `finalResponse()` fallback), `agent/client.ts`, and the stress test with your endpoint.
+> **Where to investigate:** `agent/context/compact.ts` (the fallback for a stream with no terminal event), `agent/client.ts`, and the stress test with your endpoint.
 
 > **Unknown:** The full historical rationale for past phases.
 >

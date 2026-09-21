@@ -30,8 +30,9 @@ export interface TurnOpts {
 // Universal turn runner shared by one-shot and the REPL. Streams output to
 // `sink`; the model request is cancellable via `opts.signal`, which is passed
 // straight into the SDK's own request-level abort support (decision L).
-// Returns the SDK's aggregated Response (its `output_text` is the SDK's own,
-// not reconstructed from the deltas). Deltas are rendered as markdown live
+// Returns the server's final Response (its `output_text` is added by the SDK's
+// addOutputText from the response's own messages, not reconstructed from the
+// deltas). Deltas are rendered as markdown live
 // via MarkdownStreamRenderer, which only emits block-complete lines (see
 // ui/markdown.ts) so a client never sees broken mid-render markdown (an
 // unclosed `**`, a code fence rendered before it closes).

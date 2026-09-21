@@ -10,10 +10,7 @@ import { createToolProgress } from '../ui/tools.ts'
 import { CONTINUE_PROMPT } from './types.ts'
 import type { TaskStore, ToolContext, ToolResult } from './types.ts'
 import { ToolRegistry } from '../tools/registry.ts'
-import type {
-  ResponseFunctionToolCall,
-  ResponseInputItem,
-} from 'openai/resources/responses/responses'
+import type { ResponseFunctionToolCall } from 'openai/resources/responses/responses'
 import { toResponseInputItems } from 'openai/lib/responses/ResponseInputItems'
 import { ContextManager } from './context/manager.ts'
 
@@ -250,16 +247,13 @@ async function completeTurn(deps: {
 // which reasoning models (the GPT-5 family, o-series) require on every stateless
 // turn (store: false, dcode's default against real OpenAI) that continues a tool
 // call; a hand-rolled reconstruction that kept only function_call items silently
-// dropped them. It does not strip `parsed_arguments` from function_call items,
-// though (see stripParsedArguments), so that is mapped off explicitly.
+// dropped them.
 function pushResponseOutput(
   history: ResponseInput,
   response: OpenAIResponse,
   opts: { skipToolCalls?: boolean } = {},
 ): void {
-  const items = toResponseInputItems(response.output ?? []).map(
-    stripParsedArguments,
-  )
+  const items = toResponseInputItems(response.output ?? [])
   history.push(
     ...(opts.skipToolCalls
       ? items.filter((item) => item.type !== 'function_call')
@@ -284,21 +278,6 @@ function appendToolOutputs(
       output: r.output,
     })
   }
-}
-
-// The Responses API rejects a function_call item replayed with a
-// `parsed_arguments` field ("Unknown parameter"), but toResponseInputItems
-// doesn't strip it — the field isn't part of the SDK's own
-// ResponseFunctionToolCall type, so its generic normalizer doesn't know to.
-function stripParsedArguments(item: ResponseInputItem): ResponseInputItem {
-  if (item.type !== 'function_call' || !('parsed_arguments' in item)) {
-    return item
-  }
-  const { parsed_arguments: _parsedArguments, ...rest } =
-    item as typeof item & {
-      parsed_arguments?: unknown
-    }
-  return rest as ResponseInputItem
 }
 
 // One-shot orchestration: a single user turn through the agent loop. Wraps the

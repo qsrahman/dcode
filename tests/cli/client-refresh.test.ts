@@ -16,17 +16,15 @@ vi.mock('openai', () => {
       this.apiKey = opts.apiKey
     }
     responses = {
-      stream: (params: { model: string }) => {
+      create: async (params: { model: string }) => {
         requests.push({ apiKey: this.apiKey, model: params.model })
-        return {
-          async *[Symbol.asyncIterator]() {
-            yield { type: 'response.output_text.delta', delta: 'ok' }
-          },
-          finalResponse: async () => ({
-            output: [messageItem('ok')],
-            output_text: 'ok',
-          }),
-        }
+        return (async function* () {
+          yield { type: 'response.output_text.delta', delta: 'ok' }
+          yield {
+            type: 'response.completed',
+            response: { output: [messageItem('ok')], output_text: 'ok' },
+          }
+        })()
       },
     }
   }
