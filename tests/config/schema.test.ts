@@ -28,6 +28,10 @@ describe('configSchema', () => {
     expect(c.maxToolIterations).toBe(16)
     expect(c.context.window).toBe(200000)
     expect(c.context.compactAt).toBe(0.85)
+    // A delegation has to outlive a single tool call, so this is deliberately
+    // not toolTimeout's 120s — but it is still a ceiling, so that a runaway
+    // sub-agent can't keep running with no caller left (see sub-agent.ts).
+    expect(c.subAgentTimeout).toBe(600000)
   })
 
   // This refine is the guard that keeps compactHistory able to make actual

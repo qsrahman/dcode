@@ -15,6 +15,13 @@ import { errorMessage } from '../../util/log.ts'
 import { todoTool } from './todo.ts'
 import type { RunSink } from '../../ui/sink.ts'
 
+// A sub-agent runs a nested agent loop over a filtered tool set and returns only
+// its final text, so its intermediate steps stay out of the parent's history.
+//
+// Sub-agent sessions are never resumable: each delegation gets a fresh history
+// and there is no REPL turn to continue one in, so a dropped, failed or
+// timed-out sub-agent is simply re-dispatched by the parent. That's why failures
+// are reported as text for the parent model to react to, rather than persisted.
 const MAX_DEPTH = 1
 
 // No-op sink: sub-agent output streams to /dev/null — only the final text is
@@ -107,11 +114,24 @@ async function runSubAgent(
 
   const history: ResponseInput = [{ role: 'user', content: args.prompt }]
 
+  // The nested run gets its own budget rather than riding on the parent's
+  // toolTimeout, for two reasons — the second is the one that matters:
+  //   1. A delegation legitimately takes longer than a single tool call, so
+  //      sharing the 120s tool budget would abort most real ones.
+  //   2. runTool's withDeadline *abandons* a promise it loses a race with:
+  //      nothing outside can force the work to stop. A `general` sub-agent
+  //      holds write_file/run_shell, so an abandoned one keeps editing the repo
+  //      with no caller left reading its result. Handing the child the signal
+  //      makes it observe the abort instead — its in-flight tools cancel, and
+  //      loop.ts's own abort check ends the loop with history recorded.
+  const budget = AbortSignal.timeout(ctx.config.subAgentTimeout)
+  const signal = ctx.signal ? AbortSignal.any([ctx.signal, budget]) : budget
+
   try {
     const { text, truncated } = await runAgent(client, ctx.config, history, {
       sink: silentSink,
       logger: ctx.logger,
-      signal: ctx.signal,
+      signal,
       tools: childTools,
       context,
       depth: depth + 1,
@@ -129,6 +149,20 @@ async function runSubAgent(
 
     return wrapResult(args, 'completed', body)
   } catch (err) {
+    // Our own budget expiring and the parent cancelling are different failures
+    // with the same bare "aborted" message from the signal, and the parent
+    // model can't act on that: one is worth raising the budget or narrowing the
+    // task, the other needs nothing done about it. Name the cause we control.
+    // (A budget firing in the same tick as an unrelated failure is reported as
+    // a timeout: the budget is the dominant explanation, and the parent can
+    // always re-dispatch.)
+    if (budget.aborted && !ctx.signal?.aborted) {
+      return wrapResult(
+        args,
+        'error',
+        `error: sub-agent exceeded its ${ctx.config.subAgentTimeout}ms budget (subAgentTimeout) and was stopped. Narrow the task, or raise the budget if the work genuinely needs longer.`,
+      )
+    }
     return wrapResult(args, 'error', `error: ${errorMessage(err)}`)
   }
 }

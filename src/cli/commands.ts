@@ -129,6 +129,7 @@ function formatConfig(c: Config): string {
     `maxTools:     ${c.maxToolIterations}`,
     `maxToolOut:   ${c.maxToolOutputBytes} bytes`,
     `toolTimeout:  ${c.toolTimeout} ms`,
+    `subAgentTO:   ${c.subAgentTimeout} ms`,
     `maxRetries:   ${c.maxRetries}`,
     `reasoning:    ${c.reasoningEffort ?? '(provider default)'}`,
     `verbosity:    ${c.verbosity ?? '(provider default)'}`,

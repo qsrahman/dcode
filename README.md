@@ -181,6 +181,13 @@ rather than in parallel, their output isn't streamed to the terminal (only the
 final result returns to the parent), and each call starts from a fresh
 context — there is no way to resume one.
 
+A delegation is bounded by `subAgentTimeout` (default 10 minutes), not by the
+per-call `toolTimeout`: it runs its own multi-iteration loop and legitimately
+outlives any single tool call. When the budget runs out the sub-agent is
+stopped — including any file edits it was mid-way through — and the parent is
+told the budget, rather than being left with a result that never arrives.
+Raise the key for genuinely long jobs; tighten the prompt otherwise.
+
 **Context-window management.** Long sessions are kept within `context.window`:
 before each request, dcode prunes old tool outputs (collapsing them to a short
 marker) and, once the estimate crosses `context.compactAt` of the usable budget
@@ -279,6 +286,14 @@ match. It is opt-in because every argument the model doesn't use becomes an
 explicit `null` it must write, a new schema costs extra latency on its first
 request, and endpoints other than OpenAI's may not accept the schema. MCP tools
 are never made strict: their schemas are the servers' own.
+
+Two timeout keys, both ceilings rather than targets. `toolTimeout` (default
+`120000`) bounds one tool call. `subAgentTimeout` (default `600000`) bounds one
+whole `sub_agent` delegation, which gets a separate, larger budget because it
+runs a nested agent loop rather than a single call — see the sub-agent section
+above. A tool that ignores its signal can still outlive its budget (see the
+tool-execution notes below); a sub-agent is passed the signal, so its in-flight
+tools stop with it.
 
 Config resolution precedence is: CLI flags > env (`OPENAI_*`) > global
 `$XDG_CONFIG_HOME/dcode/dcode.json` (default `~/.config/dcode/dcode.json`) >

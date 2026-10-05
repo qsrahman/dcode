@@ -142,6 +142,14 @@ export const configSchema = z.object({
   verbosity: z.enum(['low', 'medium', 'high']).optional(),
   maxRetries: z.number().int().nonnegative().default(3),
   toolTimeout: z.number().int().positive().default(120000),
+  // Budget for one whole sub_agent delegation. Separate from `toolTimeout`
+  // because a sub-agent runs its own multi-iteration loop — often longer than
+  // any single tool call, and in `general` mode that loop can write files. The
+  // defect being bounded here is unboundedness, not slowness: with no budget,
+  // runTool's deadline abandons the sub-agent promise and the child keeps
+  // mutating the repo with no caller left watching. Generous by default, and
+  // independent so a slow tool can't cut a delegation's write access short.
+  subAgentTimeout: z.number().int().positive().default(600000),
   // When true, responses are stored server-side so a later turn could chain via
   // `previous_response_id`. Off by default: server storage isn't available on
   // local/compatible endpoints and OpenAI's 30-day retention is undesirable here.

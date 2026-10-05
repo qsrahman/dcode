@@ -79,7 +79,11 @@ ONBOARDING.md §17 says why.
   server's JSON Schema verbatim (`jsonSchema`).
 - **Cancellation.** `runTool`'s deadline *abandons* a tool rather than stopping
   it, so anything that spawns or connects must also take `ctx.signal`. A tool
-  that would block on stdin refuses up front (`ask_user`).
+  that would block on stdin refuses up front (`ask_user`). A `general`
+  sub-agent can write, so `sub_agent` never relies on the parent's deadline: it
+  passes its own `subAgentTimeout` signal (combined with the parent's) into the
+  nested `runAgent`, which puts it on both the child's requests and its child
+  `ToolContext`.
 - **Terminal output.** The live tool counter freezes at the first visible answer
   chunk (`onBeforeText`), which assumes tool-calling turns emit no text. Colour
   comes only from `paintFor(config.color)` in `util/color.ts`.

@@ -151,6 +151,20 @@ released rather than merely orphaned. A tool that blocks on input must
 refuse up front when it can't succeed (see `ask_user`'s TTY check) rather than
 relying on the deadline to tidy up.
 
+`sub_agent` (`tools/local/sub-agent.ts`) is the case where that abandonment
+actually bites, because a `general` sub-agent holds `write_file`/`run_shell`: it
+would keep editing the repo with no caller left. So it doesn't rely on the
+parent's deadline at all. It builds its own `AbortSignal.timeout(config.subAgentTimeout)`,
+combines it with the parent's signal, and hands it to the nested `runAgent`,
+which puts it on both the child's requests (`client.ts`) and its child
+`ToolContext` (`loop.ts`). Two consequences worth keeping in mind when touching
+it: the budget must be *observed* rather than merely raced (it is a separate key
+because a delegation legitimately outlives one `toolTimeout` — 120s would abort
+most real ones), and `loop.ts`'s abort check runs *after* `runCalls`, so the
+child's in-flight tool decides when the loop actually unwinds. A tool that
+ignores its signal still delays the unwind; only a hard kill (killing the
+process) would not, and that isn't available here.
+
 MCP tools (`tools/mcp/manager.ts`, connected via `connectMcpServers` before
 `createLocalTools` is called — see `index.ts`/`cli/repl.ts`) are the one case
 where a `ToolDefinition`'s JSON Schema doesn't come from `defineTool`'s

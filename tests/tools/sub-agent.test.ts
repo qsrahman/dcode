@@ -210,6 +210,75 @@ describe('sub_agent tool', () => {
     expect(result).toContain('treat this result as incomplete')
   })
 
+  // A nested run that behaves the way loop.ts does when its signal fires: keep
+  // working until the abort, then throw 'aborted'. Promise<never> because this
+  // child never resolves — a sub-agent that blows its budget is cut off
+  // mid-flight, not politely finished.
+  function mockSubAgentObservingAbort() {
+    mockedRunAgent.mockImplementation((_c, _cfg, _h, opts) => {
+      return new Promise<never>((_resolve, reject) => {
+        opts?.signal?.addEventListener('abort', () =>
+          reject(new Error('aborted')),
+        )
+      })
+    })
+  }
+
+  // The defect this closes: runTool's deadline *abandons* a tool promise it loses
+  // a race with, and a `general` sub-agent holds write_file/run_shell — so a
+  // sub-agent with no budget of its own kept working after the parent stopped
+  // waiting, with nobody reading the result. It has to receive the abort itself,
+  // not merely lose the race.
+  it('stops a sub-agent that outlives subAgentTimeout, naming the budget', async () => {
+    mockSubAgentObservingAbort()
+    const result = await subAgentTool(client, parentTools).execute(
+      {
+        description: 'long job',
+        prompt: 'take your time',
+        subagent_type: 'general',
+      },
+      { ...ctx, config: cfg({ subAgentTimeout: 20 }) },
+    )
+
+    expect(result).toMatch(/^<sub_agent state="error"/m)
+    // Named rather than the signal's bare 'aborted', so the parent model can tell
+    // a budget worth raising from a cancelled run.
+    expect(result).toContain('exceeded its 20ms budget')
+    expect(result).toContain('subAgentTimeout')
+  })
+
+  // Two very different failures share the signal's bare 'aborted' message, and
+  // the parent model can act on only one of them.
+  it('ends a sub-agent when the parent is cancelled, without blaming the budget', async () => {
+    mockSubAgentObservingAbort()
+    const ac = new AbortController()
+    const pending = subAgentTool(client, parentTools).execute(
+      { description: 'x', prompt: 'y', subagent_type: 'general' },
+      { ...ctx, signal: ac.signal },
+    )
+    ac.abort()
+    const result = await pending
+
+    expect(result).toMatch(/^<sub_agent state="error"/m)
+    expect(result).toContain('aborted')
+    expect(result).not.toContain('budget')
+  })
+
+  // Before this, the nested run inherited `ctx.signal` verbatim — undefined for
+  // every parent turn that wasn't itself cancelled, so there was nothing to
+  // observe and nothing to fire.
+  it('gives the nested run its own signal when the parent has none', async () => {
+    expect(ctx.signal).toBeUndefined()
+    await subAgentTool(client, parentTools).execute(
+      { description: 'x', prompt: 'y', subagent_type: 'explore' },
+      ctx,
+    )
+
+    const opts = mockedRunAgent.mock.calls[0]![3]
+    expect(opts?.signal).toBeInstanceOf(AbortSignal)
+    expect(opts?.signal?.aborted).toBe(false)
+  })
+
   it('wraps errors from runAgent', async () => {
     mockedRunAgent.mockRejectedValue(new Error('LLM timeout'))
     const tool = subAgentTool(client, parentTools)
