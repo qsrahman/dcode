@@ -45,7 +45,14 @@ export async function main(): Promise<void> {
     const authError = await ensureApiKey(config, logger, !args.prompt)
     if (authError) {
       process.stderr.write(authError)
-      process.exit(1)
+      // exitCode, not process.exit: a write to a pipe is asynchronous on POSIX,
+      // so exiting immediately discards whatever hasn't been flushed yet. The
+      // exact failure this path exists to report is the one most likely to be
+      // piped into a file or another process — `dcode … 2>err.log`. Nothing is
+      // running at this point (no runtime yet), so the process still exits as
+      // soon as it drains. Same reasoning at the catch below.
+      process.exitCode = 1
+      return
     }
     if (!args.prompt) {
       await startRepl(config, logger)
@@ -74,7 +81,9 @@ export async function main(): Promise<void> {
     }
   } catch (err) {
     logger.error(errorMessage(err))
-    process.exit(1)
+    // Safe to defer the exit: any runtime opened above is closed in its
+    // `finally` before control reaches here.
+    process.exitCode = 1
   }
 }
 
