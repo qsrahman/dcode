@@ -182,21 +182,109 @@ describe('ask_user tool', () => {
 })
 
 describe('ask_user without an interactive terminal', () => {
-  it('refuses instead of hanging on a non-TTY stdin', async () => {
+  // A refusal is a failure: returning the explanation as a successful result
+  // let the model treat it as an answer and counted the turn as a completed
+  // call.
+  it('fails instead of hanging on a non-TTY stdin', async () => {
     process.stdin.isTTY = false
-    const out = await askUserTool().execute(
+    await expect(
+      askUserTool().execute(
+        {
+          questions: [
+            {
+              question: 'Pick one',
+              header: 'Choice',
+              options: [{ label: 'A', description: 'first' }],
+            },
+          ],
+        },
+        ctx,
+      ),
+    ).rejects.toThrow('no interactive terminal')
+    expect(mockedSelect).not.toHaveBeenCalled()
+  })
+
+  it('reaches the model as ok:false via runTool', async () => {
+    process.stdin.isTTY = false
+    const { runTool } = await import('../../src/agent/exec.ts')
+    const res = await runTool(
       {
-        questions: [
-          {
-            question: 'Pick one',
-            header: 'Choice',
-            options: [{ label: 'A', description: 'first' }],
-          },
-        ],
+        id: 'c',
+        name: 'ask_user',
+        arguments: JSON.stringify({
+          questions: [
+            {
+              question: 'Pick one',
+              header: 'Choice',
+              options: [{ label: 'A', description: 'first' }],
+            },
+          ],
+        }),
       },
+      askUserTool(),
       ctx,
     )
-    expect(out).toContain('no interactive terminal')
-    expect(mockedSelect).not.toHaveBeenCalled()
+    expect(res.ok).toBe(false)
+    expect(res.output).toContain('no interactive terminal')
+  })
+})
+
+// Without the signal, an abort mid-prompt leaves the terminal in raw mode with
+// clack's keypress listener attached: runTool gives up on the promise, but
+// nothing detaches them. @clack/core's Prompt closes itself on abort, which is
+// what releases them — so the signal has to reach every prompt, including the
+// follow-up text() for a custom answer.
+describe('ask_user cancellation', () => {
+  const oneQuestion = {
+    questions: [
+      {
+        question: 'Pick one',
+        header: 'Choice',
+        options: [{ label: 'A', description: 'first' }],
+      },
+    ],
+  }
+
+  it('passes ctx.signal to select', async () => {
+    mockedSelect.mockResolvedValue('A')
+    const ac = new AbortController()
+    await askUserTool().execute(oneQuestion, { ...ctx, signal: ac.signal })
+    expect(mockedSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: ac.signal }),
+    )
+  })
+
+  it('passes ctx.signal to the custom-answer prompt too', async () => {
+    mockedSelect.mockResolvedValue('__custom__')
+    mockedText.mockResolvedValue('typed')
+    const ac = new AbortController()
+    await askUserTool().execute(oneQuestion, { ...ctx, signal: ac.signal })
+    expect(mockedText).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: ac.signal }),
+    )
+  })
+
+  it('passes ctx.signal to multiselect', async () => {
+    mockedMultiselect.mockResolvedValue([])
+    const ac = new AbortController()
+    await askUserTool().execute(
+      { questions: [{ ...oneQuestion.questions[0]!, multiple: true }] },
+      { ...ctx, signal: ac.signal },
+    )
+    expect(mockedMultiselect).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: ac.signal }),
+    )
+  })
+
+  // An aborted prompt resolves as a cancel, which the tool reports as
+  // "Unanswered" — the same as a user pressing Esc.
+  it('records an aborted prompt as Unanswered', async () => {
+    mockedSelect.mockResolvedValue(Symbol.for('clack:cancel'))
+    const ac = new AbortController()
+    const out = await askUserTool().execute(oneQuestion, {
+      ...ctx,
+      signal: ac.signal,
+    })
+    expect(out).toContain('"Pick one"="Unanswered"')
   })
 })

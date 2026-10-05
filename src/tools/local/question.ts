@@ -21,9 +21,8 @@ const questionSchema = z.object({
 // @clack/prompts renders its menu and then waits for a keypress that will
 // never arrive when stdin isn't interactive (a piped one-shot run, CI), so
 // the tool promise never settles. runTool's deadline would only abandon it
-// after toolTimeout (it can't cancel the prompt itself — see withDeadline),
-// so the call would stall until then. Refuse up front instead, and tell the
-// model to decide for itself.
+// after toolTimeout, so the call would stall until then. Refuse up front
+// instead, and tell the model to decide for itself.
 function interactive(): boolean {
   return Boolean(process.stdin.isTTY)
 }
@@ -36,7 +35,10 @@ function toClackOptions(q: z.infer<typeof questionSchema>) {
   }))
 }
 
-async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
+async function askSingle(
+  q: z.infer<typeof questionSchema>,
+  signal?: AbortSignal,
+): Promise<string[]> {
   const options = toClackOptions(q)
   const allowCustom = q.custom !== false
 
@@ -51,11 +53,12 @@ async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
   const result = await select({
     message: q.question,
     options,
+    signal,
   })
 
   if (isCancel(result)) return cancelled()
   if (result === '__custom__') {
-    const custom = await text({ message: q.question })
+    const custom = await text({ message: q.question, signal })
     if (isCancel(custom)) return cancelled()
     if (!custom) return []
     // See the comment in cli/auth.ts's promptForApiKey: @clack/prompts@1.8.0's
@@ -69,6 +72,7 @@ async function askSingle(q: z.infer<typeof questionSchema>): Promise<string[]> {
 
 async function askMultiple(
   q: z.infer<typeof questionSchema>,
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const options = toClackOptions(q)
 
@@ -76,15 +80,20 @@ async function askMultiple(
     message: q.question,
     options,
     required: false,
+    signal,
   })
 
   if (isCancel(result)) return cancelled()
   return result as string[]
 }
 
-// A cancelled prompt (Esc/Ctrl-C) yields no answer; print a styled cancel line
-// so the abort is visible rather than the prompt silently vanishing, and return
-// the empty answer the caller records as "Unanswered".
+// A cancelled prompt (Esc/Ctrl-C, or ctx.signal aborting) yields no answer;
+// print a styled cancel line so the abort is visible rather than the prompt
+// silently vanishing, and return the empty answer the caller records as
+// "Unanswered". Passing the signal to clack is what makes the abort path
+// clean: @clack/core's Prompt reacts to it by closing itself, which is what
+// releases raw mode and detaches the keypress listener. `cancel()` alone
+// would only print a line and leave the terminal in raw mode.
 function cancelled(): string[] {
   cancel('Cancelled.')
   return []
@@ -99,13 +108,20 @@ export const askUserTool = () =>
     parameters: z.object({
       questions: z.array(questionSchema).describe('Questions to ask the user'),
     }),
-    async execute({ questions }) {
+    async execute({ questions }, ctx) {
       if (!interactive()) {
-        return 'Cannot ask the user questions: this session has no interactive terminal (stdin is not a TTY). Proceed with your best judgement and state the assumptions you made.'
+        // Thrown, not returned. As a successful result the refusal read to the
+        // model as an answer it could proceed on, and counted as a completed
+        // turn — decision D keeps failures on the ok:false path.
+        throw new Error(
+          'Cannot ask the user questions: this session has no interactive terminal (stdin is not a TTY). Proceed with your best judgement and state the assumptions you made.',
+        )
       }
       const answers: string[][] = []
       for (const q of questions) {
-        const answer = q.multiple ? await askMultiple(q) : await askSingle(q)
+        const answer = q.multiple
+          ? await askMultiple(q, ctx.signal)
+          : await askSingle(q, ctx.signal)
         answers.push(answer)
       }
       const formatted = questions
