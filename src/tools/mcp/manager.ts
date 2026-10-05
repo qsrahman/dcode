@@ -177,10 +177,19 @@ function wrapMcpTool(
     // third-party with no dcode-side guarantee of read-only behavior.
     parallel: tool.annotations?.readOnlyHint ?? false,
     async execute(args, ctx: ToolContext) {
+      // Bounded like fetchSafely: ctx.signal alone only covers a parent
+      // cancellation, so without toolTimeout a server that never answers leaves
+      // the socket and its pending-response entry open after runTool has
+      // abandoned the promise. Which of the two fired is deliberately not
+      // reported — both surface as the same deadline error from runTool.
+      const timeoutSignal = AbortSignal.timeout(ctx.config.toolTimeout)
+      const signal = ctx.signal
+        ? AbortSignal.any([ctx.signal, timeoutSignal])
+        : timeoutSignal
       const result = await client.callTool(
         { name: tool.name, arguments: args },
         undefined,
-        { signal: ctx.signal },
+        { signal },
       )
       // callTool's return is a union of modern CallToolResult and the legacy
       // CompatibilityCallToolResult, and both members carry a

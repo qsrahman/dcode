@@ -377,7 +377,10 @@ describe('connectMcpServers', () => {
   })
 
   describe('a wrapped tool', () => {
-    it('forwards call args and ctx.signal to callTool', async () => {
+    // Asserted by behavior, not identity: the tool combines ctx.signal with its
+    // own timeout, so the signal it forwards is a composite that mirrors
+    // ac.signal rather than being it.
+    it('forwards call args and a signal that carries ctx.signal to callTool', async () => {
       toolsFor['srv'] = [{ name: 'search', inputSchema: {} }]
       const mgr = await connectMcpServers({ srv: stdio('srv') }, logger)
       const ac = new AbortController()
@@ -390,8 +393,28 @@ describe('connectMcpServers', () => {
         key: 'srv',
         name: 'search',
         args: { q: 'hello' },
-        signal: ac.signal,
       })
+      const signal = callToolCalls[0]!.signal as AbortSignal
+      expect(signal.aborted).toBe(false)
+      ac.abort()
+      expect(signal.aborted).toBe(true)
+    })
+
+    // ctx.signal alone only covers a parent cancellation, so with no parent
+    // signal a server that never answers used to leave the socket and its
+    // pending-response entry open, with runTool long since giving up on it.
+    it('bounds callTool with toolTimeout when there is no parent signal', async () => {
+      toolsFor['srv'] = [{ name: 'search', inputSchema: {} }]
+      const mgr = await connectMcpServers({ srv: stdio('srv') }, logger)
+      await mgr.tools[0]!.execute(
+        { q: 'hello' },
+        { root: '/tmp', config: cfg({ toolTimeout: 20 }), logger },
+      )
+      const signal = callToolCalls[0]!.signal as AbortSignal
+      expect(signal).toBeInstanceOf(AbortSignal)
+      expect(signal.aborted).toBe(false)
+      await new Promise((r) => setTimeout(r, 30))
+      expect(signal.aborted).toBe(true)
     })
 
     it('joins multiple text content parts and describes non-text parts', async () => {
