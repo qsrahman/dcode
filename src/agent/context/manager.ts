@@ -18,7 +18,9 @@ export type ContextAction = 'none' | 'pruned' | 'compacted'
 // before each model request (prune, then compact if still over budget) and
 // `observe` after each response (to recalibrate the token estimate against the
 // provider's real `usage`). `onOverflow` handles a context-window error by
-// compacting and letting the loop retry the request once.
+// compacting and letting the loop retry the request (up to OVERFLOW_RETRIES in
+// agent/loop.ts). Separate from CIRCUIT_BREAKER below, which counts recoveries
+// that failed across the whole session rather than retries of one request.
 export class ContextManager {
   // Calibration factor: real input tokens / heuristic estimate, learned from the
   // provider's `usage` so the cheap heuristic tracks the model's tokenizer.

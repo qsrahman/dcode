@@ -74,8 +74,10 @@ src/
   cli/commands.ts     # Session type, parseCommand/dispatch for slash commands
   cli/auth.ts         # validateApiKey + ensureApiKey: the whole startup key path (prompt -> check -> persist)
   cli/keys.ts         # setGlobalKey/unsetGlobalKey: /key writes secrets to the global config, 0600/0700
+  cli/completer.ts    # createCompleter(root): readline tab-completion for slash commands + file paths
+  cli/editor.ts       # /edit: resolveEditor($VISUAL ?? $EDITOR) + openInEditor (temp file, inherited stdio, read back after close)
   config/schema.ts    # zod schema (Config), .strict()
-  config/config.ts    # buildConfig(args) [file+env+args] + readConfigFile(path) + normalizeBaseURL
+  config/config.ts    # buildConfig(args, onWarning?) [file+env+args] + readConfigFile(path?, onWarning?) + normalizeBaseURL; onWarning reports a group/world-readable config file
   agent/client.ts     # wraps OpenAI Responses API (streaming); ModelStream
   agent/system.ts     # buildSystemPrompt(opts?: {subagents?}): core+Sub-agents+Style sections, `subagents: false` drops the Sub-agents section (used for the depth-limited `general` sub-agent); appends the cwd's AGENTS.md (else CLAUDE.md) as a capped Project instructions section
   agent/turn.ts       # runTurn (one model turn; streams + renders, returns the Response)
@@ -107,8 +109,9 @@ src/
   ui/tools.ts            # tool-call rendering: interactive TTY = a per-query live counter that freezes into a bounded category summary (renderProgressLine/renderCategorySummary/TurnTally); piped/--verbose = per-call lines (renderToolResult/renderToolOutput)
   ui/sink.ts             # RunSink (write-only output seam) + CapturingSink for tests/stress
   types/marked-terminal.d.ts # local ambient types (marked-terminal ships none; @types/marked-terminal on npm is stale/mismatched)
-  util/color.ts         # paintFor(color) — the one place styleText is applied, shared by util/log.ts and ui/tools.ts
+  util/color.ts         # paintFor(color) — the one place styleText is applied, shared by util/log.ts, ui/tools.ts, cli/repl.ts and cli/commands.ts
   util/log.ts           # diagnostics -> stderr (never console.log); errorMessage, isAbortError
+  util/version.ts       # getVersion(): package.json version, 0.0.0 if unreadable — used by --version, /version and the MCP client info
 ```
 
 ### Markdown rendering

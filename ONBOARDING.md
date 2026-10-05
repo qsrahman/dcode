@@ -154,7 +154,7 @@ Prerequisites: Node.js ≥ 26 and pnpm (verified with Node v26.8.2 and pnpm 12.4
 pnpm install
 pnpm typecheck       # tsc --noEmit
 pnpm format:check    # prettier --check .
-pnpm test            # vitest run — all green, ~5 s (459 tests in 33 files at time of writing)
+pnpm test            # vitest run — all green, ~5 s (532 tests in 37 files at time of writing)
 ```
 
 These three checks are also the pre-commit gate (`AGENTS.md`).
@@ -651,7 +651,7 @@ flowchart TD
 
 ## 12. Testing
 
-**Where:** `tests/`, mirroring `src/` (`tests/cli/args.test.ts` ↔ `src/cli/args.ts`). 33 files, 459 tests at time of writing. **Run:** `vitest run` (config in `vitest.config.ts`: `tests/**/*.test.ts`, `FORCE_COLOR=1` so colourizers emit real ANSI).
+**Where:** `tests/`, mirroring `src/` (`tests/cli/args.test.ts` ↔ `src/cli/args.ts`). 37 files, 532 tests at time of writing. **Run:** `vitest run` (config in `vitest.config.ts`: `tests/**/*.test.ts`, `FORCE_COLOR=1` so colourizers emit real ANSI).
 
 **Kinds of tests**
 - **Unit (nearly everything):** deterministic, offline.

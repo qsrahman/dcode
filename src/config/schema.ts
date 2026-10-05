@@ -83,9 +83,9 @@ const contextSchema = z
     //     tokens, higher cost, higher latency) than the last.
     //   - Nothing shrinks it *proactively*. Recovery becomes purely reactive:
     //     a request eventually overflows the model's window, and `onOverflow`
-    //     (which ignores this flag) prunes/compacts and retries once — so you
-    //     pay for a failed oversized request *plus* a compaction, instead of
-    //     compacting cheaply ahead of time.
+    //     (which ignores this flag) prunes/compacts and retries — up to three
+    //     times — so you pay for a failed oversized request *plus* the
+    //     compaction, instead of compacting cheaply ahead of time.
     //   - If that reactive compaction can't make progress three times running,
     //     the circuit breaker trips and further requests just fail with a
     //     context-length error until the session is reset.

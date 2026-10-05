@@ -198,19 +198,21 @@ instruction also includes the session's authoritative task list (from
 `todowrite`), so the summary can't contradict what was actually tracked. The token
 estimate is calibrated against the real `usage` the API returns, so no tokenizer
 dependency is needed. If a request still exceeds the window, dcode compacts and
-retries once. Set `context.window` to match your model (lower it for small local
-models); `/compact` triggers a summary on demand and `/context` reports usage.
+retries, up to three times before giving up. Set `context.window` to match your
+model (lower it for small local models); `/compact` triggers a summary on demand
+and `/context` reports usage.
 
 This proactive compaction is the **only** thing that bounds conversation history
 (there is no separate item-count cap). Setting `context.auto: false` disables it,
 with real consequences: history then grows unbounded — every turn's request gets
 larger, costlier, and slower — and nothing shrinks it ahead of time. Recovery
 becomes purely reactive: a request eventually overflows the window, after which
-dcode prunes/compacts and retries once (so you pay for the oversized failed
-request *plus* the compaction), and if that fails to make progress three times in
-a row the session stops recovering and requests fail until you `/reset` or
-`/compact`. Only disable `auto` for short or one-shot sessions that never approach
-the window; leave it on (the default) otherwise.
+dcode prunes/compacts and retries (so you pay for the oversized failed
+request *plus* the compaction). Independently of that per-request retry count, if
+recovery fails to make progress three times in a row the session stops recovering
+and requests fail until you `/reset` or `/compact`. Only disable `auto` for short
+or one-shot sessions that never approach the window; leave it on (the default)
+otherwise.
 
 ## MCP servers
 

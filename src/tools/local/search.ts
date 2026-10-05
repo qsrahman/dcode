@@ -67,7 +67,7 @@ interface RgResult {
 // 1 = ran fine with nothing found — ripgrep's convention, not an error).
 // reject:false means execa never throws for this, so a maxBuffer overflow,
 // timeout, or abort all land here with exitCode left undefined (the process
-// was killed, not exited normally) — check the same result fields runExec's
+// was killed, not exited normally) — check the same result fields runShell's
 // catch branch checks, rather than falling through to a generic "ripgrep
 // exited with undefined". Exported (rather than inlined in runRg) so this
 // classification is unit-testable without spawning a real process.
@@ -86,7 +86,7 @@ export function classifyRgFailure(result: RgResult, maxBuffer: number): Error {
 }
 
 // Shared by grep/glob: ripgrep's exit code convention doesn't fit exec.ts's
-// runExec (which throws on any nonzero exit), so both tools call execa
+// runShell (which throws on any nonzero exit), so both tools call execa
 // directly and share this result-checking helper instead.
 async function runRg(rgArgs: string[], ctx: ToolContext) {
   const maxBuffer = childMaxBuffer(ctx.config.maxToolOutputBytes)
