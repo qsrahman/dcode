@@ -313,7 +313,10 @@ dcode *reads* its config from, not where `/key` *writes* to. A key set via
 `/key` during a `--config` session takes effect for that session (it updates
 `session.config` directly) but won't persist into `<path>` itself; the
 command's own output always names the actual file it wrote. `/key list`
-shows which providers are set without revealing values.
+shows which providers are set without revealing values. dcode also warns at
+startup if a config it reads is group- or world-readable (mode `0644`,
+say), naming the `chmod 600` that fixes it — a hand-written or copied
+config won't have the mode `/key` writes.
 
 Two optional model-tuning keys, both unset by default (the provider's default
 applies and nothing extra is sent): `reasoningEffort`

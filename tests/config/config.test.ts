@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   writeFileSync,
@@ -97,6 +98,52 @@ describe('readConfigFile', () => {
     } finally {
       process.chdir(prev)
     }
+  })
+
+  // The file can hold an API key, and /key writes it 0o600 — but a hand-created
+  // or copied config often isn't. Warning, not failing: the key still works.
+  describe('permissions', () => {
+    function writeWithMode(name: string, mode: number): string {
+      const p = join(dir, name)
+      writeFileSync(p, JSON.stringify({ model: 'm' }))
+      chmodSync(p, mode)
+      return p
+    }
+
+    // Skipped on Windows: Node synthesizes mode 0o666 there, so every file
+    // would look world-readable.
+    it.skipIf(process.platform === 'win32')(
+      'warns when the config is group- or world-readable',
+      () => {
+        const warnings: string[] = []
+        readConfigFile(writeWithMode('loose.json', 0o644), (w) =>
+          warnings.push(w),
+        )
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0]).toMatch(/readable by other users/)
+        expect(warnings[0]).toMatch(/chmod 600/)
+      },
+    )
+
+    it.skipIf(process.platform === 'win32')(
+      'says nothing when the config is owner-only',
+      () => {
+        const warnings: string[] = []
+        readConfigFile(writeWithMode('tight.json', 0o600), (w) =>
+          warnings.push(w),
+        )
+        expect(warnings).toEqual([])
+      },
+    )
+
+    it.skipIf(process.platform === 'win32')(
+      'still loads a world-readable config',
+      () => {
+        const p = writeWithMode('veryloose.json', 0o666)
+        const cfg = readConfigFile(p, () => {})
+        expect(cfg.model).toBe('m')
+      },
+    )
   })
 })
 

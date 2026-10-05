@@ -36,7 +36,7 @@ export async function main(): Promise<void> {
       printHelp()
       return
     }
-    const config = buildConfig(args)
+    const config = buildConfig(args, (w) => logger.warn(w))
     logger = createLogger(config)
     for (const w of configWarnings(config)) logger.warn(w)
     // Find, check, and (for a freshly pasted key) persist the API key.

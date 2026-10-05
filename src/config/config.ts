@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import type { CliOptions } from '../cli/args.ts'
@@ -25,11 +25,40 @@ export function normalizeBaseURL(url: string): string {
   return /\/v1$/i.test(trimmed) ? trimmed : `${trimmed}/v1`
 }
 
+// This file can hold apiKey/braveApiKey, and /key writes it 0o600. A config
+// created by hand, copied from a repo, or restored from a backup often isn't —
+// which on a shared machine means any local user can read the key. Warn rather
+// than fail: the key still works, and refusing to start would be worse than
+// saying so. chmod is the fix rather than `/key set`, which would make the user
+// re-type the secret it was trying to protect.
+//
+// Windows is skipped: Node synthesizes mode 0o666 there from the read-only
+// attribute and permissions are ACL-based, so every file would look world-
+// readable and the warning would fire on every run.
+function permissionsWarning(target: string): string | undefined {
+  if (process.platform === 'win32') return undefined
+  let mode: number
+  try {
+    mode = statSync(target).mode & 0o777
+  } catch {
+    return undefined
+  }
+  if ((mode & 0o077) === 0) return undefined
+  return `${target} is readable by other users (mode 0${mode.toString(8)}); if it holds an API key, run: chmod 600 ${target}`
+}
+
 // Read the effective config file: an explicit --config <path> (a missing one is
 // an error, so a typo doesn't fail silently) or, when none is given, the global
 // XDG file (absent → schema defaults via `{}`). dcode is a globally installed
 // personal tool, so there is no repo-local config discovery.
-export function readConfigFile(path?: string): Partial<Config> {
+//
+// `onWarning` receives non-fatal problems with the file itself (see
+// permissionsWarning). A callback rather than a returned list so this stays a
+// pure function of its inputs for the tests.
+export function readConfigFile(
+  path?: string,
+  onWarning?: (message: string) => void,
+): Partial<Config> {
   const target =
     path !== undefined ? resolve(process.cwd(), path) : globalConfigPath()
   if (!existsSync(target)) {
@@ -37,6 +66,8 @@ export function readConfigFile(path?: string): Partial<Config> {
     return {}
   }
   const raw = readFileSync(target, 'utf8')
+  const permissionWarning = permissionsWarning(target)
+  if (permissionWarning) onWarning?.(permissionWarning)
   let json: unknown
   try {
     json = JSON.parse(raw)
@@ -56,8 +87,17 @@ export function readConfigFile(path?: string): Partial<Config> {
 // Build the effective config from all sources. Precedence (highest wins): CLI
 // flags > env (OPENAI_*) > config file > schema defaults, layered by spreading
 // file then env into one object and applying args last.
-export function buildConfig(args: CliOptions): Config {
-  const merged: Record<string, unknown> = { ...readConfigFile(args.config) }
+//
+// `onWarning` is forwarded to readConfigFile, so the file's own problems are
+// reported without this function logging (buildConfig is otherwise pure, and
+// tests exercise it directly).
+export function buildConfig(
+  args: CliOptions,
+  onWarning?: (message: string) => void,
+): Config {
+  const merged: Record<string, unknown> = {
+    ...readConfigFile(args.config, onWarning),
+  }
   if (process.env.OPENAI_API_KEY) merged.apiKey = process.env.OPENAI_API_KEY
   if (process.env.OPENAI_BASE_URL) merged.baseURL = process.env.OPENAI_BASE_URL
   if (process.env.OPENAI_MODEL) merged.model = process.env.OPENAI_MODEL
