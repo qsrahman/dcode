@@ -128,7 +128,14 @@ export const configSchema = z.object({
   braveEndpoint: httpUrl().optional(),
   color: z.boolean().default(true),
   maxToolIterations: z.number().int().positive().default(16),
-  maxToolOutputBytes: z.number().int().positive().default(32768),
+  // Floored at the paging reserve rather than at 1: read_file/web_fetch page
+  // their output by subtracting NOTE_RESERVE (128) to leave room for the "N of
+  // M; offset=… to continue" footer, and a smaller cap makes that budget
+  // negative — new Uint8Array(-27) throws a RangeError from inside web_fetch,
+  // long after config load. Rejecting it here turns a mid-run crash into a
+  // config error naming the constraint. Keep in sync with NOTE_RESERVE in
+  // tools/local/fs.ts and tools/local/web.ts.
+  maxToolOutputBytes: z.number().int().min(128).default(32768),
   maxTokens: z.number().int().positive().default(8192),
   // Sent to the model on each agent turn only when set (compaction keeps the
   // provider default), so an unset value changes nothing for endpoints that

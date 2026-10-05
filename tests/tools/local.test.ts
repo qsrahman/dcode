@@ -903,7 +903,7 @@ describe('runTool truncation modes', () => {
   const run = (keep?: 'head' | 'ends') =>
     runTool({ id: 'c', name: 'emit', arguments: '{}' }, emoji(keep), {
       ...ctx,
-      config: cfg({ maxToolOutputBytes: 101 }),
+      config: cfg({ maxToolOutputBytes: 131 }),
     })
 
   it('never splits a multi-byte character, whichever end it cuts', async () => {
@@ -915,7 +915,7 @@ describe('runTool truncation modes', () => {
   })
 
   it('keeps only the head by default', async () => {
-    expect((await run()).output).toMatch(/output truncated to 101 bytes\]$/)
+    expect((await run()).output).toMatch(/output truncated to 131 bytes\]$/)
   })
 })
 

@@ -34,6 +34,19 @@ describe('configSchema', () => {
     expect(c.subAgentTimeout).toBe(600000)
   })
 
+  // The paging tools reserve NOTE_RESERVE (128) bytes for their "offset=… to
+  // continue" footer, so a smaller cap leaves a negative page budget and throws
+  // a RangeError from inside web_fetch — long after config load, and naming
+  // nothing the user can act on.
+  it('rejects maxToolOutputBytes below the paging reserve', () => {
+    expect(configSchema.safeParse({ maxToolOutputBytes: 127 }).success).toBe(
+      false,
+    )
+    expect(configSchema.parse({ maxToolOutputBytes: 128 })).toMatchObject({
+      maxToolOutputBytes: 128,
+    })
+  })
+
   // This refine is the guard that keeps compactHistory able to make actual
   // progress: keepTokens is the tail compaction always retains verbatim, so
   // if it were allowed to reach or exceed the usable budget, a compaction
