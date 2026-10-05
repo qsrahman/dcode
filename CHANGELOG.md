@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-05
+
 ### Added
 - `agent/runtime.ts::createRuntime(config, logger)` builds the session-lived
   pieces every entry point needs (client, `TaskStore`, connected MCP servers,
@@ -46,8 +48,6 @@
   claude code's `glob` scoping. It composes with `ignore` (which still wins,
   per the load-bearing `-g` ordering in `search.ts`).
 
-### Added
-- `web_fetch` pages long content. A page past the output cap used to be cut at
   32 KiB with no way to read the rest (claude code and opencode have the same
   gap). It now returns chunks of about 32 KiB, each ending
   `… (characters 0–32636 of 74982; offset=32636 to continue)`, and takes an
@@ -60,8 +60,6 @@
   pages can shift between calls). The 5 MiB download-cap note now appears on the
   last page.
 
-### Added
-- `strictTools` config key (default `false`): sends the built-in tools with
   `strict: true` and the OpenAI SDK's strict schema (`zodResponsesFunction`), so
   an OpenAI endpoint guarantees their arguments match. Every property is
   required and every unused optional argument is an explicit `null`. MCP tools
@@ -80,6 +78,24 @@
     required and no extras at every level, that each optional argument is a
     null union, and that `null` is accepted; a tool declaring a plain
     `.optional()` fails them by name.
+
+- `subAgentTimeout` config key (default 600000 ms): the budget for one
+  `sub_agent` call. It previously had none of its own — it inherited the loop's
+  `toolTimeout` (120 s), which no real delegation finishes inside, so a
+  `general` sub-agent was killed mid-edit and the caller saw only a generic
+  timeout. The sub-agent now builds its own `AbortSignal.timeout` and combines
+  it with the parent's, and reports exhaustion as a distinct error the model can
+  act on. The budget is observed rather than merely raced: it is a separate key
+  because a delegation legitimately outlives one `toolTimeout`. Shown by
+  `/config`.
+- dcode warns at startup when a config file it reads is group- or
+  world-readable, naming the `chmod 600` that fixes it. `/key` writes the global
+  config `0600`, but `writeFileSync`'s `mode` only applies on creation — a
+  hand-written, copied, or restored config keeps whatever mode it arrived with,
+  and on a shared machine that means any local user can read the API key in it.
+  A warning rather than a failure: the key still works, and refusing to start
+  over a file mode would be worse than saying so. Skipped on Windows, where Node
+  synthesizes mode `0666` and permissions are ACL-based.
 
 ### Changed
 - `Client.stream` uses raw `responses.create({ stream: true })` instead of the
@@ -329,6 +345,31 @@
   left anywhere no longer throws inside the command (which skipped its
   confirmation and left the session on the removed key); it confirms, and the
   next request fails with the SDK's `Missing credentials` error.
+
+- MCP tools were the only ones with no deadline: `client.callTool` took
+  `ctx.signal` but never `toolTimeout`, so a hung server held the tool open
+  forever. It now takes a combined signal, so an MCP call is bounded like every
+  other tool.
+- `web_search` read the whole Brave response into memory with no size cap — a
+  hostile or broken endpoint could return arbitrarily large JSON. It now goes
+  through `readBounded` (1 MiB) and parses the bounded text, failing with an
+  actionable message instead of exhausting memory.
+- `maxToolOutputBytes` accepted values below `NOTE_RESERVE` (128), the reserve
+  `read_file`/`edit_file` hold back for a paging footer. A smaller cap left less
+  room than the footer needs, so the footer `runTool` then appended was itself
+  truncated. The schema now floors the key at 128.
+- Startup failures lost most of their own error message. `process.exit(1)` exits
+  immediately, and on a pipe the runtime discards buffered async stderr: a
+  500,000-byte error delivered 131,072 bytes before the process died. Both
+  failure paths now set `process.exitCode` and return, so Node flushes stdout and
+  stderr before exiting. Measured: all 500,000 bytes delivered.
+- `ask_user` misbehaved when it could not actually work. Its non-interactive
+  refusal called `cancel()`, which only prints — so it returned `ok: true` and
+  the agent treated a question as answered. It now throws, which `runTool`
+  reports as `ok: false`. Separately, the prompt itself is now cancellable:
+  `ctx.signal` is forwarded to the clack prompts, so a `Ctrl-C` or an aborted
+  turn releases the raw mode and detaches the keypress listener instead of
+  leaving the terminal unusable.
 
 ## [0.18.0] - 2026-09-15
 

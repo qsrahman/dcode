@@ -1,6 +1,6 @@
 # Developer Onboarding
 
-This guide gets an experienced TypeScript/Node developer productive in `dcode`. Claims were checked against the source, `package.json`, the config files, and the tests at version `0.18.0` (plus the unreleased work in `CHANGELOG.md`). Anything inferred rather than verified is marked **Inference** or listed in [§21](#21-known-unknowns).
+This guide gets an experienced TypeScript/Node developer productive in `dcode`. Claims were checked against the source, `package.json`, the config files, and the tests at version `0.19.0`. Anything inferred rather than verified is marked **Inference** or listed in [§21](#21-known-unknowns).
 
 `src/agent/loop.ts::runAgent()` means "the function `runAgent` in that file". Line numbers are omitted because they drift.
 
@@ -44,7 +44,7 @@ This guide gets an experienced TypeScript/Node developer productive in `dcode`. 
 - **No permission layer, on purpose.** Every tool call, including `run_shell`, file writes, and MCP tools, runs the moment the model requests it. There is no approval prompt, allow-list, or sandbox. The `README.md` opens with a warning about this, and `AGENTS.md` has a "Security model" section. A permissions system (phase "P5") was designed and then removed. (`P<n>` ids are phases in `PLAN.md` §8, and decision letters `A`–`L` are in its §6. See the [glossary](#20-glossary).) Treat dcode as "the model has my shell".
 - **State is in-memory.** The conversation, task list, and background processes live for one run. The only files dcode writes are the global config (`~/.config/dcode/dcode.json`, via `/key`) and what the user asks it to write (`/save`, tool edits).
 
-Version at time of writing: `0.18.0` (`package.json`), with substantial unreleased work in `CHANGELOG.md`.
+Version at time of writing: `0.19.0` (`package.json`).
 
 **Why it exists** (`PLAN.md` §1–§3): a small, modular, locally run agent, favouring correctness and simplicity over breadth, with no build step and every behaviour covered by fast deterministic unit tests. Non-goals: permissions/sandboxing, persistence across runs, any UI beyond the terminal, and providers other than OpenAI-compatible ones.
 
