@@ -60,6 +60,9 @@ function mockFetch(body: unknown, ok = true, status = 200): void {
           ok,
           status,
           json: async () => body,
+          // web_search reads through readBounded, which falls back to text()
+          // when a response has no stream — so the fake needs one.
+          text: async () => JSON.stringify(body),
         }) as unknown as Response,
     ),
   )
@@ -115,6 +118,7 @@ describe('web_search', () => {
           ok: true,
           status: 200,
           json: async () => ({ web: { results: [] } }),
+          text: async () => JSON.stringify({ web: { results: [] } }),
         }) as unknown as Response,
     )
     vi.stubGlobal('fetch', fetchSpy)
@@ -155,6 +159,25 @@ describe('web_search', () => {
 
   // Thrown tool errors must reach the model as ok:false outcomes (decision D),
   // not as successful output that merely looks like an error.
+  // A real Response, so this exercises readBounded's streaming reader rather
+  // than the no-body fallback the hand-rolled fakes above take.
+  it('rejects an oversized response instead of parsing a truncated one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('x'.repeat(2 * 1024 * 1024), {
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    )
+    // A partial parse would silently drop results, so this must fail loudly
+    // rather than report a short result set as if it were the whole answer.
+    await expect(tool.execute({ query: 'q' }, ctx)).rejects.toThrow(
+      /exceeded 1048576 bytes/,
+    )
+  })
+
   it('yields ok:false via runTool on API error', async () => {
     mockFetch({}, false, 401)
     const outcome = await runTool(

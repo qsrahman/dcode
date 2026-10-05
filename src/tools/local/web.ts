@@ -25,6 +25,13 @@ interface BraveResult {
 // readBounded. Large enough for real pages/docs, small enough that a
 // multi-gigabyte response can't be pulled fully into the process.
 const WEB_FETCH_MAX_BYTES = 5 * 1024 * 1024
+// Same idea for the search API's JSON: readBounded rather than res.json(), so
+// a pathological response is cut off during download instead of buffered whole.
+// Far smaller than a page's — count defaults to 5 — because this one is a
+// structured payload that is only useful in full or not at all: a partial parse
+// would silently drop results. Hence the hard error instead of a truncation
+// note, which would read as "these are all the results".
+const WEB_SEARCH_MAX_BYTES = 1024 * 1024
 // Room kept under the output cap for the paging footer: runTool cuts anything
 // past the cap from the end, which would be the footer.
 const NOTE_RESERVE = 128
@@ -94,7 +101,15 @@ export const webSearchTool = () =>
       if (!res.ok) {
         throw new Error(`Brave API returned ${res.status}`)
       }
-      const data = (await res.json()) as { web?: { results?: BraveResult[] } }
+      // res.json() would buffer the whole body first, so the cap has to be
+      // applied while reading rather than after.
+      const { text, truncated } = await readBounded(res, WEB_SEARCH_MAX_BYTES)
+      if (truncated) {
+        throw new Error(
+          `web search response exceeded ${WEB_SEARCH_MAX_BYTES} bytes; try a more specific query`,
+        )
+      }
+      const data = JSON.parse(text) as { web?: { results?: BraveResult[] } }
       const results = data.web?.results ?? []
       if (results.length === 0) return '(no results)'
       return results
